@@ -571,26 +571,35 @@ export const dbService = {
       groups = Array.from(mockDb.accountGroups.values()).filter((g) => g.user_id === userId);
     } else {
       const supabase = createAdminClient();
-      const { data, error } = await supabase
-        .from('account_groups')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: true });
-      if (error) throw new Error(error.message);
-      groups = data || [];
+      try {
+        const { data, error } = await supabase
+          .from('account_groups')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true });
+        if (!error && data) {
+          groups = data;
+        }
+      } catch {
+        groups = [];
+      }
     }
 
     // Populate accounts count and daily capacity for each group
-    const accounts = await this.getEmailAccounts(userId);
-    return groups.map((g) => {
-      const groupAccounts = accounts.filter((a) => a.group_id === g.id);
-      const dailyCapacity = groupAccounts.reduce((sum, a) => sum + (a.status === 'active' ? (a.daily_limit || 18) : 0), 0);
-      return {
-        ...g,
-        accounts_count: groupAccounts.length,
-        daily_capacity: dailyCapacity,
-      };
-    });
+    try {
+      const accounts = await this.getEmailAccounts(userId);
+      return groups.map((g) => {
+        const groupAccounts = accounts.filter((a) => a.group_id === g.id);
+        const dailyCapacity = groupAccounts.reduce((sum, a) => sum + (a.status === 'active' ? (a.daily_limit || 18) : 0), 0);
+        return {
+          ...g,
+          accounts_count: groupAccounts.length,
+          daily_capacity: dailyCapacity,
+        };
+      });
+    } catch {
+      return groups;
+    }
   },
 
   async getAccountGroup(id: string): Promise<AccountGroup | null> {
@@ -598,10 +607,14 @@ export const dbService = {
     if (!isLiveSupabase()) {
       return mockDb.accountGroups.get(id) || null;
     }
-    const supabase = createAdminClient();
-    const { data, error } = await supabase.from('account_groups').select('*').eq('id', id).maybeSingle();
-    if (error || !data) return null;
-    return data;
+    try {
+      const supabase = createAdminClient();
+      const { data, error } = await supabase.from('account_groups').select('*').eq('id', id).maybeSingle();
+      if (error || !data) return null;
+      return data;
+    } catch {
+      return null;
+    }
   },
 
   async createAccountGroup(userId: string, group: { name: string; description?: string }): Promise<AccountGroup> {
@@ -660,8 +673,16 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
-    await supabase.from('email_accounts').update({ group_id: null }).eq('group_id', id);
-    await supabase.from('account_groups').delete().eq('id', id);
+    try {
+      await supabase.from('email_accounts').update({ group_id: null }).eq('group_id', id);
+    } catch {
+      // Ignore if group_id column doesn't exist
+    }
+    try {
+      await supabase.from('account_groups').delete().eq('id', id);
+    } catch {
+      // Ignore if account_groups doesn't exist
+    }
   },
 
   // Email Accounts
@@ -680,13 +701,39 @@ export const dbService = {
       });
     } else {
       const supabase = createAdminClient();
-      let query = supabase.from('email_accounts').select('*, group:account_groups(*)').eq('user_id', userId);
-      if (filters?.groupId) query = query.eq('group_id', filters.groupId);
-      if (filters?.status) query = query.eq('status', filters.status);
-      const { data, error } = await query.order('created_at', { ascending: true });
-      if (error) throw new Error(error.message);
-      accounts = data || [];
+      try {
+        // Query plain email_accounts without PostgREST joins to prevent schema cache relationship errors
+        const { data, error } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          // Fallback if order fails
+          const fallback = await supabase.from('email_accounts').select('*').eq('user_id', userId);
+          if (fallback.error) {
+            console.error('Failed to fetch email accounts from Supabase:', fallback.error);
+            accounts = [];
+          } else {
+            accounts = fallback.data || [];
+          }
+        } else {
+          accounts = data || [];
+        }
+      } catch (err) {
+        console.error('Exception fetching email accounts from Supabase:', err);
+        accounts = [];
+      }
     }
+
+    // Default missing properties for backwards compatibility
+    accounts = accounts.map((acc) => ({
+      ...acc,
+      daily_limit: acc.daily_limit ?? 18,
+      min_interval_minutes: acc.min_interval_minutes ?? 15,
+      status: acc.status || 'active',
+    }));
 
     if (filters?.groupId) {
       accounts = accounts.filter((a) => a.group_id === filters.groupId);
@@ -695,21 +742,46 @@ export const dbService = {
       accounts = accounts.filter((a) => a.status === filters.status);
     }
 
-    // Attach group in mock mode if missing
-    if (!isLiveSupabase()) {
-      accounts = accounts.map((acc) => {
-        const group = acc.group_id ? mockDb.accountGroups.get(acc.group_id) || null : null;
-        return { ...acc, group };
-      });
+    // Attach group in memory
+    const groupIds = Array.from(new Set(accounts.map((acc) => acc.group_id).filter(Boolean))) as string[];
+    if (groupIds.length > 0) {
+      try {
+        if (!isLiveSupabase()) {
+          accounts = accounts.map((acc) => {
+            const group = acc.group_id ? mockDb.accountGroups.get(acc.group_id) || null : null;
+            return { ...acc, group };
+          });
+        } else {
+          const supabase = createAdminClient();
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('account_groups')
+            .select('*')
+            .in('id', groupIds);
+          if (!groupsError && groupsData) {
+            const groupMap = new Map(groupsData.map((g) => [g.id, g]));
+            accounts = accounts.map((acc) => ({
+              ...acc,
+              group: acc.group_id ? groupMap.get(acc.group_id) || null : null,
+            }));
+          }
+        }
+      } catch {
+        // Table account_groups might not exist yet; safe fallback
+      }
     }
 
     // Calculate sent_today and remaining_today
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const allMessages = await this.getMessages({ limit: 10000 });
-    const todaySentMessages = allMessages.filter(
-      (m) => m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
-    );
+    let todaySentMessages: Array<{ email_account_id?: string | null }> = [];
+    try {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const allMessages = await this.getMessages({ limit: 10000 });
+      todaySentMessages = allMessages.filter(
+        (m) => m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
+      );
+    } catch {
+      todaySentMessages = [];
+    }
 
     return accounts.map((acc) => {
       const sentCount = todaySentMessages.filter((m) => m.email_account_id === acc.id).length;
@@ -732,19 +804,43 @@ export const dbService = {
       }
     } else {
       const supabase = createAdminClient();
-      const { data } = await supabase.from('email_accounts').select('*, group:account_groups(*)').eq('id', id).maybeSingle();
-      acc = data || null;
+      try {
+        const { data } = await supabase.from('email_accounts').select('*').eq('id', id).maybeSingle();
+        acc = data || null;
+      } catch {
+        acc = null;
+      }
     }
     if (!acc) return null;
 
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const allMessages = await this.getMessages({ limit: 10000 });
-    const sentCount = allMessages.filter(
-      (m) => m.email_account_id === acc!.id && m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
-    ).length;
-    const limit = acc.daily_limit || 18;
+    acc = {
+      ...acc,
+      daily_limit: acc.daily_limit ?? 18,
+      min_interval_minutes: acc.min_interval_minutes ?? 15,
+      status: acc.status || 'active',
+    };
 
+    if (acc.group_id) {
+      try {
+        acc.group = await this.getAccountGroup(acc.group_id);
+      } catch {
+        acc.group = null;
+      }
+    }
+
+    let sentCount = 0;
+    try {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const allMessages = await this.getMessages({ limit: 10000 });
+      sentCount = allMessages.filter(
+        (m) => m.email_account_id === acc!.id && m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
+      ).length;
+    } catch {
+      sentCount = 0;
+    }
+
+    const limit = acc.daily_limit || 18;
     return {
       ...acc,
       sent_today: sentCount,
@@ -806,24 +902,78 @@ export const dbService = {
       updated_at: new Date().toISOString(),
     };
 
+    // 1. Multi-account schema upsert (user_id, email_address)
     try {
       const { data, error } = await supabase
         .from('email_accounts')
         .upsert(payload, { onConflict: 'user_id,email_address' })
-        .select('*, group:account_groups(*)')
+        .select('*')
         .single();
-      if (!error && data) return data;
+      if (!error && data) {
+        if (data.group_id) {
+          try {
+            data.group = await this.getAccountGroup(data.group_id);
+          } catch {
+            data.group = null;
+          }
+        }
+        return data;
+      }
     } catch {
-      // Fallback if schema only has user_id,provider
+      // Fallback
     }
 
-    const fallback = await supabase
+    // 2. Direct upsert
+    try {
+      const { data, error } = await supabase
+        .from('email_accounts')
+        .upsert(payload)
+        .select('*')
+        .single();
+      if (!error && data) {
+        if (data.group_id) {
+          try {
+            data.group = await this.getAccountGroup(data.group_id);
+          } catch {
+            data.group = null;
+          }
+        }
+        return data;
+      }
+    } catch {
+      // Fallback to legacy schema
+    }
+
+    // 3. Fallback for unmigrated schema (where only original columns exist: user_id, provider unique)
+    const legacyPayload = {
+      user_id: account.user_id,
+      provider: account.provider || 'gmail',
+      email_address: account.email_address,
+      encrypted_access_token: account.encrypted_access_token || '',
+      encrypted_refresh_token: account.encrypted_refresh_token || '',
+      token_expires_at: account.token_expires_at || null,
+      granted_scopes: account.granted_scopes || [],
+      last_sync_at: account.last_sync_at || null,
+      connected_at: account.connected_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const legacyRes = await supabase
       .from('email_accounts')
-      .upsert(payload)
-      .select('*, group:account_groups(*)')
+      .upsert(legacyPayload, { onConflict: 'user_id,provider' })
+      .select('*')
       .single();
-    if (fallback.error) throw new Error(fallback.error.message);
-    return fallback.data;
+
+    if (legacyRes.error) {
+      throw new Error(legacyRes.error.message);
+    }
+
+    return {
+      daily_limit: 18,
+      min_interval_minutes: 15,
+      status: 'active',
+      ...legacyRes.data,
+    };
   },
 
   async updateEmailAccount(id: string, updates: Partial<EmailAccount>): Promise<EmailAccount> {
@@ -845,9 +995,16 @@ export const dbService = {
       .from('email_accounts')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select('*, group:account_groups(*)')
+      .select('*')
       .single();
     if (error) throw new Error(error.message);
+    if (data && data.group_id) {
+      try {
+        data.group = await this.getAccountGroup(data.group_id);
+      } catch {
+        data.group = null;
+      }
+    }
     return data;
   },
 
@@ -887,7 +1044,11 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
-    await supabase.from('email_accounts').update({ last_sent_at: now, updated_at: now }).eq('id', accountId);
+    try {
+      await supabase.from('email_accounts').update({ last_sent_at: now, updated_at: now }).eq('id', accountId);
+    } catch {
+      // Ignore if last_sent_at column doesn't exist yet
+    }
   },
 
   async getAccountDailyStats(userId: string): Promise<AccountDailyStats> {

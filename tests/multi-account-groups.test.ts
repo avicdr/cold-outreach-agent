@@ -5,6 +5,7 @@ import { GET as accountsGet, POST as accountsPost } from '@/app/api/accounts/rou
 import { PATCH as accountPatch, DELETE as accountDelete } from '@/app/api/accounts/[id]/route';
 import { GET as groupsGet, POST as groupsPost } from '@/app/api/groups/route';
 import { GET as analyticsGet } from '@/app/api/analytics/route';
+import { GET as googleStatusGet } from '@/app/api/integrations/google/status/route';
 import { handleSendEmailJob } from '@/lib/queue/worker';
 
 describe('Multi-Account Outreach, Grouping, and Per-Inbox Rate Limiting', () => {
@@ -314,5 +315,36 @@ describe('Multi-Account Outreach, Grouping, and Per-Inbox Rate Limiting', () => 
 
     const accountsAfter = await dbService.getEmailAccounts(userId);
     expect(accountsAfter.find((a) => a.id === accountId)).toBeUndefined();
+  });
+
+  it('supports Google integration status endpoint when connecting mail account', async () => {
+    // 1. Initial status before connection
+    const statusBefore = await googleStatusGet();
+    expect(statusBefore.status).toBe(200);
+    const bodyBefore = await statusBefore.json();
+    expect(bodyBefore.connected).toBe(false);
+
+    // 2. Connect a Gmail account
+    await dbService.upsertEmailAccount({
+      user_id: userId,
+      provider: 'gmail',
+      email_address: 'founder@mycompany.com',
+      sender_name: 'Founder',
+      daily_limit: 18,
+      min_interval_minutes: 15,
+      status: 'active',
+      encrypted_access_token: 'valid-access-token',
+      encrypted_refresh_token: 'valid-refresh-token',
+      token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+      granted_scopes: ['https://www.googleapis.com/auth/gmail.send'],
+    });
+
+    // 3. Status check after connection
+    const statusAfter = await googleStatusGet();
+    expect(statusAfter.status).toBe(200);
+    const bodyAfter = await statusAfter.json();
+    expect(bodyAfter.connected).toBe(true);
+    expect(bodyAfter.email).toBe('founder@mycompany.com');
+    expect(bodyAfter.token_expired).toBe(false);
   });
 });
