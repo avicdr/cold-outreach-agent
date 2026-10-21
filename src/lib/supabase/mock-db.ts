@@ -9,12 +9,14 @@ import {
   ReplyEvent,
   ActivityLog,
   EmailAccount,
+  AccountGroup,
   JobType,
 } from '@/types/database';
 
 export class MockDatabase {
   profiles: Map<string, Profile> = new Map();
   emailAccounts: Map<string, EmailAccount> = new Map();
+  accountGroups: Map<string, AccountGroup> = new Map();
   leads: Map<string, Lead> = new Map();
   campaigns: Map<string, Campaign> = new Map();
   campaignLeads: Map<string, CampaignLead> = new Map();

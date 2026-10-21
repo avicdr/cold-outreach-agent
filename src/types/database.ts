@@ -29,11 +29,31 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface AccountGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  // Computed / joined fields
+  accounts_count?: number;
+  daily_capacity?: number;
+}
+
+export type EmailAccountStatus = 'active' | 'paused' | 'error';
+
 export interface EmailAccount {
   id: string;
   user_id: string;
-  provider: 'gmail';
+  provider: 'gmail' | 'smtp' | string;
   email_address: string;
+  sender_name?: string;
+  group_id?: string | null;
+  daily_limit: number; // default 18 (typically 15-18)
+  min_interval_minutes: number; // default 15 mins
+  status: EmailAccountStatus;
+  last_sent_at?: string | null;
   encrypted_access_token: string;
   encrypted_refresh_token: string;
   token_expires_at: string | null;
@@ -42,6 +62,22 @@ export interface EmailAccount {
   connected_at: string;
   created_at: string;
   updated_at: string;
+  // Computed / joined fields
+  group?: AccountGroup | null;
+  sent_today?: number;
+  remaining_today?: number;
+}
+
+export interface AccountDailyStats {
+  totalAccounts: number;
+  activeAccounts: number;
+  dailyCapacity: number;
+  sentToday: number;
+  remainingToday: number;
+  accounts: (EmailAccount & {
+    sent_today: number;
+    remaining_today: number;
+  })[];
 }
 
 export interface Lead {
@@ -93,11 +129,14 @@ export interface Campaign {
   tone: string;
   call_to_action: string;
   initial_email_instructions: string;
+  account_group_id?: string | null;
   sending_config: SendingConfig;
   followup_config: FollowupConfig;
   created_at: string;
   updated_at: string;
   activated_at: string | null;
+  // Joined relation
+  account_group?: AccountGroup | null;
 }
 
 export interface CampaignLead {
@@ -127,6 +166,7 @@ export interface EmailMessage {
   personalization_basis: string[];
   unsupported_claims: string[];
   status: EmailMessageStatus;
+  email_account_id?: string | null;
   gmail_message_id: string | null;
   gmail_thread_id: string | null;
   scheduled_at: string | null;
@@ -138,6 +178,7 @@ export interface EmailMessage {
   // Optional populated relations
   lead?: Lead;
   campaign_id?: string;
+  email_account?: EmailAccount | null;
 }
 
 export interface JobQueueItem {

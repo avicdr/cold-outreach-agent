@@ -12,6 +12,7 @@ const campaignSchema = z.object({
   tone: z.string().optional().default('Professional and concise'),
   call_to_action: z.string().optional().default('15-minute quick discovery call'),
   initial_email_instructions: z.string().optional().default(''),
+  account_group_id: z.string().uuid().nullable().optional(),
   sending_config: z
     .object({
       days: z.array(z.number()).default([1, 2, 3, 4, 5]),
@@ -64,7 +65,15 @@ export async function GET() {
 
   try {
     const campaigns = await dbService.getCampaigns(user.id);
-    return NextResponse.json(campaigns);
+    const groups = await dbService.getAccountGroups(user.id);
+    const groupMap = new Map(groups.map((g) => [g.id, g]));
+
+    const enrichedCampaigns = campaigns.map((c) => ({
+      ...c,
+      account_group: c.account_group_id ? groupMap.get(c.account_group_id) || null : null,
+    }));
+
+    return NextResponse.json(enrichedCampaigns);
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

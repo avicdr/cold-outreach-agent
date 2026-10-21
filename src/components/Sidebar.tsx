@@ -11,10 +11,12 @@ import {
   Settings,
   Sparkles,
   Zap,
+  Inbox,
 } from 'lucide-react';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Inboxes & Groups', href: '/accounts', icon: Inbox },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Campaigns', href: '/campaigns', icon: Send },
   { name: 'Messages', href: '/messages', icon: Mail },

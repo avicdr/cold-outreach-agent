@@ -42,6 +42,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showActivateConfirm, setShowActivateConfirm] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
 
   const isWindowActive = (() => {
     if (!campaign?.sending_config) return false;
@@ -155,6 +156,27 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
     }
   };
 
+  const handleProcessQueueNow = async () => {
+    setDispatching(true);
+    setMessageNotice(null);
+    try {
+      const res = await fetch('/api/jobs/process', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const completed = (data.results || []).filter((r: any) => r.status === 'completed').length;
+        const failed = (data.results || []).filter((r: any) => r.status === 'failed').length;
+        setMessageNotice(`Queue dispatch complete: ${data.processed || 0} jobs processed (${completed} completed, ${failed} failed).`);
+        fetchCampaignData();
+      } else {
+        setMessageNotice(`Queue dispatch failed: ${data.error}`);
+      }
+    } catch {
+      setMessageNotice('Error triggering queue processor.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
   const handleEnrollSelectedLeads = async () => {
     if (selectedLeadIds.length === 0) return;
     setActionLoading(true);
@@ -231,6 +253,18 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               </button>
             )}
 
+            {campaign.status === 'active' && (
+              <button
+                onClick={handleProcessQueueNow}
+                disabled={actionLoading || dispatching}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
+                title="Process next batch of queued email sends immediately"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{dispatching ? 'Dispatching...' : 'Dispatch Queue Now'}</span>
+              </button>
+            )}
+
             <button
               onClick={handleGenerateDrafts}
               disabled={actionLoading || leads.length === 0}
@@ -277,8 +311,18 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               </h3>
               <div className="text-xs space-y-1.5 text-slate-400">
                 <div className="flex justify-between">
+                  <span>Outreach Group:</span>
+                  <span className="text-indigo-300 font-medium truncate max-w-[150px]">
+                    {campaign.account_group ? campaign.account_group.name : 'All Active Inboxes'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
                   <span>Daily Cap:</span>
-                  <span className="text-slate-200 font-medium">{campaign.sending_config?.daily_limit || 10} emails / day</span>
+                  <span className="text-slate-200 font-medium">{campaign.sending_config?.daily_limit || 18} emails / day</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Inbox Guard:</span>
+                  <span className="text-emerald-400 font-medium">≤18 / day • ~15m cooldown</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Sending Window:</span>

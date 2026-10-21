@@ -16,12 +16,18 @@ import {
   XCircle,
   Plus,
   Trash2,
+  Inbox,
+  ShieldCheck,
+  ExternalLink,
 } from 'lucide-react';
+import { useEffect } from 'react';
 
 export default function NewCampaignPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [accountStats, setAccountStats] = useState<any>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -31,12 +37,13 @@ export default function NewCampaignPage() {
     tone: 'Concise, direct, highly professional',
     call_to_action: '15-minute quick discovery call',
     initial_email_instructions: 'Keep under 100 words. Focus on specific value without fluff.',
+    account_group_id: '',
     sending_config: {
       days: [1, 2, 3, 4, 5], // Mon-Fri
       start_hour: 9,
       end_hour: 17,
       timezone: 'Asia/Kolkata',
-      daily_limit: 15,
+      daily_limit: 18,
       hourly_limit: 4,
     },
     followup_config: {
@@ -47,6 +54,26 @@ export default function NewCampaignPage() {
       ],
     },
   });
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/groups').then((r) => r.json()),
+      fetch('/api/accounts').then((r) => r.json()),
+    ])
+      .then(([groupsData, accountsData]) => {
+        if (Array.isArray(groupsData)) setGroups(groupsData);
+        if (accountsData?.stats) {
+          setAccountStats(accountsData.stats);
+          if (accountsData.stats.dailyCapacity > 0) {
+            setForm((prev) => ({
+              ...prev,
+              sending_config: { ...prev.sending_config, daily_limit: accountsData.stats.dailyCapacity },
+            }));
+          }
+        }
+      })
+      .catch((err) => console.error(err));
+  }, []);
 
   const toggleDay = (dayNum: number) => {
     const currentDays = form.sending_config.days;
@@ -103,7 +130,10 @@ export default function NewCampaignPage() {
       const res = await fetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          account_group_id: form.account_group_id || null,
+        }),
       });
 
       const data = await res.json();
@@ -226,6 +256,57 @@ export default function NewCampaignPage() {
               </h3>
 
               <div className="space-y-4 text-xs">
+                {/* Account Group Selection */}
+                <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-200 font-semibold flex items-center gap-1.5">
+                      <Inbox className="w-4 h-4 text-indigo-400" />
+                      <span>Sending Account Group</span>
+                    </label>
+                    <Link
+                      href="/accounts"
+                      target="_blank"
+                      className="text-indigo-400 hover:text-indigo-300 text-[11px] font-medium flex items-center gap-1"
+                    >
+                      <span>Manage Groups & Inboxes</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </Link>
+                  </div>
+
+                  <select
+                    value={form.account_group_id}
+                    onChange={(e) => {
+                      const selectedGId = e.target.value;
+                      const grp = groups.find((g) => g.id === selectedGId);
+                      setForm({
+                        ...form,
+                        account_group_id: selectedGId,
+                        sending_config: {
+                          ...form.sending_config,
+                          daily_limit: grp?.daily_capacity || accountStats?.dailyCapacity || 18,
+                        },
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">
+                      All Active Inboxes ({accountStats?.activeAccounts || 0} inboxes • {accountStats?.dailyCapacity || 18} sends/day max)
+                    </option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({g.accounts_count || 0} inboxes • {g.daily_capacity || 0} sends/day max)
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>
+                      Emails rotate across all inboxes in this group. Strictly 15–18 emails/day per inbox with ~15-min safety spacing.
+                    </span>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-slate-300 font-medium mb-2">Sending Days</label>
                   <div className="flex flex-wrap gap-2">

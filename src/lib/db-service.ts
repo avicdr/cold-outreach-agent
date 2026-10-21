@@ -13,6 +13,8 @@ import {
   ReplyEvent,
   ActivityLog,
   EmailAccount,
+  AccountGroup,
+  AccountDailyStats,
   JobType,
 } from '@/types/database';
 
@@ -518,6 +520,7 @@ export const dbService = {
         personalization_basis: message.personalization_basis || [],
         unsupported_claims: message.unsupported_claims || [],
         status: message.status || 'draft',
+        email_account_id: message.email_account_id || null,
         gmail_message_id: message.gmail_message_id || null,
         gmail_thread_id: message.gmail_thread_id || null,
         scheduled_at: message.scheduled_at || null,
@@ -560,52 +563,437 @@ export const dbService = {
     };
   },
 
+  // Account Groups
+  async getAccountGroups(userId: string): Promise<AccountGroup[]> {
+    if (!userId) return [];
+    let groups: AccountGroup[] = [];
+    if (!isLiveSupabase()) {
+      groups = Array.from(mockDb.accountGroups.values()).filter((g) => g.user_id === userId);
+    } else {
+      const supabase = createAdminClient();
+      const { data, error } = await supabase
+        .from('account_groups')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+      if (error) throw new Error(error.message);
+      groups = data || [];
+    }
+
+    // Populate accounts count and daily capacity for each group
+    const accounts = await this.getEmailAccounts(userId);
+    return groups.map((g) => {
+      const groupAccounts = accounts.filter((a) => a.group_id === g.id);
+      const dailyCapacity = groupAccounts.reduce((sum, a) => sum + (a.status === 'active' ? (a.daily_limit || 18) : 0), 0);
+      return {
+        ...g,
+        accounts_count: groupAccounts.length,
+        daily_capacity: dailyCapacity,
+      };
+    });
+  },
+
+  async getAccountGroup(id: string): Promise<AccountGroup | null> {
+    if (!id) return null;
+    if (!isLiveSupabase()) {
+      return mockDb.accountGroups.get(id) || null;
+    }
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.from('account_groups').select('*').eq('id', id).maybeSingle();
+    if (error || !data) return null;
+    return data;
+  },
+
+  async createAccountGroup(userId: string, group: { name: string; description?: string }): Promise<AccountGroup> {
+    const id = crypto.randomUUID();
+    const newGroup: AccountGroup = {
+      id,
+      user_id: userId,
+      name: group.name,
+      description: group.description || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      accounts_count: 0,
+      daily_capacity: 0,
+    };
+
+    if (!isLiveSupabase()) {
+      mockDb.accountGroups.set(id, newGroup);
+      return newGroup;
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.from('account_groups').insert(newGroup).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async updateAccountGroup(id: string, updates: Partial<AccountGroup>): Promise<AccountGroup> {
+    if (!isLiveSupabase()) {
+      const existing = mockDb.accountGroups.get(id);
+      if (!existing) throw new Error('Account group not found');
+      const updated = { ...existing, ...updates, updated_at: new Date().toISOString() };
+      mockDb.accountGroups.set(id, updated);
+      return updated;
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('account_groups')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async deleteAccountGroup(id: string): Promise<void> {
+    if (!isLiveSupabase()) {
+      mockDb.accountGroups.delete(id);
+      for (const acc of mockDb.emailAccounts.values()) {
+        if (acc.group_id === id) {
+          acc.group_id = null;
+        }
+      }
+      return;
+    }
+
+    const supabase = createAdminClient();
+    await supabase.from('email_accounts').update({ group_id: null }).eq('group_id', id);
+    await supabase.from('account_groups').delete().eq('id', id);
+  },
+
   // Email Accounts
+  async getEmailAccounts(userId: string, filters?: { groupId?: string; status?: string }): Promise<EmailAccount[]> {
+    if (!userId) return [];
+    let accounts: EmailAccount[] = [];
+
+    if (!isLiveSupabase()) {
+      accounts = Array.from(mockDb.emailAccounts.values()).filter((a) => a.user_id === userId);
+      // Deduplicate in mock mode if both id and composite keys were stored
+      const seen = new Set<string>();
+      accounts = accounts.filter((a) => {
+        if (seen.has(a.id)) return false;
+        seen.add(a.id);
+        return true;
+      });
+    } else {
+      const supabase = createAdminClient();
+      let query = supabase.from('email_accounts').select('*, group:account_groups(*)').eq('user_id', userId);
+      if (filters?.groupId) query = query.eq('group_id', filters.groupId);
+      if (filters?.status) query = query.eq('status', filters.status);
+      const { data, error } = await query.order('created_at', { ascending: true });
+      if (error) throw new Error(error.message);
+      accounts = data || [];
+    }
+
+    if (filters?.groupId) {
+      accounts = accounts.filter((a) => a.group_id === filters.groupId);
+    }
+    if (filters?.status) {
+      accounts = accounts.filter((a) => a.status === filters.status);
+    }
+
+    // Attach group in mock mode if missing
+    if (!isLiveSupabase()) {
+      accounts = accounts.map((acc) => {
+        const group = acc.group_id ? mockDb.accountGroups.get(acc.group_id) || null : null;
+        return { ...acc, group };
+      });
+    }
+
+    // Calculate sent_today and remaining_today
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const allMessages = await this.getMessages({ limit: 10000 });
+    const todaySentMessages = allMessages.filter(
+      (m) => m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
+    );
+
+    return accounts.map((acc) => {
+      const sentCount = todaySentMessages.filter((m) => m.email_account_id === acc.id).length;
+      const limit = acc.daily_limit || 18;
+      return {
+        ...acc,
+        sent_today: sentCount,
+        remaining_today: Math.max(0, limit - sentCount),
+      };
+    });
+  },
+
+  async getEmailAccount(id: string): Promise<EmailAccount | null> {
+    if (!id) return null;
+    let acc: EmailAccount | null = null;
+    if (!isLiveSupabase()) {
+      acc = mockDb.emailAccounts.get(id) || null;
+      if (!acc) {
+        acc = Array.from(mockDb.emailAccounts.values()).find((a) => a.id === id || a.email_address === id) || null;
+      }
+    } else {
+      const supabase = createAdminClient();
+      const { data } = await supabase.from('email_accounts').select('*, group:account_groups(*)').eq('id', id).maybeSingle();
+      acc = data || null;
+    }
+    if (!acc) return null;
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const allMessages = await this.getMessages({ limit: 10000 });
+    const sentCount = allMessages.filter(
+      (m) => m.email_account_id === acc!.id && m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
+    ).length;
+    const limit = acc.daily_limit || 18;
+
+    return {
+      ...acc,
+      sent_today: sentCount,
+      remaining_today: Math.max(0, limit - sentCount),
+    };
+  },
+
   async getConnectedEmailAccount(userId: string): Promise<EmailAccount | null> {
     if (!userId) return null;
+    const accounts = await this.getEmailAccounts(userId, { status: 'active' });
+    if (accounts.length > 0) return accounts[0];
+
+    const all = await this.getEmailAccounts(userId);
+    return all.length > 0 ? all[0] : null;
+  },
+
+  async upsertEmailAccount(account: Partial<EmailAccount> & { user_id: string; email_address: string; provider?: string }): Promise<EmailAccount> {
+    const defaultFields = {
+      provider: account.provider || 'gmail',
+      sender_name: account.sender_name || '',
+      group_id: account.group_id || null,
+      daily_limit: account.daily_limit ?? 18,
+      min_interval_minutes: account.min_interval_minutes ?? 15,
+      status: (account.status || 'active') as 'active' | 'paused' | 'error',
+      last_sent_at: account.last_sent_at || null,
+      encrypted_access_token: account.encrypted_access_token || '',
+      encrypted_refresh_token: account.encrypted_refresh_token || '',
+      token_expires_at: account.token_expires_at || null,
+      granted_scopes: account.granted_scopes || [],
+      last_sync_at: account.last_sync_at || null,
+      connected_at: account.connected_at || new Date().toISOString(),
+    };
+
     if (!isLiveSupabase()) {
-      return mockDb.emailAccounts.get(`${userId}:gmail`) || null;
+      let existing = account.id ? mockDb.emailAccounts.get(account.id) : undefined;
+      if (!existing) {
+        existing = Array.from(mockDb.emailAccounts.values()).find(
+          (a) => a.user_id === account.user_id && a.email_address.toLowerCase() === account.email_address.toLowerCase()
+        );
+      }
+
+      const id = existing?.id || account.id || crypto.randomUUID();
+      const acc: EmailAccount = {
+        ...defaultFields,
+        ...account,
+        id,
+        created_at: existing?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      mockDb.emailAccounts.set(id, acc);
+      return acc;
+    }
+
+    const supabase = createAdminClient();
+    const payload = {
+      ...defaultFields,
+      ...account,
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+      const { data, error } = await supabase
+        .from('email_accounts')
+        .upsert(payload, { onConflict: 'user_id,email_address' })
+        .select('*, group:account_groups(*)')
+        .single();
+      if (!error && data) return data;
+    } catch {
+      // Fallback if schema only has user_id,provider
+    }
+
+    const fallback = await supabase
+      .from('email_accounts')
+      .upsert(payload)
+      .select('*, group:account_groups(*)')
+      .single();
+    if (fallback.error) throw new Error(fallback.error.message);
+    return fallback.data;
+  },
+
+  async updateEmailAccount(id: string, updates: Partial<EmailAccount>): Promise<EmailAccount> {
+    if (!isLiveSupabase()) {
+      const existing = await this.getEmailAccount(id);
+      if (!existing) throw new Error('Email account not found');
+      const updated = {
+        ...existing,
+        ...updates,
+        updated_at: new Date().toISOString(),
+      };
+      mockDb.emailAccounts.set(existing.id, updated);
+      mockDb.emailAccounts.set(`${existing.user_id}:${existing.email_address.toLowerCase()}`, updated);
+      return updated;
     }
 
     const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('email_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('provider', 'gmail')
-      .maybeSingle();
-    if (error) return null;
-    return data || null;
-  },
-
-  async upsertEmailAccount(account: Omit<EmailAccount, 'id' | 'created_at' | 'updated_at'>): Promise<EmailAccount> {
-    if (!isLiveSupabase()) {
-      const key = `${account.user_id}:${account.provider}`;
-      const existing = mockDb.emailAccounts.get(key);
-      const acc: EmailAccount = {
-        id: existing?.id || crypto.randomUUID(),
-        ...account,
-        created_at: existing?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      mockDb.emailAccounts.set(key, acc);
-      return acc;
-    }
-
-    const supabase = createAdminClient();
-    const { data, error } = await supabase.from('email_accounts').upsert(account, { onConflict: 'user_id,provider' }).select().single();
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*, group:account_groups(*)')
+      .single();
     if (error) throw new Error(error.message);
     return data;
   },
 
-  async deleteEmailAccount(userId: string, provider = 'gmail'): Promise<void> {
+  async deleteEmailAccount(userId: string, identifier: string): Promise<void> {
     if (!isLiveSupabase()) {
-      mockDb.emailAccounts.delete(`${userId}:${provider}`);
+      for (const [key, acc] of Array.from(mockDb.emailAccounts.entries())) {
+        if (
+          acc.user_id === userId &&
+          (acc.id === identifier || acc.email_address === identifier || acc.provider === identifier || key.includes(identifier))
+        ) {
+          mockDb.emailAccounts.delete(key);
+        }
+      }
       return;
     }
 
     const supabase = createAdminClient();
-    await supabase.from('email_accounts').delete().eq('user_id', userId).eq('provider', provider);
+    if (identifier.includes('-') && identifier.length === 36) {
+      await supabase.from('email_accounts').delete().eq('user_id', userId).eq('id', identifier);
+    } else if (identifier.includes('@')) {
+      await supabase.from('email_accounts').delete().eq('user_id', userId).eq('email_address', identifier);
+    } else {
+      await supabase.from('email_accounts').delete().eq('user_id', userId).eq('provider', identifier);
+    }
+  },
+
+  async recordAccountSend(accountId: string): Promise<void> {
+    const now = new Date().toISOString();
+    if (!isLiveSupabase()) {
+      const acc = mockDb.emailAccounts.get(accountId);
+      if (acc) {
+        acc.last_sent_at = now;
+        acc.updated_at = now;
+        mockDb.emailAccounts.set(accountId, acc);
+      }
+      return;
+    }
+
+    const supabase = createAdminClient();
+    await supabase.from('email_accounts').update({ last_sent_at: now, updated_at: now }).eq('id', accountId);
+  },
+
+  async getAccountDailyStats(userId: string): Promise<AccountDailyStats> {
+    const accounts = await this.getEmailAccounts(userId);
+    const activeAccounts = accounts.filter((a) => a.status === 'active');
+    const dailyCapacity = activeAccounts.reduce((sum, a) => sum + (a.daily_limit || 18), 0);
+    const sentToday = activeAccounts.reduce((sum, a) => sum + (a.sent_today || 0), 0);
+    const remainingToday = Math.max(0, dailyCapacity - sentToday);
+
+    return {
+      totalAccounts: accounts.length,
+      activeAccounts: activeAccounts.length,
+      dailyCapacity,
+      sentToday,
+      remainingToday,
+      accounts: accounts as any,
+    };
+  },
+
+  async getAvailableEmailAccountForCampaign(campaign: Campaign): Promise<
+    | { status: 'available'; account: EmailAccount }
+    | { status: 'no_accounts'; error: string }
+    | { status: 'daily_limit_reached'; rescheduleAt: Date }
+    | { status: 'cooldown'; rescheduleAt: Date; accountEmail: string }
+  > {
+    const accounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+    if (accounts.length === 0) {
+      return {
+        status: 'no_accounts',
+        error: 'No active email accounts connected for user.',
+      };
+    }
+
+    // Filter by campaign's assigned group if specified
+    let candidateAccounts = accounts;
+    if (campaign.account_group_id) {
+      const inGroup = accounts.filter((a) => a.group_id === campaign.account_group_id);
+      if (inGroup.length > 0) {
+        candidateAccounts = inGroup;
+      } else {
+        candidateAccounts = accounts;
+      }
+    }
+
+    const now = Date.now();
+    const candidateStats = candidateAccounts.map((acc) => {
+      const limit = acc.daily_limit || 18;
+      const sentToday = acc.sent_today || 0;
+      const hasDailyCapacity = sentToday < limit;
+      const intervalMs = (acc.min_interval_minutes || 15) * 60 * 1000;
+      const lastSentTime = acc.last_sent_at ? new Date(acc.last_sent_at).getTime() : 0;
+      const timeSinceLastSend = now - lastSentTime;
+      const isInCooldown = lastSentTime > 0 && timeSinceLastSend < intervalMs;
+      const remainingCooldownMs = isInCooldown ? intervalMs - timeSinceLastSend : 0;
+
+      return {
+        account: acc,
+        sentToday,
+        limit,
+        hasDailyCapacity,
+        isInCooldown,
+        remainingCooldownMs,
+        lastSentTime,
+      };
+    });
+
+    // 1. Check if all candidates have reached their daily limit
+    const withCapacity = candidateStats.filter((c) => c.hasDailyCapacity);
+    if (withCapacity.length === 0) {
+      // Re-schedule for next morning at sending start hour
+      const tomorrow = new Date();
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      tomorrow.setUTCHours(campaign.sending_config?.start_hour ?? 9, 0, 0, 0);
+      return {
+        status: 'daily_limit_reached',
+        rescheduleAt: tomorrow,
+      };
+    }
+
+    // 2. Check cooldown among candidates that have capacity
+    const readyAccounts = withCapacity.filter((c) => !c.isInCooldown);
+    if (readyAccounts.length === 0) {
+      // Find the account that exits cooldown earliest
+      const shortestCooldown = withCapacity.reduce((min, c) =>
+        c.remainingCooldownMs < min.remainingCooldownMs ? c : min
+      );
+      const readyAt = new Date(now + shortestCooldown.remainingCooldownMs + 2000);
+      return {
+        status: 'cooldown',
+        rescheduleAt: readyAt,
+        accountEmail: shortestCooldown.account.email_address,
+      };
+    }
+
+    // 3. Round-robin & load balance: sort by lowest sentToday, then oldest lastSentTime
+    readyAccounts.sort((a, b) => {
+      if (a.sentToday !== b.sentToday) {
+        return a.sentToday - b.sentToday;
+      }
+      return a.lastSentTime - b.lastSentTime;
+    });
+
+    return {
+      status: 'available',
+      account: readyAccounts[0].account,
+    };
   },
 
   // Replies
@@ -763,6 +1151,9 @@ export const dbService = {
       failedJobs = count || 0;
     }
 
+    const accountStats = await this.getAccountDailyStats(userId);
+    const accountGroups = await this.getAccountGroups(userId);
+
     return {
       totalLeads,
       eligibleLeads,
@@ -775,6 +1166,13 @@ export const dbService = {
       campaignsCount: campaigns.length,
       activeCampaignsCount: campaigns.filter((c) => c.status === 'active').length,
       suppressionCount: suppressions.size,
+      totalAccounts: accountStats.totalAccounts,
+      activeAccounts: accountStats.activeAccounts,
+      dailyCapacity: accountStats.dailyCapacity,
+      sentToday: accountStats.sentToday,
+      remainingToday: accountStats.remainingToday,
+      accountGroupsCount: accountGroups.length,
+      accounts: accountStats.accounts,
     };
   },
 

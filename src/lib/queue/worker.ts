@@ -3,7 +3,7 @@ import { dbService } from '../db-service';
 import { generateInitialEmail, generateFollowupEmail, classifyReply } from '../gemini';
 import { sendGmailMessage, pollGmailReplies } from '../gmail/client';
 import { refreshAccessToken } from '../gmail/oauth';
-import { decryptToken } from '../crypto';
+import { encryptToken, decryptToken } from '../crypto';
 import { generateUnsubscribeToken } from '../unsubscribe-token';
 import { env } from '../env';
 import { JobQueueItem, SendingConfig, Campaign, Lead } from '@/types/database';
@@ -262,11 +262,26 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }) {
     return;
   }
 
-  // Check email account
-  const emailAccount = await dbService.getConnectedEmailAccount(campaign.user_id);
-  if (!emailAccount) {
-    throw new Error('No connected Gmail account found for user.');
+  // Pre-flight check: Account availability, rotation & daily/interval rate limit guards
+  const accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+
+  if (accountResult.status === 'no_accounts') {
+    throw new Error(accountResult.error);
   }
+
+  if (accountResult.status === 'daily_limit_reached') {
+    console.info(`[RateLimit] Daily limit reached for accounts in campaign ${campaign.id}. Rescheduling send to ${accountResult.rescheduleAt.toISOString()}`);
+    await dbService.enqueueJob('send_email', { emailMessageId }, `resched_limit_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
+    return;
+  }
+
+  if (accountResult.status === 'cooldown') {
+    console.info(`[RateLimit] Accounts in cooldown (interval safety guard). Rescheduling send for inbox ${accountResult.accountEmail} to ${accountResult.rescheduleAt.toISOString()}`);
+    await dbService.enqueueJob('send_email', { emailMessageId }, `resched_cooldown_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
+    return;
+  }
+
+  const emailAccount = accountResult.account;
 
   // Decrypt token
   let accessToken = '';
@@ -284,7 +299,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }) {
       accessToken = refreshed.access_token;
       await dbService.upsertEmailAccount({
         ...emailAccount,
-        encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : decryptToken(accessToken), // or re-encrypt
+        encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
         token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
       });
     } catch (err) {
@@ -301,22 +316,53 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }) {
   });
   const unsubscribeUrl = `${env.NEXT_PUBLIC_APP_URL}/unsubscribe?token=${unsubscribeToken}`;
 
-  // Execute Send
-  const sendResult = await sendGmailMessage(accessToken, {
-    from: emailAccount.email_address,
-    to: lead.email,
-    subject: message.subject,
-    bodyText: message.body_text,
-    unsubscribeUrl,
-    threadId: message.gmail_thread_id || undefined,
-  });
+  // Execute Send (with 401 auto-refresh retry)
+  let sendResult;
+  try {
+    sendResult = await sendGmailMessage(accessToken, {
+      from: emailAccount.email_address,
+      to: lead.email,
+      subject: message.subject,
+      bodyText: message.body_text,
+      unsubscribeUrl,
+      threadId: message.gmail_thread_id || undefined,
+    });
+  } catch (sendErr: unknown) {
+    const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+    if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
+      try {
+        const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
+        const refreshed = await refreshAccessToken(refreshToken);
+        accessToken = refreshed.access_token;
+        await dbService.upsertEmailAccount({
+          ...emailAccount,
+          encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
+          token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+        });
+        sendResult = await sendGmailMessage(accessToken, {
+          from: emailAccount.email_address,
+          to: lead.email,
+          subject: message.subject,
+          bodyText: message.body_text,
+          unsubscribeUrl,
+          threadId: message.gmail_thread_id || undefined,
+        });
+      } catch {
+        throw sendErr;
+      }
+    } else {
+      throw sendErr;
+    }
+  }
 
   // Confirmed success: update records
   message.status = 'sent';
+  message.email_account_id = emailAccount.id;
   message.gmail_message_id = sendResult.id;
   message.gmail_thread_id = sendResult.threadId;
   message.sent_at = new Date().toISOString();
   await dbService.createOrUpdateMessage(message);
+  await dbService.recordAccountSend(emailAccount.id);
 
   lead.status = 'contacted';
   await dbService.updateLead(lead.id, { status: 'contacted' });
@@ -369,43 +415,83 @@ export async function handleScheduleFollowupJob(payload: { campaignLeadId: strin
  */
 export async function handleSyncRepliesJob(payload: { userId: string }) {
   const { userId } = payload;
-  const emailAccount = await dbService.getConnectedEmailAccount(userId);
-  if (!emailAccount) return;
-
-  let accessToken = '';
-  try {
-    accessToken = decryptToken(emailAccount.encrypted_access_token);
-  } catch {
-    accessToken = emailAccount.encrypted_access_token;
-  }
+  const emailAccounts = await dbService.getEmailAccounts(userId, { status: 'active' });
+  if (emailAccounts.length === 0) return;
 
   const messages = await dbService.getMessages();
   const sentThreads = messages
     .filter((m) => m.status === 'sent' && m.gmail_thread_id)
     .map((m) => m.gmail_thread_id as string);
+  if (sentThreads.length === 0) return;
 
-  const inboundReplies = await pollGmailReplies(accessToken, sentThreads);
+  for (const emailAccount of emailAccounts) {
+    let accessToken = '';
+    try {
+      accessToken = decryptToken(emailAccount.encrypted_access_token);
+    } catch {
+      accessToken = emailAccount.encrypted_access_token;
+    }
 
-  for (const reply of inboundReplies) {
-    const matchedMessage = messages.find((m) => m.gmail_thread_id === reply.threadId);
-    const classification = await classifyReply(reply.bodyText);
+    if (emailAccount.token_expires_at && new Date(emailAccount.token_expires_at) < new Date()) {
+      try {
+        const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
+        const refreshed = await refreshAccessToken(refreshToken);
+        accessToken = refreshed.access_token;
+        await dbService.upsertEmailAccount({
+          ...emailAccount,
+          encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
+          token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+        });
+      } catch (err) {
+        console.warn(`Failed to refresh token during sync replies for ${emailAccount.email_address}:`, err);
+      }
+    }
 
-    await dbService.recordReply({
-      user_id: userId,
-      email_message_id: matchedMessage?.id || null,
-      gmail_message_id: reply.id,
-      gmail_thread_id: reply.threadId,
-      sender_email: reply.senderEmail,
-      received_at: reply.receivedAt,
-      classification: classification.classification,
-      classification_summary: classification.summary,
-    });
-
-    if (matchedMessage && matchedMessage.lead) {
-      if (classification.is_explicit_unsubscribe || classification.classification === 'unsubscribe') {
-        await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'unsubscribe', 'reply_detection');
+    let inboundReplies = [];
+    try {
+      inboundReplies = await pollGmailReplies(accessToken, sentThreads);
+    } catch (syncErr: unknown) {
+      const errMsg = syncErr instanceof Error ? syncErr.message : String(syncErr);
+      if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
+        try {
+          const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
+          const refreshed = await refreshAccessToken(refreshToken);
+          accessToken = refreshed.access_token;
+          await dbService.upsertEmailAccount({
+            ...emailAccount,
+            encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+          });
+          inboundReplies = await pollGmailReplies(accessToken, sentThreads);
+        } catch {
+          continue;
+        }
       } else {
-        await dbService.updateLead(matchedMessage.lead.id, { status: 'replied' });
+        continue;
+      }
+    }
+
+    for (const reply of inboundReplies) {
+      const matchedMessage = messages.find((m) => m.gmail_thread_id === reply.threadId);
+      const classification = await classifyReply(reply.bodyText);
+
+      await dbService.recordReply({
+        user_id: userId,
+        email_message_id: matchedMessage?.id || null,
+        gmail_message_id: reply.id,
+        gmail_thread_id: reply.threadId,
+        sender_email: reply.senderEmail,
+        received_at: reply.receivedAt,
+        classification: classification.classification,
+        classification_summary: classification.summary,
+      });
+
+      if (matchedMessage && matchedMessage.lead) {
+        if (classification.is_explicit_unsubscribe || classification.classification === 'unsubscribe') {
+          await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'unsubscribe', 'reply_detection');
+        } else {
+          await dbService.updateLead(matchedMessage.lead.id, { status: 'replied' });
+        }
       }
     }
   }

@@ -179,6 +179,12 @@ export default function SettingsPage() {
                   <span className="text-slate-400">Token Storage:</span>
                   <span className="text-slate-300">Encrypted at rest with AES-256-GCM</span>
                 </div>
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                  <span className="text-slate-400">Multi-Account Capacity:</span>
+                  <a href="/accounts" className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1">
+                    Manage all inboxes, groups & limits →
+                  </a>
+                </div>
               </div>
             ) : (
               <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs text-amber-300 space-y-2">
