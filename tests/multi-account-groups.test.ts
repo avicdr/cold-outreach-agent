@@ -347,4 +347,28 @@ describe('Multi-Account Outreach, Grouping, and Per-Inbox Rate Limiting', () => 
     expect(bodyAfter.email).toBe('founder@mycompany.com');
     expect(bodyAfter.token_expired).toBe(false);
   });
+
+  it('safely excludes virtual properties accounts_count and daily_capacity during group creation and updates', async () => {
+    // Test creating a group
+    const group = await dbService.createAccountGroup(userId, {
+      name: 'Safe Schema Group',
+      description: 'Testing schema safety',
+      is_warmup_enabled: true,
+      warmup_daily_limit: 15,
+      warmup_ramp_per_day: 2,
+      warmup_reply_rate: 70,
+    });
+    expect(group.id).toBeDefined();
+    expect(group.accounts_count).toBe(0);
+    expect(group.daily_capacity).toBe(0);
+
+    // Test updating a group even if accounts_count or daily_capacity were passed in
+    const updated = await dbService.updateAccountGroup(group.id, {
+      name: 'Updated Schema Group',
+      accounts_count: 5,
+      daily_capacity: 90,
+    } as any);
+    expect(updated.name).toBe('Updated Schema Group');
+  });
 });
+

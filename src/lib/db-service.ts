@@ -646,19 +646,38 @@ export const dbService = {
       daily_capacity: 0,
     };
 
+    const dbPayload = {
+      id,
+      user_id: userId,
+      name: group.name,
+      description: group.description || '',
+      is_warmup_enabled: group.is_warmup_enabled ?? false,
+      warmup_daily_limit: group.warmup_daily_limit ?? 15,
+      warmup_ramp_per_day: group.warmup_ramp_per_day ?? 2,
+      warmup_reply_rate: group.warmup_reply_rate ?? 70,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+
     if (!isLiveSupabase()) {
       mockDb.accountGroups.set(id, newGroup);
       return newGroup;
     }
 
     const supabase = createAdminClient();
-    const { data, error } = await supabase.from('account_groups').insert(newGroup).select().single();
+    const { data, error } = await supabase.from('account_groups').insert(dbPayload).select().single();
     if (error) throw new Error(error.message);
-    return data;
+    return {
+      ...data,
+      accounts_count: 0,
+      daily_capacity: 0,
+    };
   },
 
-
   async updateAccountGroup(id: string, updates: Partial<AccountGroup>): Promise<AccountGroup> {
+    const { accounts_count, daily_capacity, ...cleanUpdates } = updates;
+
     if (!isLiveSupabase()) {
       const existing = mockDb.accountGroups.get(id);
       if (!existing) throw new Error('Account group not found');
@@ -670,13 +689,18 @@ export const dbService = {
     const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('account_groups')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update({ ...cleanUpdates, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
     if (error) throw new Error(error.message);
-    return data;
+    return {
+      ...data,
+      accounts_count: accounts_count ?? 0,
+      daily_capacity: daily_capacity ?? 0,
+    };
   },
+
 
   async deleteAccountGroup(id: string): Promise<void> {
     if (!isLiveSupabase()) {
@@ -915,11 +939,13 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
+    const { group: _g, sent_today: _st, remaining_today: _rt, ...cleanAccount } = account;
     const payload = {
       ...defaultFields,
-      ...account,
+      ...cleanAccount,
       updated_at: new Date().toISOString(),
     };
+
 
     // 1. Multi-account schema upsert (user_id, email_address)
     try {
@@ -1010,12 +1036,14 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
+    const { group: _g, sent_today: _st, remaining_today: _rt, ...cleanUpdates } = updates;
     const { data, error } = await supabase
       .from('email_accounts')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update({ ...cleanUpdates, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select('*')
       .single();
+
     if (error) throw new Error(error.message);
     if (data && data.group_id) {
       try {
