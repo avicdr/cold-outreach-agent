@@ -12,6 +12,7 @@ export type JobType =
   | 'reconcile_send' 
   | 'process_warmup'
   | 'send_warmup_email'
+  | 'process_discovery'
   | 'cleanup_expired_jobs';
 
 export type ReplyClassification = 'positive' | 'neutral' | 'objection' | 'out_of_office' | 'unsubscribe' | 'other';
@@ -113,6 +114,32 @@ export interface AccountDailyStats {
   })[];
 }
 
+export type DiscoveryJobStatus = 'queued' | 'running' | 'completed' | 'paused' | 'failed';
+export type DiscoveryScheduleFrequency = 'once' | 'daily' | 'weekly';
+export type QualificationPriority = 'high' | 'review' | 'low';
+export type QualificationConfidence = 'high' | 'medium' | 'low';
+
+export interface ObservedFrictionItem {
+  finding: string;
+  evidence_type: 'observed' | 'inferred';
+  source_url: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface LeadQualificationResult {
+  business_category: string;
+  ideal_customer_fit: boolean;
+  lead_score: number;
+  priority: QualificationPriority;
+  confidence: QualificationConfidence;
+  qualification_summary: string;
+  observed_friction: ObservedFrictionItem[];
+  unknowns: string[];
+  recommended_sales_angle: string;
+  suggested_opening: string;
+  disqualification_reasons: string[];
+}
+
 export interface Lead {
   id: string;
   user_id: string;
@@ -129,6 +156,63 @@ export interface Lead {
   source_import: string;
   created_at: string;
   updated_at: string;
+  // Enriched & Qualified Discovery fields
+  phone?: string | null;
+  normalized_phone?: string | null;
+  canonical_domain?: string | null;
+  place_id?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  rating?: number | null;
+  review_count?: number | null;
+  google_maps_url?: string | null;
+  booking_url?: string | null;
+  has_online_booking?: boolean | null;
+  contact_channels?: string[];
+  observed_friction?: ObservedFrictionItem[];
+  qualification_score?: number | null;
+  qualification_priority?: QualificationPriority | null;
+  qualification_confidence?: QualificationConfidence | null;
+  qualification_summary?: string | null;
+  sales_angle?: string | null;
+  suggested_opening?: string | null;
+  evidence_urls?: string[];
+  discovery_job_id?: string | null;
+  discovery_source?: string | null;
+  discovery_timestamp?: string | null;
+  last_enriched_at?: string | null;
+  is_verified?: boolean;
+}
+
+export interface DiscoveryJob {
+  id: string;
+  user_id: string;
+  name: string;
+  niche: string;
+  location: string;
+  country: string;
+  radius_km: number;
+  target_count: number;
+  min_qualification_score: number;
+  auto_enroll_campaign_id?: string | null;
+  auto_enroll_enabled: boolean;
+  schedule_frequency: DiscoveryScheduleFrequency;
+  status: DiscoveryJobStatus;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  discovered_count: number;
+  qualified_count: number;
+  high_priority_count: number;
+  enrolled_count: number;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  // joined relation
+  auto_enroll_campaign?: Campaign | null;
 }
 
 export interface SendingConfig {

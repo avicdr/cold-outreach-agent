@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   RefreshCw,
   Plus,
+  Zap,
 } from 'lucide-react';
 import { Suspense } from 'react';
 
@@ -156,16 +157,25 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
     }
   };
 
-  const handleProcessQueueNow = async () => {
+  const handleProcessQueueNow = async (force = false) => {
     setDispatching(true);
     setMessageNotice(null);
     try {
-      const res = await fetch('/api/jobs/process', { method: 'POST' });
+      const res = await fetch(`/api/jobs/process${force ? '?force=true' : ''}`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         const completed = (data.results || []).filter((r: any) => r.status === 'completed').length;
         const failed = (data.results || []).filter((r: any) => r.status === 'failed').length;
-        setMessageNotice(`Queue dispatch complete: ${data.processed || 0} jobs processed (${completed} completed, ${failed} failed).`);
+        if (data.processed > 0) {
+          setMessageNotice(`Queue dispatch complete: ${data.processed} email(s) processed (${completed} sent, ${failed} failed).`);
+        } else if (data.queue_status?.total_queued > 0) {
+          const nextDate = new Date(data.queue_status.next_run_at);
+          setMessageNotice(
+            `0 emails sent right now: All ${data.queue_status.total_queued} emails are scheduled for your sending window starting ${nextDate.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} (${campaign?.sending_config?.timezone || 'Europe/London'}). To send immediately outside business hours, click "Force Send".`
+          );
+        } else {
+          setMessageNotice('Queue dispatch complete: 0 jobs currently waiting in queue.');
+        }
         fetchCampaignData();
       } else {
         setMessageNotice(`Queue dispatch failed: ${data.error}`);
@@ -254,15 +264,31 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
             )}
 
             {campaign.status === 'active' && (
-              <button
-                onClick={handleProcessQueueNow}
-                disabled={actionLoading || dispatching}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
-                title="Process next batch of queued email sends immediately"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{dispatching ? 'Dispatching...' : 'Dispatch Queue Now'}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => handleProcessQueueNow(false)}
+                  disabled={actionLoading || dispatching}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
+                  title="Process next batch of queued email sends due now"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{dispatching ? 'Dispatching...' : 'Dispatch Queue Now'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (confirm('Force dispatch the next queued email immediately, bypassing scheduled sending hours?')) {
+                      handleProcessQueueNow(true);
+                    }
+                  }}
+                  disabled={actionLoading || dispatching}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors disabled:opacity-50"
+                  title="Force send next queued email immediately outside business hours"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Force Send Now</span>
+                </button>
+              </div>
             )}
 
             <button

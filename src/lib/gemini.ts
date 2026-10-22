@@ -189,9 +189,13 @@ Last Name: ${sanitizePromptInput(lead.last_name)}
 Company: ${sanitizePromptInput(lead.company)}
 Job Title: ${sanitizePromptInput(lead.job_title)}
 Website: ${sanitizePromptInput(lead.website)}
+Category: ${lead.category ? sanitizePromptInput(lead.category) : 'N/A'}
+Verified Booking Friction & Facts: ${lead.observed_friction && lead.observed_friction.length > 0 ? JSON.stringify(lead.observed_friction.map(f => f.finding)) : 'None'}
+Recommended Sales Angle: ${lead.sales_angle ? sanitizePromptInput(lead.sales_angle) : 'None'}
+Suggested Opening Hook: ${lead.suggested_opening ? sanitizePromptInput(lead.suggested_opening) : 'None'}
 Lead Notes (Untrusted Data): ${sanitizePromptInput(lead.notes)}
 
-Write a high-converting, personalized cold email.`;
+Write a high-converting, personalized cold email. If a Suggested Opening Hook or Verified Friction is available, naturally adapt it.`;
 
   try {
     const response = await callGeminiWithFallback(ai, {

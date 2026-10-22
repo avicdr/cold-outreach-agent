@@ -25,6 +25,7 @@ export class MockDatabase {
   jobQueue: Map<string, JobQueueItem> = new Map();
   replyEvents: Map<string, ReplyEvent> = new Map();
   warmupMessages: Map<string, any> = new Map();
+  discoveryJobs: Map<string, any> = new Map();
   activityLogs: ActivityLog[] = [];
 
   constructor() {
@@ -36,14 +37,14 @@ export class MockDatabase {
   }
 
   // Atomic Job Claiming implementation for Mock DB
-  claimJobs(workerId: string, batchSize: number = 5, lockDurationSeconds: number = 300): JobQueueItem[] {
+  claimJobs(workerId: string, batchSize: number = 5, lockDurationSeconds: number = 300, force: boolean = false): JobQueueItem[] {
     const now = new Date();
     const claimed: JobQueueItem[] = [];
 
     for (const job of this.jobQueue.values()) {
       if (claimed.length >= batchSize) break;
 
-      const isQueuedAndReady = job.status === 'queued' && new Date(job.run_at) <= now;
+      const isQueuedAndReady = job.status === 'queued' && (force || new Date(job.run_at) <= now);
       const isExpiredLock =
         job.status === 'running' &&
         job.lock_expires_at &&

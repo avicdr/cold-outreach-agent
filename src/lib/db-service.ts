@@ -17,6 +17,7 @@ import {
   AccountDailyStats,
   JobType,
   SendingConfig,
+  DiscoveryJob,
 } from '@/types/database';
 import { getNextSendingWindowDate, createDateInTimezone, getTimezoneParts } from './scheduler';
 
@@ -1320,12 +1321,48 @@ export const dbService = {
     return data;
   },
 
-  async claimJobs(workerId: string, batchSize: number = 5, lockDurationSeconds: number = 300): Promise<JobQueueItem[]> {
+  async claimJobs(
+    workerId: string,
+    batchSize: number = 5,
+    lockDurationSeconds: number = 300,
+    force: boolean = false
+  ): Promise<JobQueueItem[]> {
     if (!isLiveSupabase()) {
-      return mockDb.claimJobs(workerId, batchSize, lockDurationSeconds);
+      return mockDb.claimJobs(workerId, batchSize, lockDurationSeconds, force);
     }
 
     const supabase = createAdminClient();
+
+    // If force is enabled, claim the next queued jobs even if run_at is in the future
+    if (force) {
+      const { data: queuedJobs, error: selectError } = await supabase
+        .from('job_queue')
+        .select('*')
+        .eq('status', 'queued')
+        .order('run_at', { ascending: true })
+        .limit(batchSize);
+
+      if (selectError || !queuedJobs || queuedJobs.length === 0) return [];
+
+      const jobIds = queuedJobs.map((j) => j.id);
+      const now = new Date().toISOString();
+      const lockExpiresAt = new Date(Date.now() + lockDurationSeconds * 1000).toISOString();
+
+      const { data: claimed, error: updateError } = await supabase
+        .from('job_queue')
+        .update({
+          status: 'running',
+          locked_at: now,
+          lock_expires_at: lockExpiresAt,
+          updated_at: now,
+        })
+        .in('id', jobIds)
+        .select();
+
+      if (updateError) throw new Error(updateError.message);
+      return claimed || [];
+    }
+
     const { data, error } = await supabase.rpc('claim_jobs', {
       p_worker_id: workerId,
       p_batch_size: batchSize,
@@ -1333,6 +1370,38 @@ export const dbService = {
     });
     if (error) throw new Error(error.message);
     return data || [];
+  },
+
+  async getQueuedJobsDiagnostics(): Promise<{
+    total_queued: number;
+    next_run_at: string | null;
+  }> {
+    if (!isLiveSupabase()) {
+      const queued = Array.from(mockDb.jobQueue.values())
+        .filter((j) => j.status === 'queued')
+        .sort((a, b) => new Date(a.run_at).getTime() - new Date(b.run_at).getTime());
+      return {
+        total_queued: queued.length,
+        next_run_at: queued[0]?.run_at || null,
+      };
+    }
+
+    const supabase = createAdminClient();
+    const { data, count, error } = await supabase
+      .from('job_queue')
+      .select('id, run_at', { count: 'exact' })
+      .eq('status', 'queued')
+      .order('run_at', { ascending: true })
+      .limit(1);
+
+    if (error || !data) {
+      return { total_queued: 0, next_run_at: null };
+    }
+
+    return {
+      total_queued: count || data.length,
+      next_run_at: data[0]?.run_at || null,
+    };
   },
 
   async completeJob(jobId: string): Promise<void> {
@@ -1443,4 +1512,418 @@ export const dbService = {
     await supabase.from('activity_logs').insert(log);
     return log;
   },
+
+  // Discovery Jobs
+  async getDiscoveryJobs(userId: string): Promise<DiscoveryJob[]> {
+    if (!isLiveSupabase()) {
+      return Array.from(mockDb.discoveryJobs.values())
+        .filter((j: any) => j.user_id === userId)
+        .map((j: any) => ({
+          ...j,
+          auto_enroll_campaign: j.auto_enroll_campaign_id ? mockDb.campaigns.get(j.auto_enroll_campaign_id) : null,
+        }))
+        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('discovery_jobs')
+      .select('*, auto_enroll_campaign:campaigns(*)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
+  async getDiscoveryJob(id: string): Promise<DiscoveryJob | null> {
+    if (!id) return null;
+    if (!isLiveSupabase()) {
+      const job = mockDb.discoveryJobs.get(id);
+      if (!job) return null;
+      return {
+        ...job,
+        auto_enroll_campaign: job.auto_enroll_campaign_id ? mockDb.campaigns.get(job.auto_enroll_campaign_id) : null,
+      };
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('discovery_jobs')
+      .select('*, auto_enroll_campaign:campaigns(*)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return data || null;
+  },
+
+  async createDiscoveryJob(
+    userId: string,
+    jobData: Omit<DiscoveryJob, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+  ): Promise<DiscoveryJob> {
+    const id = crypto.randomUUID();
+    const newJob: DiscoveryJob = {
+      ...jobData,
+      id,
+      user_id: userId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!isLiveSupabase()) {
+      mockDb.discoveryJobs.set(id, newJob);
+      return newJob;
+    }
+
+    const supabase = createAdminClient();
+    // Strip virtual joined fields before insert
+    const { auto_enroll_campaign, ...cleanRow } = newJob as any;
+    const { data, error } = await supabase.from('discovery_jobs').insert(cleanRow).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async updateDiscoveryJob(id: string, updates: Partial<DiscoveryJob>): Promise<DiscoveryJob> {
+    const now = new Date().toISOString();
+    if (!isLiveSupabase()) {
+      const existing = mockDb.discoveryJobs.get(id);
+      if (!existing) throw new Error(`Discovery job not found: ${id}`);
+      const updated = { ...existing, ...updates, updated_at: now };
+      mockDb.discoveryJobs.set(id, updated);
+      return updated;
+    }
+
+    const supabase = createAdminClient();
+    const { auto_enroll_campaign, ...cleanUpdates } = updates as any;
+    const { data, error } = await supabase
+      .from('discovery_jobs')
+      .update({ ...cleanUpdates, updated_at: now })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async deleteDiscoveryJob(id: string): Promise<void> {
+    if (!isLiveSupabase()) {
+      mockDb.discoveryJobs.delete(id);
+      return;
+    }
+
+    const supabase = createAdminClient();
+    const { error } = await supabase.from('discovery_jobs').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
+  // Multi-signal Deduplication
+  async findExistingLeadBySignals(
+    userId: string,
+    signals: {
+      place_id?: string;
+      canonical_domain?: string;
+      normalized_phone?: string;
+      company?: string;
+      city?: string;
+      normalized_email?: string;
+    }
+  ): Promise<Lead | null> {
+    if (!isLiveSupabase()) {
+      const userLeads = Array.from(mockDb.leads.values()).filter((l) => l.user_id === userId);
+
+      // Signal 1: Place ID
+      if (signals.place_id) {
+        const found = userLeads.find((l) => l.place_id === signals.place_id);
+        if (found) return found;
+      }
+      // Signal 2: Canonical Domain
+      if (signals.canonical_domain) {
+        const found = userLeads.find((l) => l.canonical_domain === signals.canonical_domain);
+        if (found) return found;
+      }
+      // Signal 3: Normalized Phone
+      if (signals.normalized_phone) {
+        const found = userLeads.find((l) => l.normalized_phone === signals.normalized_phone);
+        if (found) return found;
+      }
+      // Signal 4: Company + City
+      if (signals.company && signals.city) {
+        const found = userLeads.find(
+          (l) =>
+            l.company.toLowerCase() === signals.company!.toLowerCase() &&
+            l.city?.toLowerCase() === signals.city!.toLowerCase()
+        );
+        if (found) return found;
+      }
+      // Signal 5: Normalized Email
+      if (signals.normalized_email) {
+        const found = userLeads.find((l) => l.normalized_email === signals.normalized_email);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const supabase = createAdminClient();
+
+    // Check Signal 1: Place ID
+    if (signals.place_id) {
+      const { data } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('place_id', signals.place_id)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    // Check Signal 2: Canonical Domain
+    if (signals.canonical_domain) {
+      const { data } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('canonical_domain', signals.canonical_domain)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    // Check Signal 3: Normalized Phone
+    if (signals.normalized_phone) {
+      const { data } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('normalized_phone', signals.normalized_phone)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    // Check Signal 4: Company + City
+    if (signals.company && signals.city) {
+      const { data } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', userId)
+        .ilike('company', signals.company)
+        .ilike('city', signals.city)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    // Check Signal 5: Normalized Email
+    if (signals.normalized_email) {
+      const { data } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('normalized_email', signals.normalized_email)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    return null;
+  },
+
+  // Deduplicating Lead Upsert
+  async saveOrUpdateDiscoveredLead(
+    userId: string,
+    leadData: Partial<Lead> & {
+      company: string;
+      canonical_domain?: string;
+      normalized_phone?: string;
+      place_id?: string;
+    }
+  ): Promise<{ lead: Lead; isNew: boolean }> {
+    const existing = await this.findExistingLeadBySignals(userId, {
+      place_id: leadData.place_id || undefined,
+      canonical_domain: leadData.canonical_domain || undefined,
+      normalized_phone: leadData.normalized_phone || undefined,
+      company: leadData.company,
+      city: leadData.city || undefined,
+      normalized_email: leadData.normalized_email || (leadData.email ? leadData.email.toLowerCase().trim() : undefined),
+    });
+
+    if (existing) {
+      // If manually verified, do NOT overwrite core contact fields with AI inferred data
+      const updates: Partial<Lead> = {};
+
+      if (!existing.is_verified) {
+        if (!existing.phone && leadData.phone) updates.phone = leadData.phone;
+        if (!existing.normalized_phone && leadData.normalized_phone) updates.normalized_phone = leadData.normalized_phone;
+        if (!existing.canonical_domain && leadData.canonical_domain) updates.canonical_domain = leadData.canonical_domain;
+        if (!existing.website && leadData.website) updates.website = leadData.website;
+        if (!existing.address && leadData.address) updates.address = leadData.address;
+        if (!existing.city && leadData.city) updates.city = leadData.city;
+        if (!existing.state && leadData.state) updates.state = leadData.state;
+        if (!existing.country && leadData.country) updates.country = leadData.country;
+        if (existing.rating == null && leadData.rating != null) updates.rating = leadData.rating;
+        if (existing.review_count == null && leadData.review_count != null) updates.review_count = leadData.review_count;
+      }
+
+      // Always update enrichment & qualification if newly qualified
+      if (leadData.qualification_score != null) {
+        updates.qualification_score = leadData.qualification_score;
+        updates.qualification_priority = leadData.qualification_priority;
+        updates.qualification_confidence = leadData.qualification_confidence;
+        updates.qualification_summary = leadData.qualification_summary;
+        updates.sales_angle = leadData.sales_angle;
+        updates.suggested_opening = leadData.suggested_opening;
+        updates.observed_friction = leadData.observed_friction;
+        updates.evidence_urls = leadData.evidence_urls;
+        updates.last_enriched_at = new Date().toISOString();
+      }
+
+      if (leadData.booking_url && !existing.booking_url) updates.booking_url = leadData.booking_url;
+      if (leadData.has_online_booking != null && existing.has_online_booking == null) updates.has_online_booking = leadData.has_online_booking;
+      if (leadData.contact_channels && leadData.contact_channels.length > 0) {
+        const mergedChannels = Array.from(new Set([...(existing.contact_channels || []), ...leadData.contact_channels]));
+        updates.contact_channels = mergedChannels;
+      }
+
+      const updated = await this.updateLead(existing.id, updates);
+      return { lead: updated, isNew: false };
+    }
+
+    // Brand new lead: create unique record
+    const id = crypto.randomUUID();
+    const rawEmail = leadData.email || (leadData.canonical_domain ? `contact@${leadData.canonical_domain}` : `unverified_${id.slice(0, 8)}@lead.local`);
+    const normalizedEmail = rawEmail.toLowerCase().trim();
+
+    const newLead: Lead = {
+      id,
+      user_id: userId,
+      company: leadData.company,
+      first_name: leadData.first_name || '',
+      last_name: leadData.last_name || '',
+      job_title: leadData.job_title || 'Owner / Practice Manager',
+      email: rawEmail,
+      normalized_email: normalizedEmail,
+      website: leadData.website || '',
+      canonical_domain: leadData.canonical_domain || null,
+      phone: leadData.phone || null,
+      normalized_phone: leadData.normalized_phone || null,
+      place_id: leadData.place_id || null,
+      category: leadData.category || null,
+      subcategory: leadData.subcategory || null,
+      address: leadData.address || null,
+      city: leadData.city || null,
+      state: leadData.state || null,
+      country: leadData.country || 'US',
+      rating: leadData.rating || null,
+      review_count: leadData.review_count || null,
+      google_maps_url: leadData.google_maps_url || null,
+      booking_url: leadData.booking_url || null,
+      has_online_booking: leadData.has_online_booking ?? null,
+      contact_channels: leadData.contact_channels || [],
+      observed_friction: leadData.observed_friction || [],
+      qualification_score: leadData.qualification_score || null,
+      qualification_priority: leadData.qualification_priority || null,
+      qualification_confidence: leadData.qualification_confidence || null,
+      qualification_summary: leadData.qualification_summary || null,
+      sales_angle: leadData.sales_angle || null,
+      suggested_opening: leadData.suggested_opening || null,
+      evidence_urls: leadData.evidence_urls || [],
+      discovery_job_id: leadData.discovery_job_id || null,
+      discovery_source: leadData.discovery_source || 'places_api',
+      discovery_timestamp: new Date().toISOString(),
+      last_enriched_at: new Date().toISOString(),
+      is_verified: false,
+      notes: leadData.notes || '',
+      custom_fields: leadData.custom_fields || {},
+      status: 'active',
+      source_import: leadData.source_import || 'discovery_engine',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!isLiveSupabase()) {
+      mockDb.leads.set(id, newLead);
+      return { lead: newLead, isNew: true };
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.from('leads').insert(newLead).select().single();
+    if (error) throw new Error(error.message);
+    return { lead: data, isNew: true };
+  },
+
+  // Query Qualified Leads with multi-dimensional filtering
+  async getQualifiedLeads(
+    userId: string,
+    filters?: {
+      minScore?: number;
+      priority?: string;
+      category?: string;
+      search?: string;
+      discoveryJobId?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<{ leads: Lead[]; total: number }> {
+    if (!isLiveSupabase()) {
+      let leads = Array.from(mockDb.leads.values()).filter((l) => l.user_id === userId);
+      if (filters?.minScore != null) {
+        leads = leads.filter((l) => (l.qualification_score || 0) >= filters.minScore!);
+      }
+      if (filters?.priority) {
+        leads = leads.filter((l) => l.qualification_priority === filters.priority);
+      }
+      if (filters?.category) {
+        leads = leads.filter((l) => l.category?.toLowerCase() === filters.category!.toLowerCase());
+      }
+      if (filters?.discoveryJobId) {
+        leads = leads.filter((l) => l.discovery_job_id === filters.discoveryJobId);
+      }
+      if (filters?.search) {
+        const q = filters.search.toLowerCase();
+        leads = leads.filter(
+          (l) =>
+            l.company.toLowerCase().includes(q) ||
+            l.email.toLowerCase().includes(q) ||
+            (l.city && l.city.toLowerCase().includes(q)) ||
+            (l.qualification_summary && l.qualification_summary.toLowerCase().includes(q))
+        );
+      }
+      const total = leads.length;
+      const offset = filters?.offset || 0;
+      const limit = filters?.limit || 50;
+      return {
+        leads: leads.slice(offset, offset + limit),
+        total,
+      };
+    }
+
+    const supabase = createAdminClient();
+    let query = supabase.from('leads').select('*', { count: 'exact' }).eq('user_id', userId);
+
+    if (filters?.minScore != null) {
+      query = query.gte('qualification_score', filters.minScore);
+    }
+    if (filters?.priority) {
+      query = query.eq('qualification_priority', filters.priority);
+    }
+    if (filters?.category) {
+      query = query.eq('category', filters.category);
+    }
+    if (filters?.discoveryJobId) {
+      query = query.eq('discovery_job_id', filters.discoveryJobId);
+    }
+    if (filters?.search) {
+      query = query.or(
+        `company.ilike.%${filters.search}%,email.ilike.%${filters.search}%,city.ilike.%${filters.search}%,qualification_summary.ilike.%${filters.search}%`
+      );
+    }
+
+    const offset = filters?.offset || 0;
+    const limit = filters?.limit || 50;
+    const { data, count, error } = await query
+      .order('qualification_score', { ascending: false, nullsFirst: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw new Error(error.message);
+    return { leads: data || [], total: count || 0 };
+  },
 };
+

@@ -9,6 +9,7 @@ async function handleProcess(request: NextRequest) {
   const expectedSecret = env.CRON_SECRET;
   const url = new URL(request.url);
   const querySecret = url.searchParams.get('secret') || url.searchParams.get('cron_secret');
+  const isForce = url.searchParams.get('force') === 'true';
 
   const isBearerMatch = (expectedSecret && authHeader === `Bearer ${expectedSecret}`) || (expectedSecret && querySecret === expectedSecret);
   
@@ -21,7 +22,25 @@ async function handleProcess(request: NextRequest) {
 
   try {
     const workerId = `cron-worker-${Date.now()}`;
-    const batchResult = await processJobQueueBatch(workerId, 15);
+    const batchResult = await processJobQueueBatch(workerId, 15, isForce);
+
+    // Queue diagnostics if 0 jobs were processed
+    let queueStatus = null;
+    const { dbService } = await import('@/lib/db-service');
+    if (batchResult.claimed === 0) {
+      try {
+        const diag = await dbService.getQueuedJobsDiagnostics();
+        if (diag.total_queued > 0) {
+          queueStatus = {
+            total_queued: diag.total_queued,
+            next_run_at: diag.next_run_at,
+            notice: `All ${diag.total_queued} emails are scheduled for upcoming campaign sending windows. Use force=true to bypass schedule.`,
+          };
+        }
+      } catch (diagErr) {
+        console.warn('Queue diagnostics error:', diagErr);
+      }
+    }
 
     // Sync replies
     const syncUserId = user?.id || '5f9832c0-d340-4e0f-b2d8-b3f44a294697';
@@ -39,11 +58,32 @@ async function handleProcess(request: NextRequest) {
       console.warn('Warmup cycle non-fatal error:', warmupErr);
     }
 
+    // Process recurring discovery jobs
+    try {
+      const allJobs = await dbService.getDiscoveryJobs(syncUserId);
+      const now = new Date();
+      for (const dJob of allJobs) {
+        if (
+          dJob.status !== 'paused' &&
+          dJob.status !== 'running' &&
+          dJob.schedule_frequency !== 'once' &&
+          dJob.next_run_at &&
+          new Date(dJob.next_run_at) <= now
+        ) {
+          const { executeDiscoveryJob } = await import('@/lib/discovery/service');
+          executeDiscoveryJob(dJob.id).catch((e) => console.warn('Scheduled discovery job error:', e));
+        }
+      }
+    } catch (discoveryErr) {
+      console.warn('Discovery scheduled check non-fatal error:', discoveryErr);
+    }
+
     return NextResponse.json({
       success: true,
       worker_id: workerId,
       processed: batchResult.claimed,
       results: batchResult.results,
+      queue_status: queueStatus,
       timestamp: new Date().toISOString(),
     });
   } catch (err: unknown) {

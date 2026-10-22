@@ -26,13 +26,13 @@ export {
 /**
  * Process a batch of jobs atomically from the job queue.
  */
-export async function processJobQueueBatch(workerId: string = 'worker-main', batchSize = 10) {
-  const jobs = await dbService.claimJobs(workerId, batchSize);
+export async function processJobQueueBatch(workerId: string = 'worker-main', batchSize = 10, force = false) {
+  const jobs = await dbService.claimJobs(workerId, batchSize, 300, force);
   const results: { jobId: string; type: string; status: 'completed' | 'failed'; error?: string }[] = [];
 
   for (const job of jobs) {
     try {
-      await processSingleJob(job);
+      await processSingleJob(job, force);
       await dbService.completeJob(job.id);
       results.push({ jobId: job.id, type: job.job_type, status: 'completed' });
     } catch (err: unknown) {
@@ -49,14 +49,14 @@ export async function processJobQueueBatch(workerId: string = 'worker-main', bat
 /**
  * Handles individual job routing.
  */
-async function processSingleJob(job: JobQueueItem) {
+async function processSingleJob(job: JobQueueItem, force = false) {
   switch (job.job_type) {
     case 'generate_email':
       await handleGenerateEmailJob(job.payload as { campaignLeadId: string; stepNumber?: number });
       break;
 
     case 'send_email':
-      await handleSendEmailJob(job.payload as { emailMessageId: string });
+      await handleSendEmailJob(job.payload as { emailMessageId: string }, force);
       break;
 
     case 'schedule_followup':
@@ -75,6 +75,10 @@ async function processSingleJob(job: JobQueueItem) {
       await handleProcessWarmupJob(job.payload as { userId: string });
       break;
 
+    case 'process_discovery':
+      await handleProcessDiscoveryJob(job.payload as { jobId: string; provider?: string });
+      break;
+
     case 'cleanup_expired_jobs':
       // Periodic cleanup of completed jobs
       break;
@@ -82,6 +86,11 @@ async function processSingleJob(job: JobQueueItem) {
     default:
       throw new Error(`Unsupported job type: ${job.job_type}`);
   }
+}
+
+export async function handleProcessDiscoveryJob(payload: { jobId: string; provider?: string }) {
+  const { executeDiscoveryJob } = await import('../discovery/service');
+  return executeDiscoveryJob(payload.jobId, payload.provider);
 }
 
 export async function handleProcessWarmupJob(payload: { userId: string }) {
@@ -195,7 +204,7 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
 /**
  * 2. Send Email with strict pre-flight checks and Gmail API
  */
-export async function handleSendEmailJob(payload: { emailMessageId: string }) {
+export async function handleSendEmailJob(payload: { emailMessageId: string }, force = false) {
   const { emailMessageId } = payload;
   const message = await dbService.getMessage(emailMessageId);
   if (!message) {
@@ -239,7 +248,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }) {
   }
 
   // Pre-flight check: Sending window
-  if (!isWithinSendingWindow(campaign.sending_config)) {
+  if (!force && !isWithinSendingWindow(campaign.sending_config)) {
     const nextWindow = getNextSendingWindowDate(campaign.sending_config, new Date());
     console.info(`[Window] Outside sending window for campaign ${campaign.id}. Rescheduling send to ${nextWindow.toISOString()}`);
     await dbService.createOrUpdateMessage({
