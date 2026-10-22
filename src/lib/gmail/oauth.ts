@@ -29,22 +29,47 @@ export interface GoogleUserProfile {
 /**
  * Generates an HMAC-signed OAuth state parameter to prevent CSRF and guarantee redirect_uri match.
  */
-export function generateOAuthState(userId: string, redirectUri?: string): string {
+export function generateOAuthState(userId: string, redirectUri?: string, returnTo?: string): string {
   const nonce = crypto.randomBytes(16).toString('hex');
   const timestamp = Date.now();
   const rUriB64 = redirectUri ? Buffer.from(redirectUri).toString('base64url') : '';
-  const payload = `${userId}:${nonce}:${timestamp}:${rUriB64}`;
+  const returnToB64 = returnTo ? Buffer.from(returnTo).toString('base64url') : '';
+  const payload = `${userId}:${nonce}:${timestamp}:${rUriB64}:${returnToB64}`;
   const hmac = crypto.createHmac('sha256', env.APP_ENCRYPTION_KEY).update(payload).digest('hex');
   return Buffer.from(`${payload}:${hmac}`).toString('base64url');
 }
 
 /**
- * Validates the OAuth state parameter and returns the userId and matched redirectUri if valid.
+ * Validates the OAuth state parameter and returns the userId, matched redirectUri, and returnTo if valid.
  */
-export function validateOAuthState(state: string): { isValid: boolean; userId?: string; redirectUri?: string } {
+export function validateOAuthState(state: string): { isValid: boolean; userId?: string; redirectUri?: string; returnTo?: string } {
   try {
     const decoded = Buffer.from(state, 'base64url').toString('utf8');
     const parts = decoded.split(':');
+
+    // 6-part format with embedded redirectUri and returnTo
+    if (parts.length === 6) {
+      const [userId, nonce, timestampStr, rUriB64, returnToB64, hmacSignature] = parts;
+      const timestamp = parseInt(timestampStr, 10);
+      const fifteenMinutes = 15 * 60 * 1000;
+
+      if (Date.now() - timestamp > fifteenMinutes) {
+        return { isValid: false };
+      }
+
+      const payload = `${userId}:${nonce}:${timestampStr}:${rUriB64}:${returnToB64}`;
+      const expectedHmac = crypto.createHmac('sha256', env.APP_ENCRYPTION_KEY).update(payload).digest('hex');
+
+      const sigBuf = Buffer.from(hmacSignature);
+      const expBuf = Buffer.from(expectedHmac);
+      if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+        return { isValid: false };
+      }
+
+      const redirectUri = rUriB64 ? Buffer.from(rUriB64, 'base64url').toString('utf8') : undefined;
+      const returnTo = returnToB64 ? Buffer.from(returnToB64, 'base64url').toString('utf8') : undefined;
+      return { isValid: true, userId, redirectUri, returnTo };
+    }
 
     // 5-part format with embedded redirectUri
     if (parts.length === 5) {
@@ -99,8 +124,10 @@ export function validateOAuthState(state: string): { isValid: boolean; userId?: 
 
 /**
  * Constructs Google OAuth 2.0 Authorization URL.
+ * Uses prompt=consent select_account to always force Google's account chooser
+ * allowing connecting multiple cold outreach mailboxes.
  */
-export function getGoogleAuthUrl(userId: string, redirectUriOverride?: string): string {
+export function getGoogleAuthUrl(userId: string, redirectUriOverride?: string, returnTo?: string): string {
   const clientId = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID;
   const redirectUri = redirectUriOverride || process.env.GOOGLE_REDIRECT_URI || env.GOOGLE_REDIRECT_URI;
 
@@ -108,14 +135,14 @@ export function getGoogleAuthUrl(userId: string, redirectUriOverride?: string): 
     throw new Error('GOOGLE_CLIENT_ID is not configured in .env.local. Please provide a valid OAuth client ID from Google Cloud Console.');
   }
 
-  const state = generateOAuthState(userId, redirectUri);
+  const state = generateOAuthState(userId, redirectUri, returnTo);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: GMAIL_SCOPES.join(' '),
     access_type: 'offline', // Requests refresh_token
-    prompt: 'consent', // Forces refresh_token issuance on reconnect
+    prompt: 'consent select_account', // Forces consent & account selector for multi-inbox connection
     state,
   });
 

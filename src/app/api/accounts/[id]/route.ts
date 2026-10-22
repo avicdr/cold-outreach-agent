@@ -9,6 +9,8 @@ const updateAccountSchema = z.object({
   daily_limit: z.number().int().min(1).max(18).optional(),
   min_interval_minutes: z.number().int().min(5).max(60).optional(),
   status: z.enum(['active', 'paused', 'error']).optional(),
+  warmup_enabled: z.boolean().optional(),
+  warmup_status: z.enum(['inactive', 'warming', 'warm', 'paused']).optional(),
 });
 
 export async function GET(
@@ -61,6 +63,8 @@ export async function PATCH(
       ...(validated.daily_limit !== undefined ? { daily_limit: Math.min(18, Math.max(1, validated.daily_limit)) } : {}),
       ...(validated.min_interval_minutes !== undefined ? { min_interval_minutes: validated.min_interval_minutes } : {}),
       ...(validated.status !== undefined ? { status: validated.status } : {}),
+      ...(validated.warmup_enabled !== undefined ? { warmup_enabled: validated.warmup_enabled } : {}),
+      ...(validated.warmup_status !== undefined ? { warmup_status: validated.warmup_status } : {}),
     });
 
     await dbService.logActivity(user.id, 'account_updated', 'email_accounts', id, validated);

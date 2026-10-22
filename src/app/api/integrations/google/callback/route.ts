@@ -10,17 +10,19 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
+  const stateValidation = state ? validateOAuthState(state) : { isValid: false };
+  const returnTo = (stateValidation.isValid && stateValidation.returnTo) ? stateValidation.returnTo : '/accounts';
+
   if (error) {
-    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/settings?error=${encodeURIComponent(error)}`);
+    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}${returnTo}?error=${encodeURIComponent(error)}`);
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/settings?error=missing_code_or_state`);
+    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}${returnTo}?error=missing_code_or_state`);
   }
 
-  const stateValidation = validateOAuthState(state);
   if (!stateValidation.isValid || !stateValidation.userId) {
-    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/settings?error=invalid_or_expired_state`);
+    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}${returnTo}?error=invalid_or_expired_state`);
   }
 
   const userId = stateValidation.userId;
@@ -54,10 +56,11 @@ export async function GET(request: NextRequest) {
       email: profile.emailAddress,
     });
 
-    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/settings?connected=true`);
+    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}${returnTo}?connected=true&email=${encodeURIComponent(profile.emailAddress)}`);
   } catch (err: unknown) {
     console.error('OAuth callback exchange error:', err);
     const errorMsg = err instanceof Error ? err.message : String(err);
-    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}/settings?error=${encodeURIComponent(errorMsg)}`);
+    return NextResponse.redirect(`${env.NEXT_PUBLIC_APP_URL}${returnTo}?error=${encodeURIComponent(errorMsg)}`);
   }
 }
+

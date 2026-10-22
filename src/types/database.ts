@@ -10,10 +10,13 @@ export type JobType =
   | 'schedule_followup' 
   | 'process_unsubscribe' 
   | 'reconcile_send' 
+  | 'process_warmup'
+  | 'send_warmup_email'
   | 'cleanup_expired_jobs';
 
 export type ReplyClassification = 'positive' | 'neutral' | 'objection' | 'out_of_office' | 'unsubscribe' | 'other';
 export type SuppressionReason = 'unsubscribe' | 'bounce' | 'manual' | 'complaint';
+export type WarmupStatus = 'inactive' | 'warming' | 'warm' | 'paused';
 
 export interface Profile {
   id: string;
@@ -36,9 +39,15 @@ export interface AccountGroup {
   description: string;
   created_at: string;
   updated_at: string;
+  // Warmup configuration
+  is_warmup_enabled?: boolean;
+  warmup_daily_limit?: number; // Target max warmup emails per inbox per day (default 15)
+  warmup_ramp_per_day?: number; // Daily increment (default 2)
+  warmup_reply_rate?: number; // Target reply % (default 70)
   // Computed / joined fields
   accounts_count?: number;
   daily_capacity?: number;
+  warmup_inboxes_count?: number;
 }
 
 export type EmailAccountStatus = 'active' | 'paused' | 'error';
@@ -62,10 +71,34 @@ export interface EmailAccount {
   connected_at: string;
   created_at: string;
   updated_at: string;
+  // Warmup properties
+  warmup_enabled?: boolean;
+  warmup_status?: WarmupStatus;
+  warmup_day_count?: number;
+  warmup_sent_today?: number;
+  warmup_received_today?: number;
+  total_warmup_sent?: number;
+  total_warmup_received?: number;
+  warmup_reputation_score?: number;
   // Computed / joined fields
   group?: AccountGroup | null;
   sent_today?: number;
   remaining_today?: number;
+}
+
+export interface WarmupMessage {
+  id: string;
+  from_account_id: string;
+  to_account_id: string;
+  group_id?: string | null;
+  subject: string;
+  body_text: string;
+  gmail_message_id?: string | null;
+  gmail_thread_id?: string | null;
+  status: 'queued' | 'sent' | 'replied' | 'failed';
+  sent_at: string;
+  replied_at?: string | null;
+  created_at: string;
 }
 
 export interface AccountDailyStats {

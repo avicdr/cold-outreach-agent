@@ -24,6 +24,7 @@ export class MockDatabase {
   suppressions: Map<string, Suppression> = new Map();
   jobQueue: Map<string, JobQueueItem> = new Map();
   replyEvents: Map<string, ReplyEvent> = new Map();
+  warmupMessages: Map<string, any> = new Map();
   activityLogs: ActivityLog[] = [];
 
   constructor() {

@@ -71,6 +71,10 @@ async function processSingleJob(job: JobQueueItem) {
       await handleProcessUnsubscribeJob(job.payload as { userId: string; normalizedEmail: string });
       break;
 
+    case 'process_warmup':
+      await handleProcessWarmupJob(job.payload as { userId: string });
+      break;
+
     case 'cleanup_expired_jobs':
       // Periodic cleanup of completed jobs
       break;
@@ -78,6 +82,11 @@ async function processSingleJob(job: JobQueueItem) {
     default:
       throw new Error(`Unsupported job type: ${job.job_type}`);
   }
+}
+
+export async function handleProcessWarmupJob(payload: { userId: string }) {
+  const { runWarmupCycle } = await import('../warmup/service');
+  return runWarmupCycle(payload.userId);
 }
 
 /**

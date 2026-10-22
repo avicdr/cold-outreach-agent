@@ -619,13 +619,27 @@ export const dbService = {
     }
   },
 
-  async createAccountGroup(userId: string, group: { name: string; description?: string }): Promise<AccountGroup> {
+  async createAccountGroup(
+    userId: string,
+    group: {
+      name: string;
+      description?: string;
+      is_warmup_enabled?: boolean;
+      warmup_daily_limit?: number;
+      warmup_ramp_per_day?: number;
+      warmup_reply_rate?: number;
+    }
+  ): Promise<AccountGroup> {
     const id = crypto.randomUUID();
     const newGroup: AccountGroup = {
       id,
       user_id: userId,
       name: group.name,
       description: group.description || '',
+      is_warmup_enabled: group.is_warmup_enabled ?? false,
+      warmup_daily_limit: group.warmup_daily_limit ?? 15,
+      warmup_ramp_per_day: group.warmup_ramp_per_day ?? 2,
+      warmup_reply_rate: group.warmup_reply_rate ?? 70,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       accounts_count: 0,
@@ -642,6 +656,7 @@ export const dbService = {
     if (error) throw new Error(error.message);
     return data;
   },
+
 
   async updateAccountGroup(id: string, updates: Partial<AccountGroup>): Promise<AccountGroup> {
     if (!isLiveSupabase()) {

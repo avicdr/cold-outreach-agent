@@ -73,9 +73,9 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Footer System Status */}
-      <div className="p-4 border-t border-slate-800/80 bg-slate-900/30">
-        <div className="flex items-center gap-2 mb-2">
+      {/* Footer System Status & Legal Links */}
+      <div className="p-4 border-t border-slate-800/80 bg-slate-900/30 space-y-2">
+        <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -86,7 +86,17 @@ export function Sidebar() {
           <span>Worker: Active</span>
           <span className="text-indigo-400 font-mono">Cron Ready</span>
         </div>
+        <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
+          <Link href="/privacy" className="hover:text-slate-300 transition-colors">
+            Privacy Policy
+          </Link>
+          <span>•</span>
+          <Link href="/tos" className="hover:text-slate-300 transition-colors">
+            Terms of Service
+          </Link>
+        </div>
       </div>
     </aside>
   );
 }
+

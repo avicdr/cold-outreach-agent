@@ -31,6 +31,14 @@ async function handleProcess(request: NextRequest) {
       console.warn('Sync replies non-fatal error:', syncErr);
     }
 
+    // Process peer warmup cycles
+    try {
+      const { runWarmupCycle } = await import('@/lib/warmup/service');
+      await runWarmupCycle(syncUserId);
+    } catch (warmupErr) {
+      console.warn('Warmup cycle non-fatal error:', warmupErr);
+    }
+
     return NextResponse.json({
       success: true,
       worker_id: workerId,
