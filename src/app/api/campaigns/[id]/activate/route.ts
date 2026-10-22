@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
+import { calculateStaggeredSchedule } from '@/lib/scheduler';
 
 export async function POST(
   request: NextRequest,
@@ -33,27 +34,42 @@ export async function POST(
       activated_at: new Date().toISOString(),
     });
 
-    // Enqueue sending jobs for any drafts or scheduled messages
+    // Collect all eligible initial messages
     const campaignLeads = await dbService.getCampaignLeads(id);
     const messages = await dbService.getMessages({ campaignId: id });
-
-    let enqueuedCount = 0;
+    const eligibleMessages = [];
     for (const cl of campaignLeads) {
       const msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === 0);
       if (msg && (msg.status === 'draft' || msg.status === 'scheduled')) {
-        await dbService.createOrUpdateMessage({
-          ...msg,
-          status: 'scheduled',
-          scheduled_at: new Date().toISOString(),
-        });
-        await dbService.enqueueJob(
-          'send_email',
-          { emailMessageId: msg.id },
-          `send_initial_${msg.id}`,
-          new Date()
-        );
-        enqueuedCount++;
+        eligibleMessages.push(msg);
       }
+    }
+
+    const emailAccounts = await dbService.getEmailAccounts(user.id, { status: 'active' });
+    const staggeredDates = calculateStaggeredSchedule(
+      campaign,
+      emailAccounts.length > 0 ? emailAccounts : [emailAccount],
+      eligibleMessages.length,
+      new Date()
+    );
+
+    let enqueuedCount = 0;
+    for (let i = 0; i < eligibleMessages.length; i++) {
+      const msg = eligibleMessages[i];
+      const scheduledDate = staggeredDates[i] || new Date();
+
+      await dbService.createOrUpdateMessage({
+        ...msg,
+        status: 'scheduled',
+        scheduled_at: scheduledDate.toISOString(),
+      });
+      await dbService.enqueueJob(
+        'send_email',
+        { emailMessageId: msg.id },
+        `send_initial_${msg.id}`,
+        scheduledDate
+      );
+      enqueuedCount++;
     }
 
     await dbService.logActivity(user.id, 'campaign_activated', 'campaign', id, {

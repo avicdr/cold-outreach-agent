@@ -7,50 +7,21 @@ import { encryptToken, decryptToken } from '../crypto';
 import { generateUnsubscribeToken } from '../unsubscribe-token';
 import { env } from '../env';
 import { JobQueueItem, SendingConfig, Campaign, Lead } from '@/types/database';
+import {
+  isWithinSendingWindow,
+  getNextSendingWindowDate,
+  calculateStaggeredSchedule,
+  getTimezoneParts,
+  createDateInTimezone,
+} from '../scheduler';
 
-/**
- * Checks if current time is within campaign sending window (days and hours in configured timezone).
- */
-export function isWithinSendingWindow(sendingConfig: SendingConfig, date: Date = new Date()): boolean {
-  try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: sendingConfig.timezone || env.DEFAULT_TIMEZONE,
-      weekday: 'short',
-      hour: 'numeric',
-      hour12: false,
-    });
-
-    const parts = formatter.formatToParts(date);
-    const weekdayStr = parts.find((p) => p.type === 'weekday')?.value;
-    const hourStr = parts.find((p) => p.type === 'hour')?.value;
-
-    const dayMap: Record<string, number> = {
-      Sun: 0,
-      Mon: 1,
-      Tue: 2,
-      Wed: 3,
-      Thu: 4,
-      Fri: 5,
-      Sat: 6,
-    };
-
-    const currentDay = weekdayStr ? dayMap[weekdayStr] : date.getUTCDay();
-    const currentHour = hourStr ? parseInt(hourStr, 10) : date.getUTCHours();
-
-    const allowedDays = sendingConfig.days || [1, 2, 3, 4, 5];
-    if (!allowedDays.includes(currentDay)) {
-      return false;
-    }
-
-    const startHour = sendingConfig.start_hour ?? 9;
-    const endHour = sendingConfig.end_hour ?? 17;
-
-    return currentHour >= startHour && currentHour < endHour;
-  } catch {
-    // If timezone parsing fails, fall back to true
-    return true;
-  }
-}
+export {
+  isWithinSendingWindow,
+  getNextSendingWindowDate,
+  calculateStaggeredSchedule,
+  getTimezoneParts,
+  createDateInTimezone,
+};
 
 /**
  * Process a batch of jobs atomically from the job queue.
@@ -152,17 +123,19 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
 
     // Enqueue sending job if campaign is active
     if (campaign.status === 'active') {
+      const scheduledDate = getNextSendingWindowDate(campaign.sending_config, new Date());
       await dbService.createOrUpdateMessage({
         id: msg.id,
         campaign_lead_id: campaignLeadId,
         step_number: 0,
         status: 'scheduled',
+        scheduled_at: scheduledDate.toISOString(),
       });
       await dbService.enqueueJob(
         'send_email',
         { emailMessageId: msg.id },
         `send_msg_${msg.id}`,
-        new Date()
+        scheduledDate
       );
     }
   } else {
@@ -192,17 +165,19 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
     });
 
     if (campaign.status === 'active') {
+      const scheduledDate = getNextSendingWindowDate(campaign.sending_config, new Date());
       await dbService.createOrUpdateMessage({
         id: msg.id,
         campaign_lead_id: campaignLeadId,
         step_number: stepNumber,
         status: 'scheduled',
+        scheduled_at: scheduledDate.toISOString(),
       });
       await dbService.enqueueJob(
         'send_email',
         { emailMessageId: msg.id },
         `send_msg_${msg.id}`,
-        new Date()
+        scheduledDate
       );
     }
   }
@@ -256,10 +231,49 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }) {
 
   // Pre-flight check: Sending window
   if (!isWithinSendingWindow(campaign.sending_config)) {
-    // Re-schedule for 1 hour later
-    const nextRun = new Date(Date.now() + 60 * 60 * 1000);
-    await dbService.enqueueJob('send_email', { emailMessageId }, `retry_win_${emailMessageId}_${nextRun.getTime()}`, nextRun);
+    const nextWindow = getNextSendingWindowDate(campaign.sending_config, new Date());
+    console.info(`[Window] Outside sending window for campaign ${campaign.id}. Rescheduling send to ${nextWindow.toISOString()}`);
+    await dbService.createOrUpdateMessage({
+      ...message,
+      status: 'scheduled',
+      scheduled_at: nextWindow.toISOString(),
+    });
+    await dbService.enqueueJob('send_email', { emailMessageId }, `retry_win_${emailMessageId}_${nextWindow.getTime()}`, nextWindow);
     return;
+  }
+
+  // Pre-flight check: Campaign-level daily & hourly limits
+  if (campaign.sending_config) {
+    const campStats = await dbService.getCampaignSendStats(campaign.id, campaign.sending_config);
+
+    // 1. Campaign daily limit
+    const campDailyLimit = campaign.sending_config.daily_limit;
+    if (campDailyLimit && campStats.sentToday >= campDailyLimit) {
+      const tomorrowInTz = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const nextDayWindow = getNextSendingWindowDate(campaign.sending_config, tomorrowInTz);
+      console.info(`[RateLimit] Campaign ${campaign.id} daily limit (${campDailyLimit}) reached (${campStats.sentToday} sent today). Rescheduling send to ${nextDayWindow.toISOString()}`);
+      await dbService.createOrUpdateMessage({
+        ...message,
+        status: 'scheduled',
+        scheduled_at: nextDayWindow.toISOString(),
+      });
+      await dbService.enqueueJob('send_email', { emailMessageId }, `resched_camp_limit_${emailMessageId}_${nextDayWindow.getTime()}`, nextDayWindow);
+      return;
+    }
+
+    // 2. Campaign hourly limit
+    const campHourlyLimit = campaign.sending_config.hourly_limit;
+    if (campHourlyLimit && campStats.sentPastHour >= campHourlyLimit) {
+      const throttleExit = new Date(campStats.earliestHourSendMs + 60 * 60 * 1000 + 2000);
+      console.info(`[RateLimit] Campaign ${campaign.id} hourly limit (${campHourlyLimit}) reached (${campStats.sentPastHour} sent in past hour). Rescheduling send to ${throttleExit.toISOString()}`);
+      await dbService.createOrUpdateMessage({
+        ...message,
+        status: 'scheduled',
+        scheduled_at: throttleExit.toISOString(),
+      });
+      await dbService.enqueueJob('send_email', { emailMessageId }, `resched_camp_hourly_${emailMessageId}_${throttleExit.getTime()}`, throttleExit);
+      return;
+    }
   }
 
   // Pre-flight check: Account availability, rotation & daily/interval rate limit guards
@@ -271,12 +285,22 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }) {
 
   if (accountResult.status === 'daily_limit_reached') {
     console.info(`[RateLimit] Daily limit reached for accounts in campaign ${campaign.id}. Rescheduling send to ${accountResult.rescheduleAt.toISOString()}`);
+    await dbService.createOrUpdateMessage({
+      ...message,
+      status: 'scheduled',
+      scheduled_at: accountResult.rescheduleAt.toISOString(),
+    });
     await dbService.enqueueJob('send_email', { emailMessageId }, `resched_limit_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
     return;
   }
 
   if (accountResult.status === 'cooldown') {
     console.info(`[RateLimit] Accounts in cooldown (interval safety guard). Rescheduling send for inbox ${accountResult.accountEmail} to ${accountResult.rescheduleAt.toISOString()}`);
+    await dbService.createOrUpdateMessage({
+      ...message,
+      status: 'scheduled',
+      scheduled_at: accountResult.rescheduleAt.toISOString(),
+    });
     await dbService.enqueueJob('send_email', { emailMessageId }, `resched_cooldown_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
     return;
   }

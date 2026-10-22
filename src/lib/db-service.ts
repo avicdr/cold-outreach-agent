@@ -16,7 +16,9 @@ import {
   AccountGroup,
   AccountDailyStats,
   JobType,
+  SendingConfig,
 } from '@/types/database';
+import { getNextSendingWindowDate, createDateInTimezone, getTimezoneParts } from './scheduler';
 
 export const isLiveSupabase = () => {
   return (
@@ -784,7 +786,9 @@ export const dbService = {
     }
 
     return accounts.map((acc) => {
-      const sentCount = todaySentMessages.filter((m) => m.email_account_id === acc.id).length;
+      const sentCount = todaySentMessages.filter(
+        (m) => m.email_account_id === acc.id || (!m.email_account_id && accounts.length === 1)
+      ).length;
       const limit = acc.daily_limit || 18;
       return {
         ...acc,
@@ -1051,6 +1055,47 @@ export const dbService = {
     }
   },
 
+  async getCampaignSendStats(
+    campaignId: string,
+    sendingConfig: SendingConfig
+  ): Promise<{
+    sentToday: number;
+    sentPastHour: number;
+    earliestHourSendMs: number;
+    todayEndMs: number;
+  }> {
+    const messages = await this.getMessages({ campaignId, status: 'sent', limit: 1000 });
+    const now = Date.now();
+    const timeZone = sendingConfig.timezone || env.DEFAULT_TIMEZONE || 'UTC';
+
+    const tzParts = getTimezoneParts(new Date(), timeZone);
+    const startOfTodayUtc = createDateInTimezone(tzParts.year, tzParts.month, tzParts.day, 0, 0, 0, timeZone);
+    const endOfTodayUtc = createDateInTimezone(tzParts.year, tzParts.month, tzParts.day, 23, 59, 59, timeZone);
+
+    const sentTodayMessages = messages.filter((m) => {
+      if (!m.sent_at) return false;
+      const sentTime = new Date(m.sent_at).getTime();
+      return sentTime >= startOfTodayUtc.getTime() && sentTime <= endOfTodayUtc.getTime();
+    });
+
+    const pastHourMessages = messages.filter((m) => {
+      if (!m.sent_at) return false;
+      const sentTime = new Date(m.sent_at).getTime();
+      return now - sentTime < 60 * 60 * 1000;
+    });
+
+    const earliestHourSendMs = pastHourMessages.length > 0
+      ? Math.min(...pastHourMessages.map((m) => new Date(m.sent_at!).getTime()))
+      : now;
+
+    return {
+      sentToday: sentTodayMessages.length,
+      sentPastHour: pastHourMessages.length,
+      earliestHourSendMs,
+      todayEndMs: endOfTodayUtc.getTime(),
+    };
+  },
+
   async getAccountDailyStats(userId: string): Promise<AccountDailyStats> {
     const accounts = await this.getEmailAccounts(userId);
     const activeAccounts = accounts.filter((a) => a.status === 'active');
@@ -1118,13 +1163,12 @@ export const dbService = {
     // 1. Check if all candidates have reached their daily limit
     const withCapacity = candidateStats.filter((c) => c.hasDailyCapacity);
     if (withCapacity.length === 0) {
-      // Re-schedule for next morning at sending start hour
-      const tomorrow = new Date();
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      tomorrow.setUTCHours(campaign.sending_config?.start_hour ?? 9, 0, 0, 0);
+      // Re-schedule for next morning at sending start hour in campaign timezone
+      const tomorrowInTz = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const nextWindow = getNextSendingWindowDate(campaign.sending_config, tomorrowInTz);
       return {
         status: 'daily_limit_reached',
-        rescheduleAt: tomorrow,
+        rescheduleAt: nextWindow,
       };
     }
 

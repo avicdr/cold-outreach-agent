@@ -119,8 +119,19 @@ export default function MessagesPage() {
                               {new Date(msg.sent_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </span>
                           ) : msg.status === 'scheduled' ? (
-                            <span className="text-blue-400">
-                              Queued for Window (09:00 UK)
+                            <span className="text-blue-400 font-medium">
+                              {msg.scheduled_at ? (
+                                <span className="inline-flex flex-col">
+                                  <span className="text-slate-300">
+                                    {new Date(msg.scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                  </span>
+                                  <span className="text-[10px] text-blue-400 font-mono">
+                                    {new Date(msg.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span>Queued for Window</span>
+                              )}
                             </span>
                           ) : '—'}
                         </td>

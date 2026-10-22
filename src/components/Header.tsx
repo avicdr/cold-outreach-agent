@@ -21,6 +21,25 @@ export function Header({ title, subtitle, children }: HeaderProps) {
       .catch(() => setGmailStatus({ connected: false }));
   }, []);
 
+  // Automatic background worker runner: triggers queue processor every 60s while app is open
+  useEffect(() => {
+    const runWorkerSilently = async () => {
+      try {
+        await fetch('/api/jobs/process', { method: 'POST' });
+      } catch {
+        // Silent catch for background heartbeat
+      }
+    };
+
+    const initialTimer = setTimeout(runWorkerSilently, 4000);
+    const interval = setInterval(runWorkerSilently, 60000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, []);
+
   const handleTriggerWorker = async () => {
     setIsRunningWorker(true);
     setWorkerMessage(null);
@@ -72,6 +91,15 @@ export function Header({ title, subtitle, children }: HeaderProps) {
             )}
           </div>
         )}
+
+        {/* Auto Worker Status Pill */}
+        <div
+          title="Background worker automatically checks queue every 60s"
+          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span>Auto-Worker: Active</span>
+        </div>
 
         {/* Manual Process Queue Button */}
         <button
