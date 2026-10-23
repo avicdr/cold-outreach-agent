@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import {
   Compass,
   Plus,
@@ -53,6 +54,12 @@ export default function DiscoveryPage() {
   const [totalLeads, setTotalLeads] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
+
+  // Pagination states
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadsPageSize, setLeadsPageSize] = useState(25);
+  const [jobsPage, setJobsPage] = useState(1);
+  const [jobsPageSize, setJobsPageSize] = useState(9);
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,12 +112,14 @@ export default function DiscoveryPage() {
     }
   };
 
-  const fetchLeads = async () => {
+  const fetchLeads = async (targetPage = leadsPage, targetPageSize = leadsPageSize) => {
     try {
       const params = new URLSearchParams();
       if (filterPriority !== 'all') params.set('priority', filterPriority);
       if (filterNiche !== 'all') params.set('category', filterNiche);
       if (searchQuery) params.set('search', searchQuery);
+      params.set('limit', String(targetPageSize));
+      params.set('offset', String((targetPage - 1) * targetPageSize));
 
       const res = await fetch(`/api/discovery/leads?${params.toString()}`);
       if (res.ok) {
@@ -129,7 +138,8 @@ export default function DiscoveryPage() {
 
   useEffect(() => {
     if (activeTab === 'leads') {
-      fetchLeads();
+      setLeadsPage(1);
+      fetchLeads(1, leadsPageSize);
     }
   }, [activeTab, filterPriority, filterNiche, searchQuery]);
 
@@ -417,7 +427,7 @@ export default function DiscoveryPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {jobs.map((job) => (
+                  {jobs.slice((jobsPage - 1) * jobsPageSize, jobsPage * jobsPageSize).map((job) => (
                     <div
                       key={job.id}
                       className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700 transition-all flex flex-col justify-between space-y-4"
@@ -528,6 +538,22 @@ export default function DiscoveryPage() {
                     </div>
                   ))}
                 </div>
+              )}
+
+              {/* Jobs Pagination */}
+              {jobs.length > 0 && (
+                <Pagination
+                  currentPage={jobsPage}
+                  totalItems={jobs.length}
+                  pageSize={jobsPageSize}
+                  pageSizeOptions={[6, 9, 18, 36]}
+                  itemName="discovery jobs"
+                  onPageChange={(newPage) => setJobsPage(newPage)}
+                  onPageSizeChange={(newSize) => {
+                    setJobsPageSize(newSize);
+                    setJobsPage(1);
+                  }}
+                />
               )}
             </div>
           )}
@@ -698,6 +724,27 @@ export default function DiscoveryPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Qualified Leads Pagination */}
+              {totalLeads > 0 && (
+                <Pagination
+                  currentPage={leadsPage}
+                  totalItems={totalLeads}
+                  pageSize={leadsPageSize}
+                  pageSizeOptions={[10, 25, 50, 100]}
+                  itemName="discovered leads"
+                  onPageChange={(newPage) => {
+                    setLeadsPage(newPage);
+                    fetchLeads(newPage, leadsPageSize);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onPageSizeChange={(newSize) => {
+                    setLeadsPageSize(newSize);
+                    setLeadsPage(1);
+                    fetchLeads(1, newSize);
+                  }}
+                />
+              )}
             </div>
           )}
 

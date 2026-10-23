@@ -449,6 +449,60 @@ export const dbService = {
     }));
   },
 
+  async getPaginatedMessages(filters?: {
+    campaignId?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ messages: EmailMessage[]; total: number }> {
+    if (!isLiveSupabase()) {
+      let msgs = Array.from(mockDb.emailMessages.values());
+      if (filters?.campaignId) {
+        msgs = msgs.filter((m) => {
+          const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
+          return cl?.campaign_id === filters.campaignId;
+        });
+      }
+      if (filters?.status) {
+        msgs = msgs.filter((m) => m.status === filters.status);
+      }
+      const total = msgs.length;
+      msgs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const offset = filters?.offset || 0;
+      const limit = filters?.limit ?? 50;
+      const paged = msgs.slice(offset, offset + limit).map((m) => {
+        const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
+        const lead = cl ? mockDb.leads.get(cl.lead_id) : undefined;
+        return { ...m, lead, campaign_id: cl?.campaign_id };
+      });
+      return { messages: paged, total };
+    }
+
+    const supabase = createAdminClient();
+    let query = supabase.from('email_messages').select('*, campaign_lead:campaign_leads(*, lead:leads(*))', { count: 'exact' });
+    if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.campaignId) {
+      const { data: cls, error: clErr } = await supabase
+        .from('campaign_leads')
+        .select('id')
+        .eq('campaign_id', filters.campaignId);
+      if (clErr) throw new Error(clErr.message);
+      const clIds = (cls || []).map((c) => c.id);
+      if (clIds.length === 0) return { messages: [], total: 0 };
+      query = query.in('campaign_lead_id', clIds);
+    }
+    const offset = filters?.offset || 0;
+    const limit = filters?.limit ?? 50;
+    const { data, count, error } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+    if (error) throw new Error(error.message);
+    const messages = (data || []).map((m: any) => ({
+      ...m,
+      lead: m.campaign_lead?.lead || undefined,
+      campaign_id: m.campaign_lead?.campaign_id || undefined,
+    }));
+    return { messages, total: count ?? messages.length };
+  },
+
   async getMessage(id: string): Promise<EmailMessage | null> {
     if (!id) return null;
     if (!isLiveSupabase()) {
@@ -1281,6 +1335,34 @@ export const dbService = {
     const { data, error } = await supabase.from('reply_events').select('*').eq('user_id', userId).order('received_at', { ascending: false });
     if (error) throw new Error(error.message);
     return data || [];
+  },
+
+  async getPaginatedReplies(
+    userId: string,
+    options?: { limit?: number; offset?: number; classification?: string }
+  ): Promise<{ replies: ReplyEvent[]; total: number }> {
+    if (!isLiveSupabase()) {
+      let all = Array.from(mockDb.replyEvents.values()).filter((r) => r.user_id === userId);
+      if (options?.classification) {
+        all = all.filter((r) => r.classification === options.classification);
+      }
+      const total = all.length;
+      all.sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime());
+      const offset = options?.offset || 0;
+      const limit = options?.limit ?? 50;
+      return { replies: all.slice(offset, offset + limit), total };
+    }
+
+    const supabase = createAdminClient();
+    let query = supabase.from('reply_events').select('*', { count: 'exact' }).eq('user_id', userId);
+    if (options?.classification) {
+      query = query.eq('classification', options.classification);
+    }
+    const offset = options?.offset || 0;
+    const limit = options?.limit ?? 50;
+    const { data, count, error } = await query.order('received_at', { ascending: false }).range(offset, offset + limit - 1);
+    if (error) throw new Error(error.message);
+    return { replies: data || [], total: count ?? 0 };
   },
 
   async recordReply(event: Omit<ReplyEvent, 'id' | 'created_at'>): Promise<ReplyEvent> {

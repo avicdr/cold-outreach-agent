@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import { Lead } from '@/types/database';
 import {
   Search,
@@ -27,12 +28,16 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  const fetchLeads = () => {
+  const fetchLeads = (targetPage = page, targetPageSize = pageSize) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
+    params.set('page', String(targetPage));
+    params.set('limit', String(targetPageSize));
 
     fetch(`/api/leads?${params.toString()}`)
       .then((res) => res.json())
@@ -48,12 +53,14 @@ export default function LeadsPage() {
   };
 
   useEffect(() => {
-    fetchLeads();
+    setPage(1);
+    fetchLeads(1, pageSize);
   }, [statusFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchLeads();
+    setPage(1);
+    fetchLeads(1, pageSize);
   };
 
   const getStatusBadge = (status: Lead['status']) => {
@@ -242,6 +249,26 @@ export default function LeadsPage() {
               </table>
             </div>
           </div>
+
+          {/* Pagination Controls */}
+          {total > 0 && (
+            <Pagination
+              currentPage={page}
+              totalItems={total}
+              pageSize={pageSize}
+              itemName="leads"
+              onPageChange={(newPage) => {
+                setPage(newPage);
+                fetchLeads(newPage, pageSize);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+                fetchLeads(1, newSize);
+              }}
+            />
+          )}
         </main>
       </div>
     </div>

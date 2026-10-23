@@ -11,11 +11,19 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status') || undefined;
   const campaignId = searchParams.get('campaignId') || undefined;
-  const limit = parseInt(searchParams.get('limit') || '50', 10);
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const limit = parseInt(searchParams.get('limit') || searchParams.get('pageSize') || '25', 10);
+  const offset = searchParams.get('offset') !== null ? parseInt(searchParams.get('offset')!, 10) : (page - 1) * limit;
 
   try {
-    const messages = await dbService.getMessages({ status, campaignId, limit });
-    return NextResponse.json(messages);
+    const result = await dbService.getPaginatedMessages({ status, campaignId, limit, offset });
+    return NextResponse.json({
+      messages: result.messages,
+      total: result.total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(result.total / limit)),
+    });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

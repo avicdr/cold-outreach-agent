@@ -25,8 +25,9 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const status = url.searchParams.get('status') || undefined;
     const jobType = url.searchParams.get('type') || undefined;
-    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
-    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const limit = parseInt(url.searchParams.get('limit') || url.searchParams.get('pageSize') || '25', 10);
+    const offset = url.searchParams.get('offset') !== null ? parseInt(url.searchParams.get('offset')!, 10) : (page - 1) * limit;
 
     const result = await dbService.getJobs({
       status,
@@ -38,6 +39,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       ...result,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil((result.total || 0) / limit)),
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);

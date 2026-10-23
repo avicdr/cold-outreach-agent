@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import { Campaign } from '@/types/database';
 import {
   Send,
@@ -22,6 +23,8 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [isPausingAll, setIsPausingAll] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const fetchCampaigns = () => {
     setLoading(true);
@@ -46,6 +49,8 @@ export default function CampaignsPage() {
   const filteredCampaigns = statusFilter
     ? campaignList.filter((c) => c.status === statusFilter)
     : campaignList;
+
+  const paginatedCampaigns = filteredCampaigns.slice((page - 1) * pageSize, page * pageSize);
 
   const handleGlobalPauseToggle = async () => {
     setIsPausingAll(true);
@@ -154,7 +159,7 @@ export default function CampaignsPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredCampaigns.map((camp) => (
+              {paginatedCampaigns.map((camp) => (
                 <div
                   key={camp.id}
                   className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 glass-card-hover flex flex-col justify-between space-y-4"
@@ -207,6 +212,25 @@ export default function CampaignsPage() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Pagination Controls */}
+          {filteredCampaigns.length > 0 && (
+            <Pagination
+              currentPage={page}
+              totalItems={filteredCampaigns.length}
+              pageSize={pageSize}
+              pageSizeOptions={[5, 10, 20, 50]}
+              itemName="campaigns"
+              onPageChange={(newPage) => {
+                setPage(newPage);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+              }}
+            />
           )}
         </main>
       </div>

@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { GET as healthGet } from '@/app/api/health/route';
 import { GET as analyticsGet } from '@/app/api/analytics/route';
 import { GET as leadsGet, POST as leadsPost } from '@/app/api/leads/route';
+import { GET as messagesGet } from '@/app/api/messages/route';
+import { GET as jobsGet } from '@/app/api/jobs/route';
+import { GET as repliesGet } from '@/app/api/replies/route';
 import { POST as campaignsPost, GET as campaignsGet } from '@/app/api/campaigns/route';
 import { POST as enrollPost } from '@/app/api/campaigns/[id]/enroll/route';
 import { POST as activatePost } from '@/app/api/campaigns/[id]/activate/route';
@@ -145,5 +148,54 @@ describe('API Routes Integration Tests', () => {
     const data = await res.json();
     expect(data.success).toBe(true);
     expect(data.worker_id).toBeDefined();
+  });
+
+  it('GET /api/leads supports pagination parameters and returns pagination metadata', async () => {
+    const req = new Request('http://localhost:3000/api/leads?page=1&limit=10');
+    const res = await leadsGet(req as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data.leads)).toBe(true);
+    expect(typeof data.total).toBe('number');
+    expect(data.page).toBe(1);
+    expect(data.limit).toBe(10);
+    expect(typeof data.totalPages).toBe('number');
+  });
+
+  it('GET /api/messages supports pagination parameters and returns metadata', async () => {
+    const req = new Request('http://localhost:3000/api/messages?page=1&limit=5');
+    const res = await messagesGet(req as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data.messages)).toBe(true);
+    expect(typeof data.total).toBe('number');
+    expect(data.page).toBe(1);
+    expect(data.limit).toBe(5);
+    expect(typeof data.totalPages).toBe('number');
+  });
+
+  it('GET /api/jobs supports pagination parameters and returns metadata', async () => {
+    const req = new Request('http://localhost:3000/api/jobs?page=1&limit=10');
+    const res = await jobsGet(req as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(Array.isArray(data.jobs)).toBe(true);
+    expect(typeof data.total).toBe('number');
+    expect(data.page).toBe(1);
+    expect(data.limit).toBe(10);
+    expect(typeof data.totalPages).toBe('number');
+  });
+
+  it('GET /api/replies supports pagination parameters and returns metadata', async () => {
+    const req = new Request('http://localhost:3000/api/replies?page=1&limit=10');
+    const res = await repliesGet(req as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data.replies)).toBe(true);
+    expect(typeof data.total).toBe('number');
+    expect(data.page).toBe(1);
+    expect(data.limit).toBe(10);
+    expect(typeof data.totalPages).toBe('number');
   });
 });

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import { EmailMessage } from '@/types/database';
 import {
   Mail,
@@ -19,22 +20,33 @@ export default function MessagesPage() {
   const [messages, setMessages] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  useEffect(() => {
+  const fetchMessages = (targetPage = page, targetPageSize = pageSize) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
+    params.set('page', String(targetPage));
+    params.set('limit', String(targetPageSize));
 
     fetch(`/api/messages?${params.toString()}`)
       .then((res) => res.json())
       .then((data) => {
-        setMessages(Array.isArray(data) ? data : []);
+        setMessages(Array.isArray(data) ? data : data.messages || []);
+        setTotal(typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0));
         setLoading(false);
       })
       .catch((err) => {
         console.error(err);
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    setPage(1);
+    fetchMessages(1, pageSize);
   }, [statusFilter]);
 
   const getStatusBadge = (status: EmailMessage['status']) => {
@@ -151,6 +163,26 @@ export default function MessagesPage() {
               </table>
             </div>
           </div>
+
+          {/* Pagination Controls */}
+          {total > 0 && (
+            <Pagination
+              currentPage={page}
+              totalItems={total}
+              pageSize={pageSize}
+              itemName="messages"
+              onPageChange={(newPage) => {
+                setPage(newPage);
+                fetchMessages(newPage, pageSize);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+                fetchMessages(1, newSize);
+              }}
+            />
+          )}
         </main>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import {
   Upload,
   FileSpreadsheet,
@@ -57,6 +58,10 @@ export default function LeadImportPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageSize, setPreviewPageSize] = useState(5);
+  const [invalidRowsPage, setInvalidRowsPage] = useState(1);
+  const [invalidRowsPageSize, setInvalidRowsPageSize] = useState(10);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
@@ -470,7 +475,11 @@ export default function LeadImportPage() {
 
               {/* Data Preview */}
               <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 space-y-3">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preview (First 5 Rows)</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Data Preview ({allRows.length} total rows detected)
+                  </h4>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
@@ -481,16 +490,33 @@ export default function LeadImportPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/40 text-slate-300">
-                      {previewRows.map((row, i) => (
-                        <tr key={i}>
-                          {headers.slice(0, 6).map((h) => (
-                            <td key={h} className="py-2 pr-3 truncate max-w-[150px]">{String(row[h] ?? '')}</td>
-                          ))}
-                        </tr>
-                      ))}
+                      {allRows
+                        .slice((previewPage - 1) * previewPageSize, previewPage * previewPageSize)
+                        .map((row, i) => (
+                          <tr key={i}>
+                            {headers.slice(0, 6).map((h) => (
+                              <td key={h} className="py-2 pr-3 truncate max-w-[150px]">{String(row[h] ?? '')}</td>
+                            ))}
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>
+
+                {allRows.length > 0 && (
+                  <Pagination
+                    currentPage={previewPage}
+                    totalItems={allRows.length}
+                    pageSize={previewPageSize}
+                    pageSizeOptions={[5, 10, 25, 50]}
+                    itemName="rows"
+                    onPageChange={(p) => setPreviewPage(p)}
+                    onPageSizeChange={(s) => {
+                      setPreviewPageSize(s);
+                      setPreviewPage(1);
+                    }}
+                  />
+                )}
               </div>
 
               <div className="flex items-center justify-between pt-2">
@@ -545,16 +571,34 @@ export default function LeadImportPage() {
               </div>
 
               {summary.invalid_rows.length > 0 && (
-                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 space-y-2">
-                  <div className="text-xs font-semibold text-slate-300">Skipped Row Details:</div>
-                  <div className="max-h-40 overflow-y-auto space-y-1 text-[11px] text-slate-400">
-                    {summary.invalid_rows.map((r, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <span className="font-mono text-slate-500">Row {r.rowNumber}:</span>
-                        <span>{r.reason}</span>
-                      </div>
-                    ))}
+                <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 space-y-3">
+                  <div className="text-xs font-semibold text-slate-300">
+                    Skipped Row Details ({summary.invalid_rows.length}):
                   </div>
+                  <div className="space-y-1 text-[11px] text-slate-400">
+                    {summary.invalid_rows
+                      .slice((invalidRowsPage - 1) * invalidRowsPageSize, invalidRowsPage * invalidRowsPageSize)
+                      .map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 p-1.5 rounded bg-slate-950/40">
+                          <span className="font-mono text-slate-500">Row {r.rowNumber}:</span>
+                          <span>{r.reason}</span>
+                        </div>
+                      ))}
+                  </div>
+                  {summary.invalid_rows.length > invalidRowsPageSize && (
+                    <Pagination
+                      currentPage={invalidRowsPage}
+                      totalItems={summary.invalid_rows.length}
+                      pageSize={invalidRowsPageSize}
+                      pageSizeOptions={[5, 10, 25]}
+                      itemName="skipped rows"
+                      onPageChange={(p) => setInvalidRowsPage(p)}
+                      onPageSizeChange={(s) => {
+                        setInvalidRowsPageSize(s);
+                        setInvalidRowsPage(1);
+                      }}
+                    />
+                  )}
                 </div>
               )}
 

@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import {
   Activity,
   AlertCircle,
@@ -98,6 +99,9 @@ function JobsContent() {
   const [selectedType, setSelectedType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [jobs, setJobs] = useState<JobQueueItem[]>([]);
+  const [totalJobs, setTotalJobs] = useState<number>(0);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [counts, setCounts] = useState({
     all: 0,
     failed: 0,
@@ -113,18 +117,20 @@ function JobsContent() {
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
-  const fetchJobs = async () => {
+  const fetchJobs = async (targetPage = page, targetPageSize = pageSize) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (activeTab !== 'all') params.set('status', activeTab);
       if (selectedType !== 'all') params.set('type', selectedType);
-      params.set('limit', '100');
+      params.set('page', String(targetPage));
+      params.set('limit', String(targetPageSize));
 
       const res = await fetch(`/api/jobs?${params.toString()}`);
       const data = await res.json();
       if (res.ok) {
         setJobs(data.jobs || []);
+        setTotalJobs(typeof data.total === 'number' ? data.total : (data.jobs || []).length);
         if (data.counts) {
           setCounts(data.counts);
         }
@@ -137,7 +143,8 @@ function JobsContent() {
   };
 
   useEffect(() => {
-    fetchJobs();
+    setPage(1);
+    fetchJobs(1, pageSize);
   }, [activeTab, selectedType]);
 
   const handleTabChange = (tab: string) => {
@@ -292,7 +299,7 @@ function JobsContent() {
               <span>{runningWorker ? 'Worker Running...' : 'Run Worker Now'}</span>
             </button>
             <button
-              onClick={fetchJobs}
+              onClick={() => fetchJobs()}
               disabled={loading}
               className="p-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
               title="Refresh Queue"
@@ -612,6 +619,26 @@ function JobsContent() {
               </div>
             )}
           </div>
+
+          {/* Pagination Controls */}
+          {totalJobs > 0 && (
+            <Pagination
+              currentPage={page}
+              totalItems={totalJobs}
+              pageSize={pageSize}
+              itemName="queue jobs"
+              onPageChange={(newPage) => {
+                setPage(newPage);
+                fetchJobs(newPage, pageSize);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+                fetchJobs(1, newSize);
+              }}
+            />
+          )}
         </main>
       </div>
 

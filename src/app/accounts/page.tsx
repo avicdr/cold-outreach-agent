@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import {
   Inbox,
   Plus,
@@ -98,6 +99,14 @@ export default function AccountsPage() {
   const [activeTab, setActiveTab] = useState<'accounts' | 'groups' | 'warmup'>('accounts');
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all');
   const [runningWarmup, setRunningWarmup] = useState(false);
+
+  // Pagination states
+  const [accountsPage, setAccountsPage] = useState(1);
+  const [accountsPageSize, setAccountsPageSize] = useState(9);
+  const [groupsPage, setGroupsPage] = useState(1);
+  const [groupsPageSize, setGroupsPageSize] = useState(6);
+  const [warmupPage, setWarmupPage] = useState(1);
+  const [warmupPageSize, setWarmupPageSize] = useState(10);
 
   // Modals state
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
@@ -723,7 +732,7 @@ export default function AccountsPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredAccounts.map((acc) => {
+                  {filteredAccounts.slice((accountsPage - 1) * accountsPageSize, accountsPage * accountsPageSize).map((acc) => {
                     const limit = acc.daily_limit || 18;
                     const sent = acc.sent_today || 0;
                     const remaining = Math.max(0, limit - sent);
@@ -851,6 +860,24 @@ export default function AccountsPage() {
                   })}
                 </div>
               )}
+
+              {/* Inboxes Pagination */}
+              {filteredAccounts.length > 0 && (
+                <div className="mt-4">
+                  <Pagination
+                    currentPage={accountsPage}
+                    totalItems={filteredAccounts.length}
+                    pageSize={accountsPageSize}
+                    pageSizeOptions={[6, 9, 18, 36]}
+                    itemName="inboxes"
+                    onPageChange={(newPage) => setAccountsPage(newPage)}
+                    onPageSizeChange={(newSize) => {
+                      setAccountsPageSize(newSize);
+                      setAccountsPage(1);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -880,7 +907,7 @@ export default function AccountsPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {groups.map((group) => {
+                  {groups.slice((groupsPage - 1) * groupsPageSize, groupsPage * groupsPageSize).map((group) => {
                     const inboxes = accounts.filter((a) => a.group_id === group.id);
                     const activeInboxes = inboxes.filter((a) => a.status === 'active');
                     const capacity = activeInboxes.reduce((sum, a) => sum + (a.daily_limit || 18), 0);
@@ -975,6 +1002,24 @@ export default function AccountsPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Groups Pagination */}
+              {groups.length > 0 && (
+                <div className="mt-4">
+                  <Pagination
+                    currentPage={groupsPage}
+                    totalItems={groups.length}
+                    pageSize={groupsPageSize}
+                    pageSizeOptions={[3, 6, 12, 24]}
+                    itemName="account groups"
+                    onPageChange={(newPage) => setGroupsPage(newPage)}
+                    onPageSizeChange={(newSize) => {
+                      setGroupsPageSize(newSize);
+                      setGroupsPage(1);
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -1073,7 +1118,7 @@ export default function AccountsPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60">
-                        {accounts.map((acc) => (
+                        {accounts.slice((warmupPage - 1) * warmupPageSize, warmupPage * warmupPageSize).map((acc) => (
                           <tr key={acc.id} className="hover:bg-slate-900/60 transition-colors">
                             <td className="px-4 py-3.5 font-medium text-white">
                               {acc.email_address}
@@ -1134,6 +1179,24 @@ export default function AccountsPage() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+
+                {/* Warmup Pool Pagination */}
+                {accounts.length > 0 && (
+                  <div className="p-3 border-t border-slate-800">
+                    <Pagination
+                      currentPage={warmupPage}
+                      totalItems={accounts.length}
+                      pageSize={warmupPageSize}
+                      pageSizeOptions={[5, 10, 25]}
+                      itemName="warmup accounts"
+                      onPageChange={(newPage) => setWarmupPage(newPage)}
+                      onPageSizeChange={(newSize) => {
+                        setWarmupPageSize(newSize);
+                        setWarmupPage(1);
+                      }}
+                    />
                   </div>
                 )}
               </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import { ReplyEvent } from '@/types/database';
 import {
   MessageSquareQuote,
@@ -20,18 +21,31 @@ export default function RepliesPage() {
   const [replies, setReplies] = useState<ReplyEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReply, setSelectedReply] = useState<ReplyEvent | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  useEffect(() => {
-    fetch('/api/replies')
+  const fetchReplies = (targetPage = page, targetPageSize = pageSize) => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set('page', String(targetPage));
+    params.set('limit', String(targetPageSize));
+
+    fetch(`/api/replies?${params.toString()}`)
       .then((res) => res.json())
       .then((data) => {
-        setReplies(Array.isArray(data) ? data : []);
+        setReplies(Array.isArray(data) ? data : data.replies || []);
+        setTotal(typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0));
         setLoading(false);
       })
       .catch((err) => {
         console.error(err);
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    fetchReplies(1, pageSize);
   }, []);
 
   const getClassificationBadge = (classification: ReplyEvent['classification']) => {
@@ -132,6 +146,26 @@ export default function RepliesPage() {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Pagination Controls */}
+          {total > 0 && (
+            <Pagination
+              currentPage={page}
+              totalItems={total}
+              pageSize={pageSize}
+              itemName="replies"
+              onPageChange={(newPage) => {
+                setPage(newPage);
+                fetchReplies(newPage, pageSize);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setPage(1);
+                fetchReplies(1, newSize);
+              }}
+            />
           )}
         </main>
 

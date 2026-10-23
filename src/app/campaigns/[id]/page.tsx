@@ -4,6 +4,7 @@ import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
+import { Pagination } from '@/components/Pagination';
 import { Campaign, CampaignLead, EmailMessage, Lead } from '@/types/database';
 import {
   Sparkles,
@@ -44,6 +45,11 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showActivateConfirm, setShowActivateConfirm] = useState(false);
   const [dispatching, setDispatching] = useState(false);
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadsPageSize, setLeadsPageSize] = useState(10);
+  const [modalPage, setModalPage] = useState(1);
+  const [modalPageSize, setModalPageSize] = useState(10);
+  const [modalSearch, setModalSearch] = useState('');
 
   const isWindowActive = (() => {
     if (!campaign?.sending_config) return false;
@@ -87,7 +93,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
 
   const loadAvailableLeads = async () => {
     try {
-      const res = await fetch('/api/leads?limit=100');
+      const res = await fetch('/api/leads?limit=1000');
       const data = await res.json();
       if (res.ok) {
         setAllAvailableLeads(data.leads || []);
@@ -404,7 +410,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                       </td>
                     </tr>
                   ) : (
-                    leads.map((cl) => {
+                    leads.slice((leadsPage - 1) * leadsPageSize, leadsPage * leadsPageSize).map((cl) => {
                       const msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === cl.current_step);
                       return (
                         <tr key={cl.id} className="hover:bg-slate-900/50 transition-colors">
@@ -459,6 +465,24 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                 </tbody>
               </table>
             </div>
+
+            {/* Enrolled Prospects Pagination */}
+            {leads.length > 0 && (
+              <div className="p-3 border-t border-slate-800">
+                <Pagination
+                  currentPage={leadsPage}
+                  totalItems={leads.length}
+                  pageSize={leadsPageSize}
+                  pageSizeOptions={[5, 10, 25, 50]}
+                  itemName="enrolled prospects"
+                  onPageChange={(newPage) => setLeadsPage(newPage)}
+                  onPageSizeChange={(newSize) => {
+                    setLeadsPageSize(newSize);
+                    setLeadsPage(1);
+                  }}
+                />
+              </div>
+            )}
           </div>
         </main>
 
@@ -471,32 +495,79 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                 <button onClick={() => setShowEnrollModal(false)} className="text-slate-400 hover:text-white">✕</button>
               </div>
 
-              <div className="max-h-60 overflow-y-auto space-y-2 text-xs divide-y divide-slate-800">
-                {allAvailableLeads.map((lead) => {
-                  const isEnrolled = leads.some((cl) => cl.lead_id === lead.id);
-                  const isChecked = selectedLeadIds.includes(lead.id);
-
-                  if (isEnrolled) return null;
-
-                  return (
-                    <label key={lead.id} className="pt-2 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 p-2 rounded">
-                      <div>
-                        <div className="font-medium text-slate-200">{lead.first_name} {lead.last_name} ({lead.company || 'No Company'})</div>
-                        <div className="text-[11px] text-slate-400">{lead.email}</div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          if (e.target.checked) setSelectedLeadIds([...selectedLeadIds, lead.id]);
-                          else setSelectedLeadIds(selectedLeadIds.filter((id) => id !== lead.id));
-                        }}
-                        className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
-                      />
-                    </label>
-                  );
-                })}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Search available leads..."
+                  value={modalSearch}
+                  onChange={(e) => {
+                    setModalSearch(e.target.value);
+                    setModalPage(1);
+                  }}
+                  className="flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
               </div>
+
+              {(() => {
+                const unenrolled = allAvailableLeads.filter((l) => !leads.some((cl) => cl.lead_id === l.id));
+                const filtered = modalSearch.trim()
+                  ? unenrolled.filter(
+                      (l) =>
+                        l.email.toLowerCase().includes(modalSearch.toLowerCase()) ||
+                        `${l.first_name} ${l.last_name}`.toLowerCase().includes(modalSearch.toLowerCase()) ||
+                        l.company.toLowerCase().includes(modalSearch.toLowerCase())
+                    )
+                  : unenrolled;
+                const paged = filtered.slice((modalPage - 1) * modalPageSize, modalPage * modalPageSize);
+
+                return (
+                  <>
+                    <div className="max-h-60 overflow-y-auto space-y-2 text-xs divide-y divide-slate-800">
+                      {paged.length === 0 ? (
+                        <div className="py-6 text-center text-slate-500">
+                          {filtered.length === 0 ? 'No available leads found.' : 'No leads on this page.'}
+                        </div>
+                      ) : (
+                        paged.map((lead) => {
+                          const isChecked = selectedLeadIds.includes(lead.id);
+                          return (
+                            <label key={lead.id} className="pt-2 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 p-2 rounded">
+                              <div>
+                                <div className="font-medium text-slate-200">{lead.first_name} {lead.last_name} ({lead.company || 'No Company'})</div>
+                                <div className="text-[11px] text-slate-400">{lead.email}</div>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedLeadIds([...selectedLeadIds, lead.id]);
+                                  else setSelectedLeadIds(selectedLeadIds.filter((id) => id !== lead.id));
+                                }}
+                                className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                              />
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {filtered.length > 0 && (
+                      <Pagination
+                        currentPage={modalPage}
+                        totalItems={filtered.length}
+                        pageSize={modalPageSize}
+                        pageSizeOptions={[5, 10, 20]}
+                        itemName="leads"
+                        onPageChange={(newPage) => setModalPage(newPage)}
+                        onPageSizeChange={(newSize) => {
+                          setModalPageSize(newSize);
+                          setModalPage(1);
+                        }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                 <span className="text-xs text-slate-400">{selectedLeadIds.length} lead(s) selected</span>

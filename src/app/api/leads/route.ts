@@ -24,12 +24,18 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status') || undefined;
   const search = searchParams.get('search') || undefined;
-  const limit = parseInt(searchParams.get('limit') || '50', 10);
-  const offset = parseInt(searchParams.get('offset') || '0', 10);
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const limit = parseInt(searchParams.get('limit') || searchParams.get('pageSize') || '25', 10);
+  const offset = searchParams.get('offset') !== null ? parseInt(searchParams.get('offset')!, 10) : (page - 1) * limit;
 
   try {
     const data = await dbService.getLeads(user.id, { status, search, limit, offset });
-    return NextResponse.json(data);
+    return NextResponse.json({
+      ...data,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil((data.total || 0) / limit)),
+    });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });
