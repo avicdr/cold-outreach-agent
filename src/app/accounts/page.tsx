@@ -25,6 +25,10 @@ import {
   Activity,
   Zap,
   AlertTriangle,
+  Server,
+  Eye,
+  EyeOff,
+  Key,
 } from 'lucide-react';
 
 
@@ -45,6 +49,7 @@ interface EmailAccount {
   user_id: string;
   email_address: string;
   sender_name?: string;
+  provider?: 'gmail' | 'smtp' | string;
   group_id?: string | null;
   group?: AccountGroup | null;
   daily_limit: number;
@@ -62,6 +67,10 @@ interface EmailAccount {
   total_warmup_sent?: number;
   total_warmup_received?: number;
   warmup_reputation_score?: number;
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_secure?: boolean;
+  smtp_username?: string | null;
 }
 
 interface AccountStats {
@@ -97,6 +106,11 @@ export default function AccountsPage() {
   const [editingGroup, setEditingGroup] = useState<AccountGroup | null>(null);
 
   // Form states
+  const [connectionTab, setConnectionTab] = useState<'titan' | 'gmail' | 'smtp'>('titan');
+  const [showPassword, setShowPassword] = useState(false);
+  const [verifyingSmtp, setVerifyingSmtp] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState<{ verified: boolean; message?: string } | null>(null);
+
   const [accountForm, setAccountForm] = useState({
     email_address: '',
     sender_name: '',
@@ -104,6 +118,11 @@ export default function AccountsPage() {
     daily_limit: 18,
     min_interval_minutes: 15,
     warmup_enabled: true,
+    smtp_host: 'smtp.titan.email',
+    smtp_port: 465,
+    smtp_secure: true,
+    smtp_username: '',
+    smtp_password: '',
   });
 
   const [groupForm, setGroupForm] = useState({
@@ -183,22 +202,81 @@ export default function AccountsPage() {
     }
   };
 
+  const handleVerifySmtp = async () => {
+    const isTitan = connectionTab === 'titan';
+    const host = isTitan ? 'smtp.titan.email' : (accountForm.smtp_host || 'smtp.titan.email');
+    const port = isTitan ? 465 : (accountForm.smtp_port || 465);
+    const user = accountForm.smtp_username.trim() || accountForm.email_address.trim();
+    const pass = accountForm.smtp_password;
+
+    if (!user || !pass) {
+      setSmtpStatus({ verified: false, message: 'Please enter your email and password first' });
+      return;
+    }
+
+    setVerifyingSmtp(true);
+    setSmtpStatus(null);
+    try {
+      const res = await fetch('/api/integrations/smtp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host,
+          port,
+          secure: port === 465,
+          user,
+          pass,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSmtpStatus({ verified: true, message: 'SMTP connection verified successfully!' });
+      } else {
+        setSmtpStatus({ verified: false, message: data.error || 'Connection failed. Verify your email & password (or App Password).' });
+      }
+    } catch {
+      setSmtpStatus({ verified: false, message: 'Network error checking SMTP connection' });
+    } finally {
+      setVerifyingSmtp(false);
+    }
+  };
+
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accountForm.email_address) return;
     setSubmitting(true);
     try {
+      const isSmtp = connectionTab === 'titan' || connectionTab === 'smtp';
+      const payload: any = {
+        email_address: accountForm.email_address.trim(),
+        sender_name: accountForm.sender_name.trim(),
+        group_id: accountForm.group_id || null,
+        daily_limit: accountForm.daily_limit,
+        min_interval_minutes: accountForm.min_interval_minutes,
+        warmup_enabled: accountForm.warmup_enabled,
+        provider: isSmtp ? 'smtp' : 'gmail',
+      };
+
+      if (isSmtp) {
+        payload.smtp_host = connectionTab === 'titan' ? 'smtp.titan.email' : (accountForm.smtp_host.trim() || 'smtp.titan.email');
+        payload.smtp_port = connectionTab === 'titan' ? 465 : (accountForm.smtp_port || 465);
+        payload.smtp_secure = connectionTab === 'titan' ? true : accountForm.smtp_secure;
+        payload.smtp_username = (accountForm.smtp_username.trim() || accountForm.email_address.trim());
+        payload.smtp_password = accountForm.smtp_password;
+        if (connectionTab === 'titan') {
+          payload.imap_host = 'imap.titan.email';
+          payload.imap_port = 993;
+        }
+      }
+
       const res = await fetch('/api/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...accountForm,
-          group_id: accountForm.group_id || null,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification(`Inbox ${accountForm.email_address} added successfully!`);
+        showNotification(`Inbox ${accountForm.email_address} connected successfully!`);
         setShowAddAccountModal(false);
         setAccountForm({
           email_address: '',
@@ -207,7 +285,13 @@ export default function AccountsPage() {
           daily_limit: 18,
           min_interval_minutes: 15,
           warmup_enabled: true,
+          smtp_host: 'smtp.titan.email',
+          smtp_port: 465,
+          smtp_secure: true,
+          smtp_username: '',
+          smtp_password: '',
         });
+        setSmtpStatus(null);
         loadData();
       } else {
         showNotification(data.error || 'Failed to add inbox', 'error');
@@ -675,8 +759,20 @@ export default function AccountsPage() {
                             </button>
                           </div>
 
-                          {/* Badges: Group & Warmup */}
+                          {/* Badges: Provider, Group & Warmup */}
                           <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                            {acc.provider === 'smtp' ? (
+                              <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 font-medium text-[11px] flex items-center gap-1">
+                                <ShieldCheck className="w-3 h-3 text-blue-400" />
+                                <span>{acc.smtp_host?.includes('titan') || !acc.smtp_host ? 'Titan (GoDaddy)' : 'Custom SMTP'}</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20 font-medium text-[11px] flex items-center gap-1">
+                                <Mail className="w-3 h-3 text-red-400" />
+                                <span>Google OAuth</span>
+                              </span>
+                            )}
+
                             {acc.group ? (
                               <span className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-medium text-[11px]">
                                 Group: {acc.group.name}
@@ -1049,161 +1145,325 @@ export default function AccountsPage() {
       {/* MODAL: ADD OUTREACH INBOX */}
       {showAddAccountModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-white">Add Outreach Inbox</h3>
-                <p className="text-xs text-slate-400">Connect inboxes via Google OAuth or add custom sending credentials</p>
+                <p className="text-xs text-slate-400">Connect GoDaddy Titan, Google Workspace, or custom SMTP</p>
               </div>
               <button
-                onClick={() => setShowAddAccountModal(false)}
+                onClick={() => { setShowAddAccountModal(false); setSmtpStatus(null); }}
                 className="text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Recommended OAuth Option */}
-            <div className="p-4 rounded-xl bg-gradient-to-r from-red-950/30 to-slate-950 border border-red-500/30 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <ExternalLink className="w-4 h-4 text-red-400" />
-                  Connect Google Workspace / Gmail (Recommended)
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">
-                  Multi-Inbox OAuth
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Seamlessly connect multiple inboxes sequentially. Google will prompt the account chooser so you can authorize each inbox one by one.
-              </p>
+            {/* Provider Selector Tabs */}
+            <div className="flex items-center gap-1 p-1 bg-slate-950 border border-slate-800 rounded-xl">
               <button
                 type="button"
-                onClick={handleConnectGmailOAuth}
-                className="w-full py-2 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-red-600/20 transition-all"
+                onClick={() => { setConnectionTab('titan'); setSmtpStatus(null); }}
+                className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                  connectionTab === 'titan'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>GoDaddy Titan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setConnectionTab('gmail'); setSmtpStatus(null); }}
+                className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                  connectionTab === 'gmail'
+                    ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                <span>Authorize with Google OAuth</span>
+                <span>Google OAuth</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setConnectionTab('smtp'); setSmtpStatus(null); }}
+                className={`flex-1 py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                  connectionTab === 'smtp'
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span>Custom SMTP</span>
               </button>
             </div>
 
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-slate-800 w-full" />
-              <span className="bg-slate-900 px-3 text-[11px] text-slate-500 uppercase tracking-wider absolute">
-                or configure manually
-              </span>
-            </div>
-
-            <form onSubmit={handleCreateAccount} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Email Address *</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="e.g. outreach@yourdomain.com"
-                  value={accountForm.email_address}
-                  onChange={(e) => setAccountForm({ ...accountForm, email_address: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Sender Display Name (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Sarah Connor"
-                  value={accountForm.sender_name}
-                  onChange={(e) => setAccountForm({ ...accountForm, sender_name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Assign to Account Group</label>
-                <select
-                  value={accountForm.group_id}
-                  onChange={(e) => setAccountForm({ ...accountForm, group_id: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="">No Group (Unassigned / General Rotation)</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
+            {/* TAB: GOOGLE OAUTH */}
+            {connectionTab === 'gmail' && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-gradient-to-r from-red-950/30 to-slate-950 border border-red-500/30 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-300">Daily Limit (Max 18)</label>
-                    <span className="text-[11px] text-indigo-400 font-mono font-bold">{accountForm.daily_limit} / day</span>
+                    <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <ExternalLink className="w-4 h-4 text-red-400" />
+                      Google Workspace / Gmail OAuth
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">
+                      Multi-Inbox OAuth
+                    </span>
                   </div>
-                  <input
-                    type="number"
-                    min={1}
-                    max={18}
-                    value={accountForm.daily_limit}
-                    onChange={(e) => setAccountForm({ ...accountForm, daily_limit: parseInt(e.target.value, 10) || 18 })}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
-                  />
-                  <p className="text-[10px] text-slate-400">Strictly 15–18 emails/day to avoid spam flags</p>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Connect multiple Google Workspace or Gmail inboxes sequentially. Google will prompt the account chooser so you can authorize each inbox one by one.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleConnectGmailOAuth}
+                    className="w-full py-2.5 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-red-600/20 transition-all"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Authorize with Google OAuth</span>
+                  </button>
                 </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                  <span className="text-xs font-medium text-slate-300 flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                    Using Titan via Gmail "Send As"?
+                  </span>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    If you added your Titan email under Gmail Settings → Accounts and Import → <em>"Send mail as"</em> with Titan SMTP (<code className="text-indigo-300">smtp.titan.email</code>), authorising that Gmail account will automatically send outreach using your Titan domain alias!
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: TITAN & CUSTOM SMTP */}
+            {(connectionTab === 'titan' || connectionTab === 'smtp') && (
+              <form onSubmit={handleCreateAccount} className="space-y-4">
+                {connectionTab === 'titan' && (
+                  <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-950/40 to-slate-950 border border-blue-500/30 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-blue-200 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-blue-400" />
+                        GoDaddy Titan Professional Email Preset
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 font-mono">
+                        smtp.titan.email:465 (SSL)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Outgoing server is pre-configured. Enter your full GoDaddy Titan email address and password below.
+                    </p>
+                    <div className="text-[10px] text-slate-400 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                      <strong className="text-slate-300">2FA Note:</strong> If 2-Factor Authentication is enabled on your GoDaddy account, create an App Password inside Titan Webmail settings (<strong>Preferences → Security → App Passwords</strong>).
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder={connectionTab === 'titan' ? 'you@yourdomain.com' : 'outreach@yourdomain.com'}
+                    value={accountForm.email_address}
+                    onChange={(e) => setAccountForm({ ...accountForm, email_address: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">Sender Display Name (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Sarah Connor"
+                    value={accountForm.sender_name}
+                    onChange={(e) => setAccountForm({ ...accountForm, sender_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Password Field with Show/Hide */}
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-300">Interval Cooldown</label>
-                    <span className="text-[11px] text-indigo-400 font-mono font-bold">{accountForm.min_interval_minutes} mins</span>
+                    <label className="text-xs font-medium text-slate-300">
+                      {connectionTab === 'titan' ? 'Titan Password / App Password *' : 'SMTP Password *'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1"
+                    >
+                      {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      <span>{showPassword ? 'Hide' : 'Show'}</span>
+                    </button>
                   </div>
                   <input
-                    type="number"
-                    min={5}
-                    max={60}
-                    value={accountForm.min_interval_minutes}
-                    onChange={(e) => setAccountForm({ ...accountForm, min_interval_minutes: parseInt(e.target.value, 10) || 15 })}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="••••••••••••"
+                    value={accountForm.smtp_password}
+                    onChange={(e) => {
+                      setAccountForm({ ...accountForm, smtp_password: e.target.value });
+                      setSmtpStatus(null);
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
                   />
-                  <p className="text-[10px] text-slate-400">Minimum spacing between sends</p>
                 </div>
-              </div>
 
-              {/* Warmup Checkbox */}
-              <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={accountForm.warmup_enabled}
-                  onChange={(e) => setAccountForm({ ...accountForm, warmup_enabled: e.target.checked })}
-                  className="rounded border-slate-700 text-amber-500 focus:ring-0 focus:outline-none"
-                />
-                <div className="text-xs">
-                  <span className="font-semibold text-white flex items-center gap-1">
-                    <Flame className="w-3.5 h-3.5 text-amber-400" />
-                    Auto-enroll in Daily Warmup Pool
-                  </span>
-                  <span className="text-slate-400 block text-[11px]">
-                    Recommended for new inboxes to build domain deliverability
-                  </span>
+                {/* Custom SMTP host & port if custom tab */}
+                {connectionTab === 'smtp' && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2 space-y-1">
+                      <label className="text-[11px] text-slate-400">SMTP Host *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. smtp.mailgun.org"
+                        value={accountForm.smtp_host}
+                        onChange={(e) => setAccountForm({ ...accountForm, smtp_host: e.target.value })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-slate-400">Port *</label>
+                      <input
+                        type="number"
+                        required
+                        value={accountForm.smtp_port}
+                        onChange={(e) => setAccountForm({ ...accountForm, smtp_port: parseInt(e.target.value, 10) || 465 })}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Test Connection Button & Status */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      disabled={verifyingSmtp || !accountForm.email_address || !accountForm.smtp_password}
+                      onClick={handleVerifySmtp}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 flex items-center gap-1.5 transition-all disabled:opacity-40"
+                    >
+                      {verifyingSmtp ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                          <span>Testing Connection...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Key className="w-3 h-3 text-indigo-400" />
+                          <span>Test Credentials</span>
+                        </>
+                      )}
+                    </button>
+
+                    {smtpStatus && (
+                      <span
+                        className={`text-xs flex items-center gap-1 font-medium ${
+                          smtpStatus.verified ? 'text-emerald-400' : 'text-red-400'
+                        }`}
+                      >
+                        {smtpStatus.verified ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                        )}
+                        <span>{smtpStatus.message}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </label>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddAccountModal(false)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
-                >
-                  {submitting ? 'Adding...' : 'Save Outreach Inbox'}
-                </button>
-              </div>
-            </form>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300">Assign to Account Group</label>
+                  <select
+                    value={accountForm.group_id}
+                    onChange={(e) => setAccountForm({ ...accountForm, group_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">No Group (Unassigned / General Rotation)</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-slate-300">Daily Limit (Max 18)</label>
+                      <span className="text-[11px] text-indigo-400 font-mono font-bold">{accountForm.daily_limit} / day</span>
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={18}
+                      value={accountForm.daily_limit}
+                      onChange={(e) => setAccountForm({ ...accountForm, daily_limit: parseInt(e.target.value, 10) || 18 })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    <p className="text-[10px] text-slate-400">Strictly 15–18 emails/day for domain safety</p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-slate-300">Interval Cooldown</label>
+                      <span className="text-[11px] text-indigo-400 font-mono font-bold">{accountForm.min_interval_minutes} mins</span>
+                    </div>
+                    <input
+                      type="number"
+                      min={5}
+                      max={60}
+                      value={accountForm.min_interval_minutes}
+                      onChange={(e) => setAccountForm({ ...accountForm, min_interval_minutes: parseInt(e.target.value, 10) || 15 })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    <p className="text-[10px] text-slate-400">Minimum spacing between sends</p>
+                  </div>
+                </div>
+
+                {/* Warmup Checkbox */}
+                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={accountForm.warmup_enabled}
+                    onChange={(e) => setAccountForm({ ...accountForm, warmup_enabled: e.target.checked })}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-0 focus:outline-none"
+                  />
+                  <div className="text-xs">
+                    <span className="font-semibold text-white flex items-center gap-1">
+                      <Flame className="w-3.5 h-3.5 text-amber-400" />
+                      Auto-enroll in Daily Warmup Pool
+                    </span>
+                    <span className="text-slate-400 block text-[11px]">
+                      Builds sender reputation across active outreach peers
+                    </span>
+                  </div>
+                </label>
+
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => { setShowAddAccountModal(false); setSmtpStatus(null); }}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-4 py-2 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-blue-600/30"
+                  >
+                    {submitting ? 'Connecting...' : connectionTab === 'titan' ? 'Connect Titan Inbox' : 'Save Outreach Inbox'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1248,6 +1508,15 @@ export default function AccountsPage() {
                   ))}
                 </select>
               </div>
+
+              {editingAccount.provider === 'smtp' && (
+                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1">
+                  <div className="text-[11px] text-slate-400 font-medium">SMTP Server (GoDaddy Titan / Custom)</div>
+                  <div className="font-mono text-indigo-300">
+                    {editingAccount.smtp_host || 'smtp.titan.email'}:{editingAccount.smtp_port || 465}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">

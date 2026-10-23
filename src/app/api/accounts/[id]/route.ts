@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
+import { encryptToken } from '@/lib/crypto';
 import { z } from 'zod';
 
 const updateAccountSchema = z.object({
@@ -11,6 +12,11 @@ const updateAccountSchema = z.object({
   status: z.enum(['active', 'paused', 'error']).optional(),
   warmup_enabled: z.boolean().optional(),
   warmup_status: z.enum(['inactive', 'warming', 'warm', 'paused']).optional(),
+  smtp_host: z.string().optional().nullable(),
+  smtp_port: z.number().int().min(1).max(65535).optional().nullable(),
+  smtp_secure: z.boolean().optional().nullable(),
+  smtp_username: z.string().optional().nullable(),
+  smtp_password: z.string().optional().nullable(),
 });
 
 export async function GET(
@@ -65,6 +71,16 @@ export async function PATCH(
       ...(validated.status !== undefined ? { status: validated.status } : {}),
       ...(validated.warmup_enabled !== undefined ? { warmup_enabled: validated.warmup_enabled } : {}),
       ...(validated.warmup_status !== undefined ? { warmup_status: validated.warmup_status } : {}),
+      ...(validated.smtp_host !== undefined ? { smtp_host: validated.smtp_host } : {}),
+      ...(validated.smtp_port !== undefined ? { smtp_port: validated.smtp_port } : {}),
+      ...(validated.smtp_secure !== undefined ? { smtp_secure: validated.smtp_secure } : {}),
+      ...(validated.smtp_username !== undefined ? { smtp_username: validated.smtp_username } : {}),
+      ...(validated.smtp_password
+        ? {
+            encrypted_smtp_password: encryptToken(validated.smtp_password),
+            encrypted_access_token: encryptToken(validated.smtp_password),
+          }
+        : {}),
     });
 
     await dbService.logActivity(user.id, 'account_updated', 'email_accounts', id, validated);

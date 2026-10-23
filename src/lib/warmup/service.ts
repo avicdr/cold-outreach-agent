@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { dbService, isLiveSupabase } from '../db-service';
 import { createAdminClient } from '../supabase/admin';
 import { sendGmailMessage } from '../gmail/client';
+import { sendSmtpEmail } from '../smtp/client';
 import { refreshAccessToken } from '../gmail/oauth';
 import { decryptToken, encryptToken } from '../crypto';
 import { EmailAccount, AccountGroup, WarmupMessage } from '@/types/database';
@@ -117,14 +118,39 @@ export async function executeWarmupSend(
     const messageIdTag = crypto.randomUUID();
     const bodyText = `${template.body(recipientName, senderName)}\n\n<!-- warmup_msg_id:${messageIdTag} -->`;
 
-    const accessToken = await getAccountAccessToken(fromAccount);
+    let sendResult: { id: string; threadId: string };
 
-    const sendResult = await sendGmailMessage(accessToken, {
-      from: fromAccount.email_address,
-      to: toAccount.email_address,
-      subject,
-      bodyText,
-    });
+    if (fromAccount.provider === 'smtp') {
+      let smtpPassword = '';
+      try {
+        smtpPassword = decryptToken(fromAccount.encrypted_smtp_password || fromAccount.encrypted_access_token);
+      } catch {
+        smtpPassword = fromAccount.encrypted_smtp_password || fromAccount.encrypted_access_token;
+      }
+      sendResult = await sendSmtpEmail(
+        {
+          host: fromAccount.smtp_host || 'smtp.titan.email',
+          port: fromAccount.smtp_port || 465,
+          secure: fromAccount.smtp_secure ?? (fromAccount.smtp_port === 465 || !fromAccount.smtp_port),
+          user: fromAccount.smtp_username || fromAccount.email_address,
+          pass: smtpPassword,
+        },
+        {
+          from: fromAccount.sender_name ? `"${fromAccount.sender_name}" <${fromAccount.email_address}>` : fromAccount.email_address,
+          to: toAccount.email_address,
+          subject,
+          bodyText,
+        }
+      );
+    } else {
+      const accessToken = await getAccountAccessToken(fromAccount);
+      sendResult = await sendGmailMessage(accessToken, {
+        from: fromAccount.email_address,
+        to: toAccount.email_address,
+        subject,
+        bodyText,
+      });
+    }
 
     const now = new Date().toISOString();
 

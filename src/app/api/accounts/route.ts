@@ -13,6 +13,13 @@ const createAccountSchema = z.object({
   provider: z.string().default('gmail'),
   access_token: z.string().optional(),
   refresh_token: z.string().optional(),
+  smtp_host: z.string().optional().nullable(),
+  smtp_port: z.number().int().min(1).max(65535).optional().nullable(),
+  smtp_secure: z.boolean().optional().nullable(),
+  smtp_username: z.string().optional().nullable(),
+  smtp_password: z.string().optional().nullable(),
+  imap_host: z.string().optional().nullable(),
+  imap_port: z.number().int().min(1).max(65535).optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -64,7 +71,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validated = createAccountSchema.parse(body);
 
-    const token = validated.access_token || `mock-token-${Date.now()}`;
+    const isSmtp = validated.provider === 'smtp';
+    const smtpPassword = validated.smtp_password || '';
+    const encryptedSmtpPassword = smtpPassword ? encryptToken(smtpPassword) : null;
+
+    const token = isSmtp
+      ? (smtpPassword || `mock-token-${Date.now()}`)
+      : (validated.access_token || `mock-token-${Date.now()}`);
     const refreshToken = validated.refresh_token || `mock-refresh-${Date.now()}`;
 
     const encryptedAccessToken = encryptToken(token);
@@ -82,9 +95,18 @@ export async function POST(request: NextRequest) {
       encrypted_access_token: encryptedAccessToken,
       encrypted_refresh_token: encryptedRefreshToken,
       token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
-      granted_scopes: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
+      granted_scopes: isSmtp
+        ? ['smtp']
+        : ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
       last_sync_at: new Date().toISOString(),
       connected_at: new Date().toISOString(),
+      smtp_host: validated.smtp_host || (isSmtp ? 'smtp.titan.email' : null),
+      smtp_port: validated.smtp_port ?? (isSmtp ? 465 : null),
+      smtp_secure: validated.smtp_secure ?? (validated.smtp_port === 465 || !validated.smtp_port),
+      smtp_username: validated.smtp_username || (isSmtp ? validated.email_address.toLowerCase().trim() : null),
+      encrypted_smtp_password: encryptedSmtpPassword || encryptedAccessToken,
+      imap_host: validated.imap_host || (isSmtp ? 'imap.titan.email' : null),
+      imap_port: validated.imap_port ?? (isSmtp ? 993 : null),
     });
 
     await dbService.logActivity(user.id, 'account_added', 'email_accounts', account.id, {

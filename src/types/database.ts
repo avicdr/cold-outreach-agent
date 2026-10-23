@@ -81,6 +81,14 @@ export interface EmailAccount {
   total_warmup_sent?: number;
   total_warmup_received?: number;
   warmup_reputation_score?: number;
+  // SMTP / IMAP properties
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_secure?: boolean | null;
+  smtp_username?: string | null;
+  encrypted_smtp_password?: string | null;
+  imap_host?: string | null;
+  imap_port?: number | null;
   // Computed / joined fields
   group?: AccountGroup | null;
   sent_today?: number;

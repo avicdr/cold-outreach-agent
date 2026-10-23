@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { dbService } from '../db-service';
 import { generateInitialEmail, generateFollowupEmail, classifyReply } from '../gemini';
 import { sendGmailMessage, pollGmailReplies } from '../gmail/client';
+import { sendSmtpEmail } from '../smtp/client';
 import { refreshAccessToken } from '../gmail/oauth';
 import { encryptToken, decryptToken } from '../crypto';
 import { generateUnsubscribeToken } from '../unsubscribe-token';
@@ -325,30 +326,6 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
 
   const emailAccount = accountResult.account;
 
-  // Decrypt token
-  let accessToken = '';
-  try {
-    accessToken = decryptToken(emailAccount.encrypted_access_token);
-  } catch {
-    accessToken = emailAccount.encrypted_access_token; // Fallback for mock tokens
-  }
-
-  // Refresh if expired
-  if (emailAccount.token_expires_at && new Date(emailAccount.token_expires_at) < new Date()) {
-    try {
-      const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-      const refreshed = await refreshAccessToken(refreshToken);
-      accessToken = refreshed.access_token;
-      await dbService.upsertEmailAccount({
-        ...emailAccount,
-        encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
-        token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-      });
-    } catch (err) {
-      console.warn('Failed to refresh token, proceeding with existing:', err);
-    }
-  }
-
   // Generate signed unsubscribe URL
   const unsubscribeToken = generateUnsubscribeToken({
     userId: campaign.user_id,
@@ -358,20 +335,49 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
   });
   const unsubscribeUrl = `${env.NEXT_PUBLIC_APP_URL}/unsubscribe?token=${unsubscribeToken}`;
 
-  // Execute Send (with 401 auto-refresh retry)
-  let sendResult;
-  try {
-    sendResult = await sendGmailMessage(accessToken, {
-      from: emailAccount.email_address,
-      to: lead.email,
-      subject: message.subject,
-      bodyText: message.body_text,
-      unsubscribeUrl,
-      threadId: message.gmail_thread_id || undefined,
-    });
-  } catch (sendErr: unknown) {
-    const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-    if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
+  // Execute Send (via SMTP or Gmail OAuth)
+  let sendResult: { id: string; threadId: string };
+
+  if (emailAccount.provider === 'smtp') {
+    let smtpPassword = '';
+    try {
+      smtpPassword = decryptToken(emailAccount.encrypted_smtp_password || emailAccount.encrypted_access_token);
+    } catch {
+      smtpPassword = emailAccount.encrypted_smtp_password || emailAccount.encrypted_access_token;
+    }
+
+    const senderDisplay = emailAccount.sender_name?.trim()
+      ? `"${emailAccount.sender_name.trim()}" <${emailAccount.email_address}>`
+      : emailAccount.email_address;
+
+    sendResult = await sendSmtpEmail(
+      {
+        host: emailAccount.smtp_host || 'smtp.titan.email',
+        port: emailAccount.smtp_port || 465,
+        secure: emailAccount.smtp_secure ?? (emailAccount.smtp_port === 465 || !emailAccount.smtp_port),
+        user: emailAccount.smtp_username || emailAccount.email_address,
+        pass: smtpPassword,
+      },
+      {
+        from: senderDisplay,
+        to: lead.email,
+        subject: message.subject,
+        bodyText: message.body_text,
+        unsubscribeUrl,
+        threadId: message.gmail_thread_id || undefined,
+      }
+    );
+  } else {
+    // Decrypt token
+    let accessToken = '';
+    try {
+      accessToken = decryptToken(emailAccount.encrypted_access_token);
+    } catch {
+      accessToken = emailAccount.encrypted_access_token; // Fallback for mock tokens
+    }
+
+    // Refresh if expired
+    if (emailAccount.token_expires_at && new Date(emailAccount.token_expires_at) < new Date()) {
       try {
         const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
         const refreshed = await refreshAccessToken(refreshToken);
@@ -381,19 +387,47 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
           encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
           token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
         });
-        sendResult = await sendGmailMessage(accessToken, {
-          from: emailAccount.email_address,
-          to: lead.email,
-          subject: message.subject,
-          bodyText: message.body_text,
-          unsubscribeUrl,
-          threadId: message.gmail_thread_id || undefined,
-        });
-      } catch {
+      } catch (err) {
+        console.warn('Failed to refresh token, proceeding with existing:', err);
+      }
+    }
+
+    // Execute Send (with 401 auto-refresh retry)
+    try {
+      sendResult = await sendGmailMessage(accessToken, {
+        from: emailAccount.email_address,
+        to: lead.email,
+        subject: message.subject,
+        bodyText: message.body_text,
+        unsubscribeUrl,
+        threadId: message.gmail_thread_id || undefined,
+      });
+    } catch (sendErr: unknown) {
+      const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+      if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
+        try {
+          const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
+          const refreshed = await refreshAccessToken(refreshToken);
+          accessToken = refreshed.access_token;
+          await dbService.upsertEmailAccount({
+            ...emailAccount,
+            encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
+            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+          });
+          sendResult = await sendGmailMessage(accessToken, {
+            from: emailAccount.email_address,
+            to: lead.email,
+            subject: message.subject,
+            bodyText: message.body_text,
+            unsubscribeUrl,
+            threadId: message.gmail_thread_id || undefined,
+          });
+        } catch {
+          throw sendErr;
+        }
+      } else {
         throw sendErr;
       }
-    } else {
-      throw sendErr;
     }
   }
 
@@ -467,6 +501,10 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
   if (sentThreads.length === 0) return;
 
   for (const emailAccount of emailAccounts) {
+    if (emailAccount.provider === 'smtp') {
+      // SMTP/IMAP inboxes (Titan, GoDaddy, etc.) don't use Gmail API sync
+      continue;
+    }
     let accessToken = '';
     try {
       accessToken = decryptToken(emailAccount.encrypted_access_token);

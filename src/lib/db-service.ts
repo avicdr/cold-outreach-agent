@@ -936,6 +936,13 @@ export const dbService = {
       granted_scopes: account.granted_scopes || [],
       last_sync_at: account.last_sync_at || null,
       connected_at: account.connected_at || new Date().toISOString(),
+      smtp_host: account.smtp_host || null,
+      smtp_port: account.smtp_port || null,
+      smtp_secure: account.smtp_secure ?? (account.smtp_port === 465 || !account.smtp_port ? true : false),
+      smtp_username: account.smtp_username || null,
+      encrypted_smtp_password: account.encrypted_smtp_password || null,
+      imap_host: account.imap_host || null,
+      imap_port: account.imap_port || null,
     };
 
     if (!isLiveSupabase()) {
