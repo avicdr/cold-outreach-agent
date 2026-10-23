@@ -96,23 +96,23 @@ export default function CampaignsPage() {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title="Campaigns" subtitle="Manage your automated outreach campaigns & schedules">
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {campaigns.length > 0 && (
               <button
                 onClick={handleGlobalPauseToggle}
                 disabled={isPausingAll}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors shrink-0 whitespace-nowrap"
               >
-                {hasAnyActive ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
+                {hasAnyActive ? <Pause className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <Play className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
                 <span className="hidden sm:inline">{hasAnyActive ? 'Pause All Sending' : 'Resume Sending'}</span>
                 <span className="sm:hidden">{hasAnyActive ? 'Pause All' : 'Resume'}</span>
               </button>
             )}
             <Link
               href="/campaigns/new"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors shrink-0 whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>New Campaign</span>
             </Link>
           </div>

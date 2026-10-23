@@ -288,24 +288,24 @@ function JobsContent() {
           title="Background Job Queue"
           subtitle="Inspect, debug, retry, and monitor background tasks & execution history"
         >
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleRunWorker}
               disabled={runningWorker}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
               title="Process next queued batch immediately with worker"
             >
-              <Play className={`w-3.5 h-3.5 ${runningWorker ? 'animate-spin' : ''}`} />
+              <Play className={`w-3.5 h-3.5 shrink-0 ${runningWorker ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{runningWorker ? 'Worker Running...' : 'Run Worker Now'}</span>
               <span className="sm:hidden">{runningWorker ? '...' : 'Worker'}</span>
             </button>
             <button
               onClick={() => fetchJobs()}
               disabled={loading}
-              className="p-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors"
+              className="p-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-colors shrink-0"
               title="Refresh Queue"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 shrink-0 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </Header>

@@ -64,7 +64,7 @@ export function Header({ title, subtitle, children }: HeaderProps) {
   return (
     <header className="min-h-16 py-2.5 border-b border-slate-800 bg-slate-950/40 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3">
       {/* Title & Mobile Nav Toggle */}
-      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink">
         <button
           type="button"
           onClick={toggleMobileNav}
@@ -76,18 +76,23 @@ export function Header({ title, subtitle, children }: HeaderProps) {
 
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-semibold text-white tracking-tight truncate">{title}</h1>
-          {subtitle && <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">{subtitle}</p>}
+          {subtitle && (
+            <p className="hidden md:block text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate max-w-xs lg:max-w-md xl:max-w-xl">
+              {subtitle}
+            </p>
+          )}
         </div>
       </div>
 
       {/* Action Buttons & Status Indicators */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap justify-end">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 justify-end">
         {children}
 
         {/* Gmail Status Pill */}
         {gmailStatus && (
           <div
-            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+            title={gmailStatus.connected ? `Gmail Connected: ${gmailStatus.email || ''}` : 'Gmail Disconnected'}
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border shrink-0 whitespace-nowrap ${
               gmailStatus.connected
                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                 : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
@@ -95,13 +100,13 @@ export function Header({ title, subtitle, children }: HeaderProps) {
           >
             {gmailStatus.connected ? (
               <>
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span className="max-w-[130px] truncate">{gmailStatus.email || 'Gmail Connected'}</span>
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span className="max-w-[100px] xl:max-w-[140px] truncate">{gmailStatus.email || 'Connected'}</span>
               </>
             ) : (
               <>
-                <AlertCircle className="w-3.5 h-3.5" />
-                <span>Gmail Disconnected</span>
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden xl:inline">Gmail </span>Disconnected
               </>
             )}
           </div>
@@ -110,9 +115,9 @@ export function Header({ title, subtitle, children }: HeaderProps) {
         {/* Auto Worker Status Pill */}
         <div
           title="Background worker automatically checks queue every 60s"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0 whitespace-nowrap"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           <span>Auto-Worker: Active</span>
         </div>
 
@@ -121,14 +126,14 @@ export function Header({ title, subtitle, children }: HeaderProps) {
           onClick={handleTriggerWorker}
           disabled={isRunningWorker}
           title="Run background job worker"
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isRunningWorker ? 'animate-spin text-indigo-400' : 'text-slate-400'}`} />
+          <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isRunningWorker ? 'animate-spin text-indigo-400' : 'text-slate-400'}`} />
           <span className="hidden sm:inline">{isRunningWorker ? 'Processing...' : 'Run Worker'}</span>
         </button>
 
         {workerMessage && (
-          <div className="text-xs text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2 py-1 rounded animate-fade-in text-[11px]">
+          <div className="text-xs text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2.5 py-1 rounded-lg animate-fade-in text-[11px] shrink-0 whitespace-nowrap shadow-sm">
             {workerMessage}
           </div>
         )}

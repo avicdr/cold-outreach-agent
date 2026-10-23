@@ -238,12 +238,12 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title={campaign.name} subtitle={`Status: ${campaign.status.toUpperCase()}`}>
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <Link
               href={`/campaigns/${campaign.id}/edit`}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 text-slate-100 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 text-slate-100 transition-colors shadow-sm shrink-0 whitespace-nowrap"
             >
-              <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+              <Sliders className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               <span className="hidden sm:inline">Edit Configuration</span>
               <span className="sm:hidden">Edit</span>
             </Link>
@@ -251,10 +251,11 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               <button
                 onClick={() => setShowActivateConfirm(true)}
                 disabled={actionLoading || leads.length === 0}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/30 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
               >
-                <Play className="w-3.5 h-3.5" />
-                <span>Activate Campaign</span>
+                <Play className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Activate Campaign</span>
+                <span className="sm:hidden">Activate</span>
               </button>
             )}
 
@@ -262,32 +263,35 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               <button
                 onClick={handlePauseResume}
                 disabled={actionLoading}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors shrink-0 whitespace-nowrap"
               >
                 {campaign.status === 'active' ? (
                   <>
-                    <Pause className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Pause Campaign</span>
+                    <Pause className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="hidden sm:inline">Pause Campaign</span>
+                    <span className="sm:hidden">Pause</span>
                   </>
                 ) : (
                   <>
-                    <Play className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Resume Campaign</span>
+                    <Play className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="hidden sm:inline">Resume Campaign</span>
+                    <span className="sm:hidden">Resume</span>
                   </>
                 )}
               </button>
             )}
 
             {campaign.status === 'active' && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => handleProcessQueueNow(false)}
                   disabled={actionLoading || dispatching}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
                   title="Process next batch of queued email sends due now"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{dispatching ? 'Dispatching...' : 'Dispatch Queue Now'}</span>
+                  <Send className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden md:inline">{dispatching ? 'Dispatching...' : 'Dispatch Queue Now'}</span>
+                  <span className="md:hidden">{dispatching ? '...' : 'Dispatch'}</span>
                 </button>
 
                 <button
@@ -297,10 +301,10 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                     }
                   }}
                   disabled={actionLoading || dispatching}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors disabled:opacity-50"
+                  className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
                   title="Force send next queued email immediately outside business hours"
                 >
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span>Force Send Now</span>
                 </button>
               </div>
@@ -309,9 +313,9 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
             <button
               onClick={handleGenerateDrafts}
               disabled={actionLoading || leads.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">{actionLoading ? 'Generating...' : 'Generate AI Drafts'}</span>
               <span className="sm:hidden">{actionLoading ? '...' : 'Drafts'}</span>
             </button>

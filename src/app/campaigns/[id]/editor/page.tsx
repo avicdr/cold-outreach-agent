@@ -181,21 +181,21 @@ function EmailEditorInner({ params }: { params: Promise<{ id: string }> }) {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title="Interactive Email Editor" subtitle={`Campaign Lead Draft Editor`}>
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <Link
               href={`/campaigns/${campaignId}`}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors shrink-0 whitespace-nowrap"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
+              <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Back to Campaign</span>
               <span className="sm:hidden">Back</span>
             </Link>
             <button
               onClick={handleSaveDraft}
               disabled={isSaving || !messageId}
-              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
             >
-              <Save className="w-3.5 h-3.5" />
+              <Save className="w-3.5 h-3.5 shrink-0" />
               <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
             </button>
           </div>

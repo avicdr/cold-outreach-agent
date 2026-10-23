@@ -85,12 +85,12 @@ export default function LeadsPage() {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title="Leads & Prospects" subtitle={`Total prospects loaded: ${total}`}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Link
               href="/leads/import"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors shrink-0 whitespace-nowrap"
             >
-              <Upload className="w-3.5 h-3.5" />
+              <Upload className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Import Leads Wizard</span>
               <span className="sm:hidden">Import Leads</span>
             </Link>

@@ -216,14 +216,16 @@ function EditCampaignInner({ params }: { params: Promise<{ id: string }> }) {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title={`Edit: ${form.name || 'Campaign'}`} subtitle="Update persona, offer, schedule, inboxes, and follow-ups">
-          <Link
-            href={`/campaigns/${id}`}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Back to Campaign</span>
-            <span className="sm:hidden">Back</span>
-          </Link>
+          <div className="flex items-center shrink-0">
+            <Link
+              href={`/campaigns/${id}`}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors shrink-0 whitespace-nowrap"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Back to Campaign</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
+          </div>
         </Header>
 
         <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-8 min-w-0">

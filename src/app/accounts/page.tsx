@@ -542,30 +542,31 @@ export default function AccountsPage() {
           title="Inboxes & Warmup Pools"
           subtitle="Connect inboxes via Google OAuth, organize into campaign groups, and build domain reputation with automated peer warmup"
         >
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleConnectGmailOAuth}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/25 transition-all"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/25 transition-all shrink-0 whitespace-nowrap"
               title="Connect another Gmail/Workspace inbox via OAuth (forces account chooser)"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Connect Google OAuth</span>
-              <span className="sm:hidden">Google OAuth</span>
+              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">Connect Google OAuth</span>
+              <span className="md:hidden">Google OAuth</span>
             </button>
             <button
               onClick={() => setShowAddGroupModal(true)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors shrink-0 whitespace-nowrap"
             >
-              <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">+ New Group</span>
-              <span className="sm:hidden">+ Group</span>
+              <Layers className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="hidden md:inline">+ New Group</span>
+              <span className="md:hidden">+ Group</span>
             </button>
             <button
               onClick={() => setShowAddAccountModal(true)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors shrink-0 whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Add Inbox</span>
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">+ Add Inbox</span>
+              <span className="sm:hidden">+ Inbox</span>
             </button>
           </div>
         </Header>
@@ -639,38 +640,38 @@ export default function AccountsPage() {
 
           {/* Navigation Tabs */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-3 gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 shrink-0">
               <button
                 onClick={() => setActiveTab('accounts')}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 shrink-0 whitespace-nowrap ${
                   activeTab === 'accounts'
                     ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                     : 'bg-slate-900/60 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Inbox className="w-3.5 h-3.5" />
+                <Inbox className="w-3.5 h-3.5 shrink-0" />
                 <span>Outreach Inboxes ({accounts.length})</span>
               </button>
               <button
                 onClick={() => setActiveTab('groups')}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 shrink-0 whitespace-nowrap ${
                   activeTab === 'groups'
                     ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                     : 'bg-slate-900/60 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5" />
+                <Layers className="w-3.5 h-3.5 shrink-0" />
                 <span>Account Groups ({groups.length})</span>
               </button>
               <button
                 onClick={() => setActiveTab('warmup')}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 shrink-0 whitespace-nowrap ${
                   activeTab === 'warmup'
                     ? 'bg-amber-600 text-white shadow-sm shadow-amber-600/30'
                     : 'bg-slate-900/60 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>Warmup Pool ({warmingAccounts.length})</span>
               </button>
             </div>
