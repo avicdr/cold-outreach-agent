@@ -75,11 +75,10 @@ export default function LeadImportPage() {
 
     setFile(selected);
 
-    // Parse preview
+    // Parse file
     if (selected.name.endsWith('.csv')) {
       Papa.parse(selected, {
         header: true,
-        preview: 200,
         skipEmptyLines: 'greedy',
         complete: (results) => {
           const fields = results.meta.fields || [];
