@@ -133,17 +133,18 @@ export default function LeadsPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                   <tr>
-                    <th className="px-5 py-3 font-medium">Prospect</th>
-                    <th className="px-5 py-3 font-medium">Company & Role</th>
+                    <th className="px-5 py-3 font-medium">Business / Prospect</th>
+                    <th className="px-5 py-3 font-medium">Contact & Location</th>
+                    <th className="px-5 py-3 font-medium">Rating & Reviews</th>
+                    <th className="px-5 py-3 font-medium">Personalization Hook</th>
                     <th className="px-5 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 font-medium">Source</th>
                     <th className="px-5 py-3 font-medium">Added</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
+                      <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
                         <div className="flex items-center justify-center gap-2">
                           <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                           <span>Loading leads...</span>
@@ -152,7 +153,7 @@ export default function LeadsPage() {
                     </tr>
                   ) : leads.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-12 text-center text-slate-500">
+                      <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
                         <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="text-sm font-medium text-slate-300">No leads found</p>
                         <p className="text-xs text-slate-500 mt-1">Upload a CSV or Excel spreadsheet using the Import Wizard.</p>
@@ -165,25 +166,77 @@ export default function LeadsPage() {
                       </td>
                     </tr>
                   ) : (
-                    leads.map((lead) => (
-                      <tr key={lead.id} className="hover:bg-slate-900/50 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="font-medium text-slate-200">
-                            {lead.first_name || lead.last_name ? `${lead.first_name} ${lead.last_name}`.trim() : 'Unknown Name'}
-                          </div>
-                          <div className="text-[11px] text-slate-400 font-mono mt-0.5">{lead.email}</div>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <div className="text-slate-300 font-medium">{lead.company || '—'}</div>
-                          <div className="text-[11px] text-slate-500">{lead.job_title || '—'}</div>
-                        </td>
-                        <td className="px-5 py-3.5">{getStatusBadge(lead.status)}</td>
-                        <td className="px-5 py-3.5 text-slate-400 text-[11px]">{lead.source_import || 'Manual'}</td>
-                        <td className="px-5 py-3.5 text-slate-500 text-[11px]">
-                          {new Date(lead.created_at).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
+                    leads.map((lead) => {
+                      const businessName = lead.company || lead.custom_fields?.['Business_Name'] || '—';
+                      const category = lead.category || lead.custom_fields?.['Category_Niche'] || '';
+                      const city = lead.city || lead.custom_fields?.['City_Area'] || '';
+                      const country = lead.country || lead.custom_fields?.['Country'] || '';
+                      const rating = lead.rating || lead.custom_fields?.['Google_Rating'];
+                      const reviews = lead.review_count || lead.custom_fields?.['Google_Review_Count'];
+                      const score = lead.qualification_score || lead.custom_fields?.['Lead_Qualification_Score'];
+                      const hook = lead.suggested_opening || lead.sales_angle || lead.custom_fields?.['Cold_Email_Personalization_Hook'] || '';
+
+                      return (
+                        <tr key={lead.id} className="hover:bg-slate-900/50 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <div className="font-semibold text-slate-100 flex items-center gap-2">
+                              <span>{String(businessName)}</span>
+                              {category && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
+                                  {String(category)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              {lead.first_name || lead.last_name
+                                ? `${lead.first_name} ${lead.last_name}`.trim()
+                                : lead.job_title || 'Direct Profile'}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="text-[11px] text-slate-300 font-mono">{lead.email}</div>
+                            {(city || country) && (
+                              <div className="text-[11px] text-slate-500">
+                                {[city, country].filter(Boolean).join(', ')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {rating || reviews ? (
+                              <div className="space-y-0.5">
+                                <div className="text-amber-400 font-medium text-[11px] flex items-center gap-1">
+                                  <span>★</span>
+                                  <span>{rating || '5.0'}</span>
+                                  <span className="text-slate-400 font-normal">({reviews || 0} reviews)</span>
+                                </div>
+                                {score && (
+                                  <div className="text-[10px] text-emerald-400 font-mono">
+                                    Fit: {score}/100
+                                  </div>
+                                )}
+                              </div>
+                            ) : score ? (
+                              <span className="text-[11px] text-emerald-400 font-mono">Fit: {score}/100</span>
+                            ) : (
+                              <span className="text-slate-600">—</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 max-w-xs">
+                            {hook ? (
+                              <div className="text-[11px] text-slate-300 line-clamp-2" title={String(hook)}>
+                                {String(hook)}
+                              </div>
+                            ) : (
+                              <span className="text-slate-600">—</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5">{getStatusBadge(lead.status)}</td>
+                          <td className="px-5 py-3.5 text-slate-500 text-[11px]">
+                            {new Date(lead.created_at).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

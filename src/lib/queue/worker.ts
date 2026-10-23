@@ -131,10 +131,10 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
     const msg = await dbService.createOrUpdateMessage({
       campaign_lead_id: campaignLeadId,
       step_number: 0,
-      subject: draft.subject,
-      body_text: draft.body,
-      personalization_basis: draft.personalization_basis,
-      unsupported_claims: draft.unsupported_claims,
+      subject: draft.subject || 'Quick question',
+      body_text: draft.body || '',
+      personalization_basis: draft.personalization_basis || [],
+      unsupported_claims: draft.unsupported_claims || [],
       status: 'draft',
       scheduled_at: new Date().toISOString(),
     });
@@ -174,10 +174,10 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
     const msg = await dbService.createOrUpdateMessage({
       campaign_lead_id: campaignLeadId,
       step_number: stepNumber,
-      subject: draft.subject,
-      body_text: draft.body,
-      personalization_basis: draft.personalization_basis,
-      unsupported_claims: draft.unsupported_claims,
+      subject: draft.subject || (prevMsg?.subject ? `Re: ${prevMsg.subject.replace(/^Re:\s*/i, '')}` : 'Re: Quick follow up'),
+      body_text: draft.body || '',
+      personalization_basis: draft.personalization_basis || [],
+      unsupported_claims: draft.unsupported_claims || [],
       status: 'draft',
       scheduled_at: new Date().toISOString(),
     });

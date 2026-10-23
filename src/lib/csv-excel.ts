@@ -14,6 +14,15 @@ export interface ParsedLead {
   job_title: string;
   website: string;
   notes: string;
+  phone?: string;
+  category?: string;
+  city?: string;
+  country?: string;
+  rating?: number | null;
+  review_count?: number | null;
+  qualification_score?: number | null;
+  suggested_opening?: string | null;
+  sales_angle?: string | null;
   custom_fields: Record<string, string | number | boolean>;
 }
 
@@ -26,6 +35,14 @@ export interface ColumnMapping {
   job_title?: string;
   website?: string;
   notes?: string;
+  phone?: string;
+  category?: string;
+  city?: string;
+  country?: string;
+  rating?: string;
+  review_count?: string;
+  qualification_score?: string;
+  personalization_hook?: string;
   custom_fields?: string[];
 }
 
@@ -62,7 +79,7 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
   const lowerHeaders = headers.map((h) => ({ original: h, lower: h.toLowerCase().trim().replace(/[-_ ]/g, '') }));
 
   for (const { original, lower } of lowerHeaders) {
-    if (!mapping.email && (lower === 'email' || lower === 'emailaddress' || lower === 'mail' || lower === 'contactemail')) {
+    if (!mapping.email && (lower === 'email' || lower === 'targetcoldemail' || lower === 'targetemail' || lower === 'emailaddress' || lower === 'mail' || lower === 'contactemail')) {
       mapping.email = original;
     } else if (!mapping.first_name && (lower === 'firstname' || lower === 'fname' || lower === 'givenname')) {
       mapping.first_name = original;
@@ -70,12 +87,28 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
       mapping.last_name = original;
     } else if (!mapping.full_name && (lower === 'name' || lower === 'fullname' || lower === 'contactname')) {
       mapping.full_name = original;
-    } else if (!mapping.company && (lower === 'company' || lower === 'companyname' || lower === 'organization' || lower === 'org' || lower === 'business')) {
+    } else if (!mapping.company && (lower === 'businessname' || lower === 'company' || lower === 'companyname' || lower === 'organization' || lower === 'org' || lower === 'business' || lower === 'practicename')) {
       mapping.company = original;
     } else if (!mapping.job_title && (lower === 'jobtitle' || lower === 'title' || lower === 'role' || lower === 'position' || lower === 'occupation')) {
       mapping.job_title = original;
-    } else if (!mapping.website && (lower === 'website' || lower === 'url' || lower === 'domain' || lower === 'companywebsite' || lower === 'site')) {
+    } else if (!mapping.website && (lower === 'websiteurl' || lower === 'website' || lower === 'url' || lower === 'domain' || lower === 'companywebsite' || lower === 'site')) {
       mapping.website = original;
+    } else if (!mapping.phone && (lower === 'phonenumber' || lower === 'phone' || lower === 'telephone' || lower === 'tel' || lower === 'mobile')) {
+      mapping.phone = original;
+    } else if (!mapping.category && (lower === 'categoryniche' || lower === 'category' || lower === 'niche' || lower === 'industry')) {
+      mapping.category = original;
+    } else if (!mapping.city && (lower === 'cityarea' || lower === 'city' || lower === 'area' || lower === 'location')) {
+      mapping.city = original;
+    } else if (!mapping.country && (lower === 'country')) {
+      mapping.country = original;
+    } else if (!mapping.rating && (lower === 'googlerating' || lower === 'rating' || lower === 'stars')) {
+      mapping.rating = original;
+    } else if (!mapping.review_count && (lower === 'googlereviewcount' || lower === 'reviewcount' || lower === 'reviews' || lower === 'numreviews')) {
+      mapping.review_count = original;
+    } else if (!mapping.qualification_score && (lower === 'leadqualificationscore' || lower === 'qualificationscore' || lower === 'score' || lower === 'leadscore')) {
+      mapping.qualification_score = original;
+    } else if (!mapping.personalization_hook && (lower === 'coldemailpersonalizationhook' || lower === 'personalizationhook' || lower === 'hook' || lower === 'suggestedopening' || lower === 'salesangle')) {
+      mapping.personalization_hook = original;
     } else if (!mapping.notes && (lower === 'notes' || lower === 'note' || lower === 'bio' || lower === 'summary' || lower === 'context')) {
       mapping.notes = original;
     }
@@ -183,17 +216,43 @@ export function processImportRows(
     const jobTitle = mapping.job_title ? String(row[mapping.job_title] ?? '').trim() : '';
     const website = mapping.website ? String(row[mapping.website] ?? '').trim() : '';
     const notes = mapping.notes ? String(row[mapping.notes] ?? '').trim() : '';
+    const phone = mapping.phone ? String(row[mapping.phone] ?? '').trim() : '';
+    const category = mapping.category ? String(row[mapping.category] ?? '').trim() : '';
+    const city = mapping.city ? String(row[mapping.city] ?? '').trim() : '';
+    const country = mapping.country ? String(row[mapping.country] ?? '').trim() : '';
+    const rating = mapping.rating && row[mapping.rating] !== undefined && row[mapping.rating] !== '' ? parseFloat(String(row[mapping.rating])) || null : null;
+    const reviewCount = mapping.review_count && row[mapping.review_count] !== undefined && row[mapping.review_count] !== '' ? parseInt(String(row[mapping.review_count]), 10) || null : null;
+    const qualificationScore = mapping.qualification_score && row[mapping.qualification_score] !== undefined && row[mapping.qualification_score] !== '' ? parseInt(String(row[mapping.qualification_score]), 10) || null : null;
+    const personalizationHook = mapping.personalization_hook ? String(row[mapping.personalization_hook] ?? '').trim() : '';
 
-    // Handle custom fields
+    // Handle custom fields: preserve all mapped custom fields and any remaining non-empty raw columns
     const customFields: Record<string, string | number | boolean> = {};
-    if (mapping.custom_fields && Array.isArray(mapping.custom_fields)) {
-      for (const field of mapping.custom_fields) {
-        const val = row[field];
-        if (val !== undefined && val !== null && val !== '') {
-          customFields[field] = typeof val === 'object' ? JSON.stringify(val) : val;
+
+    // Standard mapped keys to avoid duplicating as raw custom fields unless helpful
+    const mappedHeaderKeys = new Set(
+      Object.values(mapping)
+        .filter((val): val is string => typeof val === 'string' && val.length > 0)
+    );
+
+    // Save all unmapped attributes into customFields automatically
+    for (const [key, val] of Object.entries(row)) {
+      if (val !== undefined && val !== null && val !== '') {
+        const cleanVal = typeof val === 'object' ? JSON.stringify(val) : val;
+        // Save if not a primary field or if it holds qualification data
+        if (!mappedHeaderKeys.has(key)) {
+          customFields[key] = cleanVal;
         }
       }
     }
+
+    // Always preserve explicit qualification names in customFields for prompt extraction
+    if (personalizationHook) customFields['Cold_Email_Personalization_Hook'] = personalizationHook;
+    if (category) customFields['Category_Niche'] = category;
+    if (city) customFields['City_Area'] = city;
+    if (company) customFields['Business_Name'] = company;
+    if (rating !== null) customFields['Google_Rating'] = rating;
+    if (reviewCount !== null) customFields['Google_Review_Count'] = reviewCount;
+    if (qualificationScore !== null) customFields['Lead_Qualification_Score'] = qualificationScore;
 
     validLeads.push({
       email: rawEmail,
@@ -204,6 +263,15 @@ export function processImportRows(
       job_title: jobTitle,
       website,
       notes,
+      phone: phone || undefined,
+      category: category || undefined,
+      city: city || undefined,
+      country: country || undefined,
+      rating,
+      review_count: reviewCount,
+      qualification_score: qualificationScore,
+      suggested_opening: personalizationHook || undefined,
+      sales_angle: personalizationHook || undefined,
       custom_fields: customFields,
     });
   });

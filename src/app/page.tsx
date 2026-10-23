@@ -99,14 +99,14 @@ export default function DashboardPage() {
   };
 
   const statCards = [
-    { label: 'Total Leads', value: stats?.totalLeads ?? 0, icon: Users, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
-    { label: 'Eligible Leads', value: stats?.eligibleLeads ?? 0, icon: UserCheck, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { label: 'Drafts Generated', value: stats?.draftsGenerated ?? 0, icon: FileEdit, color: 'text-purple-400', bg: 'bg-purple-500/10' },
-    { label: 'Emails Sent', value: stats?.emailsSent ?? 0, icon: Send, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { label: 'Replies Received', value: stats?.repliesReceived ?? 0, icon: MessageSquare, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-    { label: 'Positive Replies', value: stats?.positiveReplies ?? 0, icon: ThumbsUp, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { label: 'Bounce Count', value: stats?.bounceCount ?? 0, icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10' },
-    { label: 'Failed Jobs', value: stats?.failedJobs ?? 0, icon: XCircle, color: 'text-rose-400', bg: 'bg-rose-500/10' },
+    { label: 'Total Leads', value: stats?.totalLeads ?? 0, icon: Users, color: 'text-indigo-400', bg: 'bg-indigo-500/10', href: '/leads' },
+    { label: 'Eligible Leads', value: stats?.eligibleLeads ?? 0, icon: UserCheck, color: 'text-emerald-400', bg: 'bg-emerald-500/10', href: '/leads' },
+    { label: 'Drafts Generated', value: stats?.draftsGenerated ?? 0, icon: FileEdit, color: 'text-purple-400', bg: 'bg-purple-500/10', href: '/messages' },
+    { label: 'Emails Sent', value: stats?.emailsSent ?? 0, icon: Send, color: 'text-blue-400', bg: 'bg-blue-500/10', href: '/messages' },
+    { label: 'Replies Received', value: stats?.repliesReceived ?? 0, icon: MessageSquare, color: 'text-cyan-400', bg: 'bg-cyan-500/10', href: '/replies' },
+    { label: 'Positive Replies', value: stats?.positiveReplies ?? 0, icon: ThumbsUp, color: 'text-emerald-400', bg: 'bg-emerald-500/10', href: '/replies' },
+    { label: 'Bounce Count', value: stats?.bounceCount ?? 0, icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', href: '/leads' },
+    { label: 'Failed Jobs', value: stats?.failedJobs ?? 0, icon: XCircle, color: 'text-rose-400', bg: 'bg-rose-500/10', href: '/jobs?status=failed', isAlert: (stats?.failedJobs ?? 0) > 0 },
   ];
 
   return (
@@ -306,25 +306,46 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {statCards.map((card, i) => {
                 const Icon = card.icon;
+                const isAlert = card.isAlert;
                 return (
-                  <div
+                  <Link
                     key={i}
-                    className="p-5 rounded-xl border border-slate-800/80 bg-slate-900/40 glass-card-hover relative overflow-hidden"
+                    href={card.href}
+                    className={`p-5 rounded-xl border transition-all duration-200 relative overflow-hidden group block ${
+                      isAlert
+                        ? 'border-rose-500/50 bg-rose-950/20 hover:border-rose-400 hover:bg-rose-950/30 shadow-lg shadow-rose-950/30'
+                        : 'border-slate-800/80 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60'
+                    }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-400">{card.label}</span>
-                      <div className={`p-2 rounded-lg ${card.bg}`}>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">
+                          {card.label}
+                        </span>
+                        {isAlert && (
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                          </span>
+                        )}
+                      </div>
+                      <div className={`p-2 rounded-lg transition-transform group-hover:scale-110 ${card.bg}`}>
                         <Icon className={`w-4 h-4 ${card.color}`} />
                       </div>
                     </div>
-                    <div className="mt-3">
+                    <div className="mt-3 flex items-baseline justify-between">
                       {loading ? (
                         <div className="h-8 w-16 bg-slate-800 animate-pulse rounded" />
                       ) : (
-                        <div className="text-2xl font-bold tracking-tight text-white">{card.value}</div>
+                        <div className={`text-2xl font-bold tracking-tight ${isAlert ? 'text-rose-400' : 'text-white'}`}>
+                          {card.value}
+                        </div>
                       )}
+                      <span className="text-[11px] font-medium text-slate-500 group-hover:text-indigo-400 transition-colors flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                        View <ArrowUpRight className="w-3 h-3" />
+                      </span>
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>

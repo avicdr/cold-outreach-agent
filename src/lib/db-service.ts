@@ -547,15 +547,35 @@ export const dbService = {
       .eq('step_number', fieldsToSave.step_number)
       .maybeSingle();
 
+    if (existing?.id || fieldsToSave.id) {
+      const targetId = fieldsToSave.id || existing?.id;
+      const { data, error } = await supabase
+        .from('email_messages')
+        .update({
+          ...fieldsToSave,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetId)
+        .select('*, campaign_lead:campaign_leads(*, lead:leads(*))')
+        .single();
+      if (error) throw new Error(error.message);
+      return {
+        ...data,
+        lead: data.campaign_lead?.lead || undefined,
+        campaign_id: data.campaign_lead?.campaign_id || undefined,
+      };
+    }
+
     const payload = {
+      subject: 'Follow up',
+      body_text: '',
       ...fieldsToSave,
-      ...(existing?.id ? { id: existing.id } : {}),
       updated_at: new Date().toISOString(),
     };
 
     const { data, error } = await supabase
       .from('email_messages')
-      .upsert(payload, { onConflict: 'campaign_lead_id,step_number' })
+      .insert(payload)
       .select('*, campaign_lead:campaign_leads(*, lead:leads(*))')
       .single();
     if (error) throw new Error(error.message);
@@ -1437,6 +1457,212 @@ export const dbService = {
       last_error: errorMsg,
       updated_at: new Date().toISOString(),
     }).eq('id', jobId);
+  },
+
+  async getJobs(options?: {
+    status?: string;
+    jobType?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    jobs: JobQueueItem[];
+    total: number;
+    counts: {
+      all: number;
+      failed: number;
+      queued: number;
+      running: number;
+      completed: number;
+    };
+  }> {
+    if (!isLiveSupabase()) {
+      const allJobs = Array.from(mockDb.jobQueue.values());
+      const counts = {
+        all: allJobs.length,
+        failed: allJobs.filter((j) => j.status === 'failed' || j.status === 'dead').length,
+        queued: allJobs.filter((j) => j.status === 'queued').length,
+        running: allJobs.filter((j) => j.status === 'running').length,
+        completed: allJobs.filter((j) => j.status === 'completed').length,
+      };
+
+      let filtered = allJobs;
+      if (options?.status && options.status !== 'all') {
+        if (options.status === 'failed') {
+          filtered = filtered.filter((j) => j.status === 'failed' || j.status === 'dead');
+        } else {
+          filtered = filtered.filter((j) => j.status === options.status);
+        }
+      }
+      if (options?.jobType && options.jobType !== 'all') {
+        filtered = filtered.filter((j) => j.job_type === options.jobType);
+      }
+
+      filtered.sort((a, b) => new Date(b.created_at || b.run_at).getTime() - new Date(a.created_at || a.run_at).getTime());
+
+      const limit = options?.limit ?? 50;
+      const offset = options?.offset ?? 0;
+      const paged = filtered.slice(offset, offset + limit);
+
+      return {
+        jobs: paged,
+        total: filtered.length,
+        counts,
+      };
+    }
+
+    const supabase = createAdminClient();
+
+    const [allCount, failedCount, queuedCount, runningCount, completedCount] = await Promise.all([
+      supabase.from('job_queue').select('*', { count: 'exact', head: true }),
+      supabase.from('job_queue').select('*', { count: 'exact', head: true }).in('status', ['failed', 'dead']),
+      supabase.from('job_queue').select('*', { count: 'exact', head: true }).eq('status', 'queued'),
+      supabase.from('job_queue').select('*', { count: 'exact', head: true }).eq('status', 'running'),
+      supabase.from('job_queue').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
+    ]);
+
+    const counts = {
+      all: allCount.count || 0,
+      failed: failedCount.count || 0,
+      queued: queuedCount.count || 0,
+      running: runningCount.count || 0,
+      completed: completedCount.count || 0,
+    };
+
+    let query = supabase.from('job_queue').select('*', { count: 'exact' });
+
+    if (options?.status && options.status !== 'all') {
+      if (options.status === 'failed') {
+        query = query.in('status', ['failed', 'dead']);
+      } else {
+        query = query.eq('status', options.status);
+      }
+    }
+
+    if (options?.jobType && options.jobType !== 'all') {
+      query = query.eq('job_type', options.jobType);
+    }
+
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data, count, error } = await query;
+    if (error) throw new Error(error.message);
+
+    return {
+      jobs: data || [],
+      total: count || (data ? data.length : 0),
+      counts,
+    };
+  },
+
+  async retryJob(jobId: string): Promise<JobQueueItem | null> {
+    const now = new Date().toISOString();
+    if (!isLiveSupabase()) {
+      const job = mockDb.jobQueue.get(jobId);
+      if (job) {
+        job.status = 'queued';
+        job.attempts = 0;
+        job.last_error = null;
+        job.locked_at = null;
+        job.lock_expires_at = null;
+        job.run_at = now;
+        job.updated_at = now;
+        return { ...job };
+      }
+      return null;
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('job_queue')
+      .update({
+        status: 'queued',
+        attempts: 0,
+        last_error: null,
+        locked_at: null,
+        lock_expires_at: null,
+        run_at: now,
+        updated_at: now,
+      })
+      .eq('id', jobId)
+      .select()
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async retryAllFailedJobs(): Promise<number> {
+    const now = new Date().toISOString();
+    if (!isLiveSupabase()) {
+      let count = 0;
+      for (const job of mockDb.jobQueue.values()) {
+        if (job.status === 'failed' || job.status === 'dead') {
+          job.status = 'queued';
+          job.attempts = 0;
+          job.last_error = null;
+          job.locked_at = null;
+          job.lock_expires_at = null;
+          job.run_at = now;
+          job.updated_at = now;
+          count++;
+        }
+      }
+      return count;
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('job_queue')
+      .update({
+        status: 'queued',
+        attempts: 0,
+        last_error: null,
+        locked_at: null,
+        lock_expires_at: null,
+        run_at: now,
+        updated_at: now,
+      })
+      .in('status', ['failed', 'dead'])
+      .select('id');
+
+    if (error) throw new Error(error.message);
+    return data ? data.length : 0;
+  },
+
+  async deleteJob(jobId: string): Promise<boolean> {
+    if (!isLiveSupabase()) {
+      return mockDb.jobQueue.delete(jobId);
+    }
+    const supabase = createAdminClient();
+    const { error } = await supabase.from('job_queue').delete().eq('id', jobId);
+    if (error) throw new Error(error.message);
+    return true;
+  },
+
+  async clearFailedJobs(): Promise<number> {
+    if (!isLiveSupabase()) {
+      let count = 0;
+      for (const [id, job] of mockDb.jobQueue.entries()) {
+        if (job.status === 'failed' || job.status === 'dead') {
+          mockDb.jobQueue.delete(id);
+          count++;
+        }
+      }
+      return count;
+    }
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('job_queue')
+      .delete()
+      .in('status', ['failed', 'dead'])
+      .select('id');
+    if (error) throw new Error(error.message);
+    return data ? data.length : 0;
   },
 
   // Analytics & Stats

@@ -13,6 +13,7 @@ import {
   Zap,
   Inbox,
   Compass,
+  Activity,
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { name: 'Campaigns', href: '/campaigns', icon: Send },
   { name: 'Messages', href: '/messages', icon: Mail },
   { name: 'Replies', href: '/replies', icon: MessageSquareQuote },
+  { name: 'Job Queue', href: '/jobs', icon: Activity },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -86,7 +88,9 @@ export function Sidebar() {
         </div>
         <div className="text-[11px] text-slate-400 flex items-center justify-between">
           <span>Worker: Active</span>
-          <span className="text-indigo-400 font-mono">Cron Ready</span>
+          <Link href="/jobs" className="text-indigo-400 hover:text-indigo-300 font-mono transition-colors">
+            View Queue →
+          </Link>
         </div>
         <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
           <Link href="/privacy" className="hover:text-slate-300 transition-colors">

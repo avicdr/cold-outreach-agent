@@ -117,4 +117,69 @@ describe('Gemini AI Writing Engine & Safety', () => {
     const oooResult = await classifyReply(oooReply);
     expect(oooResult.classification).toBe('out_of_office');
   });
+
+  it('extracts all core identifiers, contact channels, and qualification fields correctly', async () => {
+    const { extractLeadEnrichment } = await import('./gemini');
+    const clinicLead: Lead = {
+      id: 'lead-clinic-1',
+      user_id: 'user-1',
+      email: 'info@studiobsmiles.com',
+      normalized_email: 'info@studiobsmiles.com',
+      first_name: '',
+      last_name: '',
+      company: 'Studio B Smiles',
+      job_title: '',
+      website: 'https://studiobsmiles.com',
+      notes: '',
+      custom_fields: {
+        'Category_Niche': 'Dental',
+        'City_Area': 'Scottsdale',
+        'Country': 'United States',
+        'Phone_Number': '(480) 860-0092',
+        'Email_Source_Type': 'Explicit Profile Email',
+        'Google_Rating': 4.9,
+        'Google_Review_Count': 285,
+        'Footfall_Tier': 'High Footfall',
+        'Current_Booking_Setup': 'Phone call and static contact form',
+        'AI_Chat_Widget_Status': 'None',
+        'Automated_Booking_Status': 'Manual receptionist intake',
+        'Lead_Qualification_Score': 97,
+        'Cold_Email_Personalization_Hook': 'Saw your 4.9-star reputation across 285+ patient reviews in Scottsdale.',
+      },
+      status: 'active',
+      source_import: 'leads.csv',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const profile = extractLeadEnrichment(clinicLead);
+    expect(profile.businessName).toBe('Studio B Smiles');
+    expect(profile.recipientSalutation).toBe('Studio B Smiles Team');
+    expect(profile.categoryNiche).toBe('Dental');
+    expect(profile.cityArea).toBe('Scottsdale');
+    expect(profile.googleRating).toBe(4.9);
+    expect(profile.googleReviewCount).toBe(285);
+    expect(profile.currentBookingSetup).toBe('Phone call and static contact form');
+    expect(profile.personalizationHook).toContain('285+ patient reviews in Scottsdale');
+
+    const draft = await generateInitialEmail({
+      lead: clinicLead,
+      campaign: {
+        name: 'Dental Intake AI',
+        business_context: 'We install autonomous 24/7 AI booking agents for private dental and med spa practices.',
+        ideal_customer_profile: 'High-volume private dental practices in premier metro areas.',
+        offer: '24/7 autonomous new-patient intake and calendar booking agent',
+        tone: 'Executive, respectful, direct',
+        call_to_action: '3-minute video walkthrough',
+        initial_email_instructions: 'Lead with their reputation and address after-hours intake loss.',
+      },
+      senderName: 'Avi',
+    });
+
+    expect(draft.subject).toContain('Studio B Smiles');
+    expect(draft.body).toContain('Studio B Smiles Team');
+    expect(draft.body).toContain('Scottsdale');
+    expect(draft.body).toContain('24/7');
+  });
 });
+

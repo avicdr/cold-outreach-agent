@@ -35,7 +35,7 @@ export default function LeadImportPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1); // 1: Upload, 2: Map & Preview, 3: Summary
 
   // Column Mapping
-  const [mapping, setMapping] = useState({
+  const [mapping, setMapping] = useState<any>({
     email: '',
     first_name: '',
     last_name: '',
@@ -43,6 +43,14 @@ export default function LeadImportPage() {
     company: '',
     job_title: '',
     website: '',
+    phone: '',
+    category: '',
+    city: '',
+    country: '',
+    rating: '',
+    review_count: '',
+    qualification_score: '',
+    personalization_hook: '',
     notes: '',
   });
 
@@ -115,20 +123,36 @@ export default function LeadImportPage() {
     const newMapping = { ...mapping };
     fields.forEach((f) => {
       const lower = f.toLowerCase().replace(/[-_ ]/g, '');
-      if (!newMapping.email && (lower === 'email' || lower === 'emailaddress' || lower === 'mail')) {
+      if (!newMapping.email && (lower === 'email' || lower === 'targetcoldemail' || lower === 'targetemail' || lower === 'emailaddress' || lower === 'mail' || lower === 'contactemail')) {
         newMapping.email = f;
-      } else if (!newMapping.first_name && (lower === 'firstname' || lower === 'fname')) {
+      } else if (!newMapping.first_name && (lower === 'firstname' || lower === 'fname' || lower === 'givenname')) {
         newMapping.first_name = f;
-      } else if (!newMapping.last_name && (lower === 'lastname' || lower === 'lname')) {
+      } else if (!newMapping.last_name && (lower === 'lastname' || lower === 'lname' || lower === 'surname')) {
         newMapping.last_name = f;
-      } else if (!newMapping.full_name && (lower === 'name' || lower === 'fullname')) {
+      } else if (!newMapping.full_name && (lower === 'name' || lower === 'fullname' || lower === 'contactname')) {
         newMapping.full_name = f;
-      } else if (!newMapping.company && (lower === 'company' || lower === 'companyname' || lower === 'org')) {
+      } else if (!newMapping.company && (lower === 'businessname' || lower === 'company' || lower === 'companyname' || lower === 'organization' || lower === 'org' || lower === 'business' || lower === 'practicename')) {
         newMapping.company = f;
       } else if (!newMapping.job_title && (lower === 'jobtitle' || lower === 'title' || lower === 'role')) {
         newMapping.job_title = f;
-      } else if (!newMapping.website && (lower === 'website' || lower === 'url' || lower === 'domain')) {
+      } else if (!newMapping.website && (lower === 'websiteurl' || lower === 'website' || lower === 'url' || lower === 'domain' || lower === 'site')) {
         newMapping.website = f;
+      } else if (!newMapping.phone && (lower === 'phonenumber' || lower === 'phone' || lower === 'tel' || lower === 'mobile')) {
+        newMapping.phone = f;
+      } else if (!newMapping.category && (lower === 'categoryniche' || lower === 'category' || lower === 'niche' || lower === 'industry')) {
+        newMapping.category = f;
+      } else if (!newMapping.city && (lower === 'cityarea' || lower === 'city' || lower === 'area' || lower === 'location')) {
+        newMapping.city = f;
+      } else if (!newMapping.country && lower === 'country') {
+        newMapping.country = f;
+      } else if (!newMapping.rating && (lower === 'googlerating' || lower === 'rating' || lower === 'stars')) {
+        newMapping.rating = f;
+      } else if (!newMapping.review_count && (lower === 'googlereviewcount' || lower === 'reviewcount' || lower === 'reviews')) {
+        newMapping.review_count = f;
+      } else if (!newMapping.qualification_score && (lower === 'leadqualificationscore' || lower === 'qualificationscore' || lower === 'score')) {
+        newMapping.qualification_score = f;
+      } else if (!newMapping.personalization_hook && (lower === 'coldemailpersonalizationhook' || lower === 'personalizationhook' || lower === 'hook' || lower === 'suggestedopening')) {
+        newMapping.personalization_hook = f;
       } else if (!newMapping.notes && (lower === 'notes' || lower === 'note' || lower === 'bio')) {
         newMapping.notes = f;
       }
@@ -340,6 +364,108 @@ export default function LeadImportPage() {
                       ))}
                     </select>
                   </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Category / Niche</label>
+                    <select
+                      value={mapping.category}
+                      onChange={(e) => setMapping({ ...mapping, category: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">City / Area</label>
+                    <select
+                      value={mapping.city}
+                      onChange={(e) => setMapping({ ...mapping, city: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Phone Number</label>
+                    <select
+                      value={mapping.phone}
+                      onChange={(e) => setMapping({ ...mapping, phone: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Google Rating</label>
+                    <select
+                      value={mapping.rating}
+                      onChange={(e) => setMapping({ ...mapping, rating: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Google Review Count</label>
+                    <select
+                      value={mapping.review_count}
+                      onChange={(e) => setMapping({ ...mapping, review_count: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Cold Email Personalization Hook</label>
+                    <select
+                      value={mapping.personalization_hook}
+                      onChange={(e) => setMapping({ ...mapping, personalization_hook: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Lead Qualification Score</label>
+                    <select
+                      value={mapping.qualification_score}
+                      onChange={(e) => setMapping({ ...mapping, qualification_score: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200"
+                    >
+                      <option value="">-- None / Select Column --</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-2 text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
+                  <span className="font-semibold text-indigo-400">Automatic Enrichment:</span> All remaining fields (such as Footfall_Tier, Current_Booking_Setup, AI_Chat_Widget_Status, Automated_Booking_Status, and Email_Source_Type) are automatically captured and used directly by the AI cold email generator.
                 </div>
               </div>
 
