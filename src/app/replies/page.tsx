@@ -15,6 +15,9 @@ import {
   HelpCircle,
   Mail,
   User,
+  Trash2,
+  CheckCircle2,
+  ShieldCheck,
 } from 'lucide-react';
 
 export default function RepliesPage() {
@@ -24,6 +27,30 @@ export default function RepliesPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const isBounceOrDaemon = (r: Partial<ReplyEvent>) => {
+    const s = (r.sender_email || '').toLowerCase();
+    const sum = (r.classification_summary || '').toLowerCase();
+    return (
+      s.includes('mailer-daemon') ||
+      s.includes('mail-daemon') ||
+      s.includes('mailer_daemon') ||
+      s.includes('postmaster') ||
+      s.includes('mail delivery subsystem') ||
+      s.includes('delivery status') ||
+      s.startsWith('bounce') ||
+      s.includes('noreply') ||
+      s.includes('no-reply') ||
+      sum.includes('delivery failure') ||
+      sum.includes('domain could not be found') ||
+      sum.includes('address not found') ||
+      sum.includes('undeliverable') ||
+      sum.includes('undelivered mail') ||
+      sum.includes('mailer daemon')
+    );
+  };
 
   const fetchReplies = (targetPage = page, targetPageSize = pageSize) => {
     setLoading(true);
@@ -34,8 +61,13 @@ export default function RepliesPage() {
     fetch(`/api/replies?${params.toString()}`)
       .then((res) => res.json())
       .then((data) => {
-        setReplies(Array.isArray(data) ? data : data.replies || []);
-        setTotal(typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0));
+        const raw = Array.isArray(data) ? data : data.replies || [];
+        const filtered = raw.filter((r: any) => !isBounceOrDaemon(r));
+        setReplies(filtered);
+        const serverTotal = typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0);
+        // Correct total if stray daemon events were dropped on client
+        const diff = raw.length - filtered.length;
+        setTotal(Math.max(0, serverTotal - diff));
         setLoading(false);
       })
       .catch((err) => {
@@ -47,6 +79,35 @@ export default function RepliesPage() {
   useEffect(() => {
     fetchReplies(1, pageSize);
   }, []);
+
+  const handleDeleteReply = async (replyId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this reply?')) return;
+
+    setDeletingId(replyId);
+    try {
+      const res = await fetch(`/api/replies?id=${encodeURIComponent(replyId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setReplies((prev) => prev.filter((r) => r.id !== replyId));
+        setTotal((prev) => Math.max(0, prev - 1));
+        if (selectedReply?.id === replyId) {
+          setSelectedReply(null);
+        }
+        setNotice('Reply removed successfully.');
+        setTimeout(() => setNotice(null), 3000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete reply');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error deleting reply');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const getClassificationBadge = (classification: ReplyEvent['classification']) => {
     switch (classification) {
@@ -96,13 +157,27 @@ export default function RepliesPage() {
         <Header title="Inbound Replies & Sentiment" subtitle="Synchronized replies automatically classified with Gemini AI" />
 
         <main className="p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto">
-          {/* Safeguard Notice */}
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 text-xs text-slate-400 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span>All incoming replies instantly halt automated follow-up sequences for the prospect.</span>
+          {/* Status Notice */}
+          {notice && (
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>{notice}</span>
+              </span>
+              <button onClick={() => setNotice(null)} className="text-slate-400 hover:text-white">✕</button>
             </div>
-            <span className="text-slate-500">Auto-polled via Gmail API</span>
+          )}
+
+          {/* Safeguard Notice */}
+          <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 text-xs text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+              <span>All incoming prospect replies automatically pause follow-up sequences. Mailer-daemon & delivery bounces are automatically filtered out.</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Daemon Filter Active</span>
+            </div>
           </div>
 
           {/* Replies Grid / List */}
@@ -111,9 +186,9 @@ export default function RepliesPage() {
           ) : replies.length === 0 ? (
             <div className="py-16 text-center rounded-2xl border border-dashed border-slate-800 bg-slate-900/20">
               <MessageSquareQuote className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-              <h3 className="text-base font-semibold text-slate-300">No replies received yet</h3>
+              <h3 className="text-base font-semibold text-slate-300">No prospect replies found</h3>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Once prospects reply to your cold emails, they will be captured, categorized, and displayed here.
+                Once prospects reply to your cold emails, they will be captured, categorized, and displayed here. Delivery bounces and mailer daemons are kept out of your inbox.
               </p>
             </div>
           ) : (
@@ -136,7 +211,17 @@ export default function RepliesPage() {
                         </div>
                       </div>
                     </div>
-                    <div>{getClassificationBadge(reply.classification)}</div>
+                    <div className="flex items-center gap-2">
+                      {getClassificationBadge(reply.classification)}
+                      <button
+                        onClick={(e) => handleDeleteReply(reply.id, e)}
+                        disabled={deletingId === reply.id}
+                        title="Delete reply"
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="text-xs text-slate-300 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
@@ -189,7 +274,15 @@ export default function RepliesPage() {
                 {selectedReply.classification_summary}
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  onClick={() => handleDeleteReply(selectedReply.id)}
+                  disabled={deletingId === selectedReply.id}
+                  className="px-3 py-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg flex items-center gap-1.5 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Reply</span>
+                </button>
                 <button
                   onClick={() => setSelectedReply(null)}
                   className="px-4 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg"

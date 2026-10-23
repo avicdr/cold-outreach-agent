@@ -16,6 +16,7 @@ import {
   Clock,
   Sparkles,
   ArrowRight,
+  Sliders,
 } from 'lucide-react';
 
 export default function CampaignsPage() {
@@ -200,12 +201,19 @@ export default function CampaignsPage() {
                     </div>
                   </div>
 
-                  <div className="pt-2 flex items-center justify-end">
+                  <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-800/60">
+                    <Link
+                      href={`/campaigns/${camp.id}/edit`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 hover:border-slate-600 text-xs font-medium text-slate-200 hover:text-white transition-all shadow-sm"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Edit Config</span>
+                    </Link>
                     <Link
                       href={`/campaigns/${camp.id}`}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600/20 border border-indigo-500/20 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
                     >
-                      <span>Campaign Details & Leads</span>
+                      <span>Leads & Sequence</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>

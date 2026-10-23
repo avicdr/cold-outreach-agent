@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Plus,
   Zap,
+  Sliders,
 } from 'lucide-react';
 import { Suspense } from 'react';
 
@@ -238,6 +239,13 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
       <div className="flex-1 flex flex-col">
         <Header title={campaign.name} subtitle={`Status: ${campaign.status.toUpperCase()}`}>
           <div className="flex items-center gap-2">
+            <Link
+              href={`/campaigns/${campaign.id}/edit`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 text-slate-100 transition-colors shadow-sm"
+            >
+              <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Edit Configuration</span>
+            </Link>
             {campaign.status === 'draft' && (
               <button
                 onClick={() => setShowActivateConfirm(true)}
@@ -319,7 +327,16 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
           {/* Campaign Parameters & Schedule Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2 p-5 rounded-xl border border-slate-800 bg-slate-900/30 space-y-3">
-              <h3 className="text-sm font-semibold text-white">Value Proposition & Offer</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">Value Proposition & Offer</h3>
+                <Link
+                  href={`/campaigns/${campaign.id}/edit`}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>Edit Config</span>
+                </Link>
+              </div>
               <p className="text-xs text-slate-300 leading-relaxed">{campaign.offer || 'No offer specified'}</p>
               <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-xs text-slate-400">
                 <div><span className="text-slate-500">Target ICP:</span> {campaign.ideal_customer_profile || 'Any'}</div>
@@ -371,6 +388,15 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                   <span className="text-slate-300 font-medium">
                     {isWindowActive ? 'Active (Throttled 4/hr)' : `Tomorrow at 09:00 ${campaign.sending_config?.timezone?.split('/')[1] || 'UK'}`}
                   </span>
+                </div>
+                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-end">
+                  <Link
+                    href={`/campaigns/${campaign.id}/edit`}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Edit Schedule & Limits</span>
+                  </Link>
                 </div>
               </div>
             </div>

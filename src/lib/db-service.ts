@@ -31,6 +31,28 @@ export const isLiveSupabase = () => {
   );
 };
 
+export function isMailerDaemonOrBounce(senderEmail: string, summary?: string | null): boolean {
+  const s = (senderEmail || '').toLowerCase();
+  const sum = (summary || '').toLowerCase();
+  return (
+    s.includes('mailer-daemon') ||
+    s.includes('mail-daemon') ||
+    s.includes('mailer_daemon') ||
+    s.includes('postmaster') ||
+    s.includes('mail delivery subsystem') ||
+    s.includes('delivery status') ||
+    s.startsWith('bounce') ||
+    s.includes('noreply') ||
+    s.includes('no-reply') ||
+    sum.includes('delivery failure') ||
+    sum.includes('domain could not be found') ||
+    sum.includes('address not found') ||
+    sum.includes('undeliverable') ||
+    sum.includes('undelivered mail') ||
+    sum.includes('mailer daemon')
+  );
+}
+
 export const dbService = {
   // Profiles
   async getProfile(userId: string): Promise<Profile> {
@@ -1329,12 +1351,21 @@ export const dbService = {
   // Replies
   async getReplies(userId: string): Promise<ReplyEvent[]> {
     if (!isLiveSupabase()) {
-      return Array.from(mockDb.replyEvents.values()).filter((r) => r.user_id === userId);
+      return Array.from(mockDb.replyEvents.values()).filter(
+        (r) => r.user_id === userId && !isMailerDaemonOrBounce(r.sender_email, r.classification_summary)
+      );
     }
     const supabase = createAdminClient();
-    const { data, error } = await supabase.from('reply_events').select('*').eq('user_id', userId).order('received_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('reply_events')
+      .select('*')
+      .eq('user_id', userId)
+      .not('sender_email', 'ilike', '%mailer-daemon%')
+      .not('sender_email', 'ilike', '%mail-daemon%')
+      .not('sender_email', 'ilike', '%postmaster%')
+      .order('received_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return data || [];
+    return (data || []).filter((r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary));
   },
 
   async getPaginatedReplies(
@@ -1342,7 +1373,9 @@ export const dbService = {
     options?: { limit?: number; offset?: number; classification?: string }
   ): Promise<{ replies: ReplyEvent[]; total: number }> {
     if (!isLiveSupabase()) {
-      let all = Array.from(mockDb.replyEvents.values()).filter((r) => r.user_id === userId);
+      let all = Array.from(mockDb.replyEvents.values()).filter(
+        (r) => r.user_id === userId && !isMailerDaemonOrBounce(r.sender_email, r.classification_summary)
+      );
       if (options?.classification) {
         all = all.filter((r) => r.classification === options.classification);
       }
@@ -1354,7 +1387,17 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
-    let query = supabase.from('reply_events').select('*', { count: 'exact' }).eq('user_id', userId);
+    let query = supabase
+      .from('reply_events')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .not('sender_email', 'ilike', '%mailer-daemon%')
+      .not('sender_email', 'ilike', '%mail-daemon%')
+      .not('sender_email', 'ilike', '%postmaster%')
+      .not('sender_email', 'ilike', '%noreply%')
+      .not('classification_summary', 'ilike', '%delivery failure%')
+      .not('classification_summary', 'ilike', '%domain could not be found%')
+      .not('classification_summary', 'ilike', '%undeliverable%');
     if (options?.classification) {
       query = query.eq('classification', options.classification);
     }
@@ -1362,10 +1405,19 @@ export const dbService = {
     const limit = options?.limit ?? 50;
     const { data, count, error } = await query.order('received_at', { ascending: false }).range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
-    return { replies: data || [], total: count ?? 0 };
+    const filtered = (data || []).filter((r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary));
+    const effectiveTotal = Math.max(0, (count ?? 0) - ((data?.length ?? 0) - filtered.length));
+    return { replies: filtered, total: effectiveTotal };
   },
 
   async recordReply(event: Omit<ReplyEvent, 'id' | 'created_at'>): Promise<ReplyEvent> {
+    if (isMailerDaemonOrBounce(event.sender_email, event.classification_summary)) {
+      return {
+        id: crypto.randomUUID(),
+        ...event,
+        created_at: new Date().toISOString(),
+      };
+    }
     if (!isLiveSupabase()) {
       const id = crypto.randomUUID();
       const newReply: ReplyEvent = {
@@ -1381,6 +1433,52 @@ export const dbService = {
     const { data, error } = await supabase.from('reply_events').upsert(event, { onConflict: 'gmail_message_id' }).select().single();
     if (error) throw new Error(error.message);
     return data;
+  },
+
+  async deleteReply(id: string, userId?: string): Promise<boolean> {
+    if (!isLiveSupabase()) {
+      const reply = mockDb.replyEvents.get(id);
+      if (reply && (!userId || reply.user_id === userId)) {
+        mockDb.replyEvents.delete(id);
+        return true;
+      }
+      return false;
+    }
+
+    const supabase = createAdminClient();
+    let query = supabase.from('reply_events').delete().eq('id', id);
+    if (userId) query = query.eq('user_id', userId);
+    const { error } = await query;
+    if (error) throw new Error(error.message);
+    return true;
+  },
+
+  async purgeInvalidReplies(userId: string): Promise<number> {
+    let purged = 0;
+    if (!isLiveSupabase()) {
+      for (const [id, r] of Array.from(mockDb.replyEvents.entries())) {
+        if (r.user_id === userId && isMailerDaemonOrBounce(r.sender_email, r.classification_summary)) {
+          mockDb.replyEvents.delete(id);
+          purged++;
+        }
+      }
+      return purged;
+    }
+
+    try {
+      const supabase = createAdminClient();
+      const { error } = await supabase
+        .from('reply_events')
+        .delete()
+        .eq('user_id', userId)
+        .or('sender_email.ilike.%mailer-daemon%,sender_email.ilike.%mail-daemon%,sender_email.ilike.%postmaster%,classification_summary.ilike.%delivery failure%,classification_summary.ilike.%domain could not be found%');
+      if (error) {
+        console.warn('purgeInvalidReplies error:', error.message);
+      }
+    } catch (err) {
+      console.warn('purgeInvalidReplies caught:', err);
+    }
+    return purged;
   },
 
   // Job Queue

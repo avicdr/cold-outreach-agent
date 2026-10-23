@@ -65,4 +65,60 @@ describe('Job Queue & Worker Execution', () => {
     const completed = batchResult.results.filter((r) => r.status === 'completed');
     expect(completed.length).toBeGreaterThan(0);
   });
+
+  it('detects mailer-daemon and delivery bounces accurately', async () => {
+    const { isMailerDaemonOrBounce } = await import('../db-service');
+
+    expect(isMailerDaemonOrBounce('mailer-daemon@googlemail.com')).toBe(true);
+    expect(isMailerDaemonOrBounce('MAIL-DAEMON@domain.com')).toBe(true);
+    expect(isMailerDaemonOrBounce('postmaster@server.net')).toBe(true);
+    expect(isMailerDaemonOrBounce('bounce-handler@outreach.com')).toBe(true);
+    expect(isMailerDaemonOrBounce('noreply@company.com')).toBe(true);
+    expect(
+      isMailerDaemonOrBounce('user@domain.com', 'The email is a delivery failure notification stating the domain could not be found.')
+    ).toBe(true);
+    expect(isMailerDaemonOrBounce('prospect@acmecorp.com', 'Sounds great, let us talk next Tuesday.')).toBe(false);
+  });
+
+  it('never stores mailer-daemon replies and filters them out of getReplies', async () => {
+    const testUserId = 'test-user-daemon-check';
+
+    // Attempt to record a mailer-daemon bounce reply
+    await dbService.recordReply({
+      user_id: testUserId,
+      email_message_id: null,
+      gmail_message_id: 'daemon-msg-1',
+      gmail_thread_id: 'daemon-th-1',
+      sender_email: 'mailer-daemon@googlemail.com',
+      received_at: new Date().toISOString(),
+      classification: 'other',
+      classification_summary: 'Delivery failure notice: recipient rejected',
+    });
+
+    // Record a genuine prospect reply
+    const genuineReply = await dbService.recordReply({
+      user_id: testUserId,
+      email_message_id: null,
+      gmail_message_id: 'genuine-msg-1',
+      gmail_thread_id: 'genuine-th-1',
+      sender_email: 'sarah@startup.io',
+      received_at: new Date().toISOString(),
+      classification: 'positive',
+      classification_summary: 'Interested in a demo call next week.',
+    });
+
+    const replies = await dbService.getReplies(testUserId);
+    expect(replies.some((r) => r.sender_email.includes('mailer-daemon'))).toBe(false);
+    expect(replies.some((r) => r.sender_email === 'sarah@startup.io')).toBe(true);
+
+    const paginated = await dbService.getPaginatedReplies(testUserId, { limit: 10 });
+    expect(paginated.replies.some((r) => r.sender_email.includes('mailer-daemon'))).toBe(false);
+    expect(paginated.replies.some((r) => r.sender_email === 'sarah@startup.io')).toBe(true);
+
+    // Test reply deletion
+    const deleted = await dbService.deleteReply(genuineReply.id, testUserId);
+    expect(deleted).toBe(true);
+    const repliesAfterDelete = await dbService.getReplies(testUserId);
+    expect(repliesAfterDelete.some((r) => r.id === genuineReply.id)).toBe(false);
+  });
 });

@@ -8,6 +8,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Auto-clean any legacy or stray mailer-daemon/delivery failures asynchronously
+  dbService.purgeInvalidReplies(user.id).catch((err) => {
+    console.warn('Background reply purge warning:', err);
+  });
+
   const { searchParams } = new URL(request.url);
   const classification = searchParams.get('classification') || undefined;
   const page = parseInt(searchParams.get('page') || '1', 10);
@@ -27,6 +32,27 @@ export async function GET(request: NextRequest) {
       limit,
       totalPages: Math.max(1, Math.ceil(result.total / limit)),
     });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'Reply ID is required' }, { status: 400 });
+  }
+
+  try {
+    const success = await dbService.deleteReply(id, user.id);
+    return NextResponse.json({ success, deletedId: id });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

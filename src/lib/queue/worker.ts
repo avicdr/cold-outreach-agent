@@ -552,8 +552,70 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
     }
 
     for (const reply of inboundReplies) {
+      const senderLower = (reply.senderEmail || '').toLowerCase();
+      const bodyLower = (reply.bodyText || '').toLowerCase();
+      const subjectLower = (reply.subject || '').toLowerCase();
+
+      // Check if this is a bounce / delivery failure notice from mailer-daemon, postmaster, etc.
+      const isBounce =
+        senderLower.includes('mailer-daemon') ||
+        senderLower.includes('mail-daemon') ||
+        senderLower.includes('mailer_daemon') ||
+        senderLower.includes('postmaster') ||
+        senderLower.startsWith('bounce') ||
+        senderLower.includes('noreply') ||
+        senderLower.includes('no-reply') ||
+        senderLower.includes('mail delivery subsystem') ||
+        subjectLower.includes('delivery status notification') ||
+        subjectLower.includes('delivery failure') ||
+        subjectLower.includes('undeliverable') ||
+        subjectLower.includes('mail delivery failed') ||
+        bodyLower.includes('domain could not be found') ||
+        bodyLower.includes('address not found') ||
+        bodyLower.includes('delivery failure') ||
+        bodyLower.includes('undelivered mail') ||
+        bodyLower.includes('550 ') ||
+        bodyLower.includes('554 ');
+
       const matchedMessage = messages.find((m) => m.gmail_thread_id === reply.threadId);
+
+      if (isBounce) {
+        if (matchedMessage && matchedMessage.lead) {
+          // Mark lead as bounced (not replied!)
+          await dbService.updateLead(matchedMessage.lead.id, { status: 'bounced' });
+          // Add lead email to suppression list with bounce reason
+          await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'bounce', 'mailer_daemon_bounce');
+          // Cancel any upcoming scheduled follow-ups
+          const scheduledMsgs = await dbService.getMessages({ status: 'scheduled' });
+          for (const msg of scheduledMsgs) {
+            if (msg.campaign_lead_id === matchedMessage.campaign_lead_id) {
+              msg.status = 'cancelled';
+              await dbService.createOrUpdateMessage(msg);
+            }
+          }
+        }
+        // Never record mailer-daemon as an inbound prospect reply in reply_events
+        continue;
+      }
+
       const classification = await classifyReply(reply.bodyText);
+      const summaryLower = (classification.summary || '').toLowerCase();
+
+      // Guard: If Gemini classification identifies delivery failure / bounce, do not record as reply
+      if (
+        summaryLower.includes('delivery failure') ||
+        summaryLower.includes('domain could not be found') ||
+        summaryLower.includes('undeliverable') ||
+        summaryLower.includes('address not found') ||
+        summaryLower.includes('mailer-daemon') ||
+        summaryLower.includes('mail delivery')
+      ) {
+        if (matchedMessage && matchedMessage.lead) {
+          await dbService.updateLead(matchedMessage.lead.id, { status: 'bounced' });
+          await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'bounce', 'ai_detected_bounce');
+        }
+        continue;
+      }
 
       await dbService.recordReply({
         user_id: userId,
