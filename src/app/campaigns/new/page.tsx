@@ -153,10 +153,10 @@ export default function NewCampaignPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Create Campaign" subtitle="Define campaign persona, offer, schedule, and follow-ups" />
 
-        <main className="p-8 max-w-4xl w-full mx-auto space-y-8">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-8 min-w-0">
           {error && (
             <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
               <XCircle className="w-4 h-4 shrink-0 text-rose-400" />

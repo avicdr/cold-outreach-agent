@@ -282,7 +282,7 @@ export default function DiscoveryPage() {
           subtitle="Discover local appointment-based businesses, qualify with Gemini, and route into outreach campaigns"
         />
 
-        <main className="p-8 max-w-7xl mx-auto w-full space-y-6">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6 min-w-0">
           {/* Header Title & Actions */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>

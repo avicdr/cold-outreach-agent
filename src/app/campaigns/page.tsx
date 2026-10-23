@@ -94,17 +94,18 @@ export default function CampaignsPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Campaigns" subtitle="Manage your automated outreach campaigns & schedules">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             {campaigns.length > 0 && (
               <button
                 onClick={handleGlobalPauseToggle}
                 disabled={isPausingAll}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
               >
                 {hasAnyActive ? <Pause className="w-3.5 h-3.5 text-amber-400" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
-                <span>{hasAnyActive ? 'Pause All Sending' : 'Resume Sending'}</span>
+                <span className="hidden sm:inline">{hasAnyActive ? 'Pause All Sending' : 'Resume Sending'}</span>
+                <span className="sm:hidden">{hasAnyActive ? 'Pause All' : 'Resume'}</span>
               </button>
             )}
             <Link
@@ -117,12 +118,12 @@ export default function CampaignsPage() {
           </div>
         </Header>
 
-        <main className="p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {/* Filter Bar */}
-          <div className="flex items-center justify-between bg-slate-900/40 p-3.5 rounded-xl border border-slate-800">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/40 p-3.5 rounded-xl border border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-slate-400 font-medium">Filter by Status:</span>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {['', 'active', 'paused', 'draft', 'completed'].map((st) => (
                   <button
                     key={st}

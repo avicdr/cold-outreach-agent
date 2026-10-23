@@ -236,15 +236,16 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title={campaign.name} subtitle={`Status: ${campaign.status.toUpperCase()}`}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <Link
               href={`/campaigns/${campaign.id}/edit`}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 text-slate-100 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 text-slate-100 transition-colors shadow-sm"
             >
               <Sliders className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Edit Configuration</span>
+              <span className="hidden sm:inline">Edit Configuration</span>
+              <span className="sm:hidden">Edit</span>
             </Link>
             {campaign.status === 'draft' && (
               <button
@@ -308,15 +309,16 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
             <button
               onClick={handleGenerateDrafts}
               disabled={actionLoading || leads.length === 0}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{actionLoading ? 'Generating...' : 'Generate AI Drafts'}</span>
+              <span className="hidden sm:inline">{actionLoading ? 'Generating...' : 'Generate AI Drafts'}</span>
+              <span className="sm:hidden">{actionLoading ? '...' : 'Drafts'}</span>
             </button>
           </div>
         </Header>
 
-        <main className="p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {messageNotice && (
             <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs flex items-center justify-between">
               <span>{messageNotice}</span>

@@ -202,10 +202,10 @@ export default function LeadImportPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Lead Import Wizard" subtitle="Upload CSV or Excel files with auto-mapping and suppression checks" />
 
-        <main className="p-8 max-w-4xl w-full mx-auto space-y-6">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-6 min-w-0">
           {/* Progress Indicator */}
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
             <div className={`flex items-center gap-2 text-xs font-semibold ${step >= 1 ? 'text-indigo-400' : 'text-slate-600'}`}>

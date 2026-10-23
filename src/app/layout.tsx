@@ -1,5 +1,12 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { NavigationProvider } from '@/components/NavigationContext';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+};
 
 export const metadata: Metadata = {
   title: 'Antigravity AI | Cold Outreach Automation Agent',
@@ -15,7 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark h-full antialiased">
       <body className="min-h-full bg-slate-950 text-slate-100 flex flex-col font-sans" suppressHydrationWarning>
-        {children}
+        <NavigationProvider>{children}</NavigationProvider>
       </body>
     </html>
   );

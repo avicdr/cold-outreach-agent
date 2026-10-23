@@ -67,12 +67,12 @@ export default function MessagesPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Messages" subtitle="History of sent, scheduled, and generated outreach messages" />
 
-        <main className="p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {/* Status Tabs */}
-          <div className="flex items-center gap-2 bg-slate-900/40 p-2 rounded-xl border border-slate-800 w-fit">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/40 p-2 rounded-xl border border-slate-800 w-full sm:w-fit">
             {['', 'sent', 'scheduled', 'draft', 'failed'].map((st) => (
               <button
                 key={st}

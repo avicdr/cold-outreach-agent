@@ -83,7 +83,7 @@ export default function LeadsPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Leads & Prospects" subtitle={`Total prospects loaded: ${total}`}>
           <div className="flex items-center gap-2">
             <Link
@@ -91,12 +91,13 @@ export default function LeadsPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>Import Leads Wizard</span>
+              <span className="hidden sm:inline">Import Leads Wizard</span>
+              <span className="sm:hidden">Import Leads</span>
             </Link>
           </div>
         </Header>
 
-        <main className="p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {/* Controls Bar */}
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-900/40 p-4 rounded-xl border border-slate-800">
             <form onSubmit={handleSearchSubmit} className="flex-1 flex items-center gap-2 w-full max-w-md">

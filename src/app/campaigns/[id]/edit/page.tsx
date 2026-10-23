@@ -201,7 +201,7 @@ function EditCampaignInner({ params }: { params: Promise<{ id: string }> }) {
     return (
       <div className="flex min-h-screen bg-slate-950 text-slate-100">
         <Sidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           <Header title="Edit Campaign Configuration" subtitle="Loading campaign settings..." />
           <div className="flex-1 flex items-center justify-center text-slate-500">
             Loading configuration...
@@ -214,18 +214,19 @@ function EditCampaignInner({ params }: { params: Promise<{ id: string }> }) {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title={`Edit: ${form.name || 'Campaign'}`} subtitle="Update persona, offer, schedule, inboxes, and follow-ups">
           <Link
             href={`/campaigns/${id}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Campaign</span>
+            <span className="hidden sm:inline">Back to Campaign</span>
+            <span className="sm:hidden">Back</span>
           </Link>
         </Header>
 
-        <main className="p-8 max-w-4xl w-full mx-auto space-y-8">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-8 min-w-0">
           {error && (
             <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
               <XCircle className="w-4 h-4 shrink-0 text-rose-400" />

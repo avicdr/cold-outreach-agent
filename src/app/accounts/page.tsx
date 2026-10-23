@@ -537,30 +537,32 @@ export default function AccountsPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header
           title="Inboxes & Warmup Pools"
           subtitle="Connect inboxes via Google OAuth, organize into campaign groups, and build domain reputation with automated peer warmup"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               onClick={handleConnectGmailOAuth}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/25 transition-all"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/25 transition-all"
               title="Connect another Gmail/Workspace inbox via OAuth (forces account chooser)"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>Connect Google OAuth</span>
+              <span className="hidden sm:inline">Connect Google OAuth</span>
+              <span className="sm:hidden">Google OAuth</span>
             </button>
             <button
               onClick={() => setShowAddGroupModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
             >
               <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span>+ New Group</span>
+              <span className="hidden sm:inline">+ New Group</span>
+              <span className="sm:hidden">+ Group</span>
             </button>
             <button
               onClick={() => setShowAddAccountModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>+ Add Inbox</span>
@@ -568,7 +570,7 @@ export default function AccountsPage() {
           </div>
         </Header>
 
-        <main className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-8 flex-1 min-w-0">
           {notice && (
             <div
               className={`p-3.5 rounded-xl text-xs flex items-center justify-between border ${

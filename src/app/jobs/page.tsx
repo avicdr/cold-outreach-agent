@@ -288,15 +288,16 @@ function JobsContent() {
           title="Background Job Queue"
           subtitle="Inspect, debug, retry, and monitor background tasks & execution history"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               onClick={handleRunWorker}
               disabled={runningWorker}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
               title="Process next queued batch immediately with worker"
             >
               <Play className={`w-3.5 h-3.5 ${runningWorker ? 'animate-spin' : ''}`} />
-              <span>{runningWorker ? 'Worker Running...' : 'Run Worker Now'}</span>
+              <span className="hidden sm:inline">{runningWorker ? 'Worker Running...' : 'Run Worker Now'}</span>
+              <span className="sm:hidden">{runningWorker ? '...' : 'Worker'}</span>
             </button>
             <button
               onClick={() => fetchJobs()}
@@ -309,7 +310,7 @@ function JobsContent() {
           </div>
         </Header>
 
-        <main className="p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {actionNotice && (
             <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs flex items-center justify-between animate-fadeIn">
               <span>{actionNotice}</span>

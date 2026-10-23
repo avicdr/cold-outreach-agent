@@ -112,36 +112,38 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Dashboard" subtitle="Overview of your cold outreach performance & active sequences">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               onClick={handleRunWorker}
               disabled={dispatching}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50"
               title="Process queued tasks, schedule next sends, and sync replies"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${dispatching ? 'animate-spin' : ''}`} />
-              <span>{dispatching ? 'Running...' : 'Run Worker Now'}</span>
+              <span className="hidden sm:inline">{dispatching ? 'Running...' : 'Run Worker Now'}</span>
+              <span className="sm:hidden">{dispatching ? '...' : 'Worker'}</span>
             </button>
             <Link
               href="/leads/import"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors"
             >
               <Upload className="w-3.5 h-3.5 text-slate-400" />
-              <span>Import Leads</span>
+              <span>Import</span>
             </Link>
             <Link
               href="/campaigns/new"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Create Campaign</span>
+              <span className="hidden sm:inline">Create Campaign</span>
+              <span className="sm:hidden">Campaign</span>
             </Link>
           </div>
         </Header>
 
-        <main className="p-8 space-y-8 flex-1 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-6 lg:p-8 space-y-8 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {runNotice && (
             <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between">
               <span>{runNotice}</span>

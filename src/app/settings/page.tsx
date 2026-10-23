@@ -117,10 +117,10 @@ export default function SettingsPage() {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Settings & Integrations" subtitle="Configure business profile, daily limits, and Gmail OAuth" />
 
-        <main className="p-8 max-w-4xl w-full mx-auto space-y-8">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-8 min-w-0">
           {saveNotice && (
             <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-indigo-400" />

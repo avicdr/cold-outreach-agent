@@ -179,19 +179,21 @@ function EmailEditorInner({ params }: { params: Promise<{ id: string }> }) {
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Interactive Email Editor" subtitle={`Campaign Lead Draft Editor`}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <Link
               href={`/campaigns/${campaignId}`}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Back to Campaign
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Back to Campaign</span>
+              <span className="sm:hidden">Back</span>
             </Link>
             <button
               onClick={handleSaveDraft}
               disabled={isSaving || !messageId}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50"
             >
               <Save className="w-3.5 h-3.5" />
               <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
@@ -199,7 +201,7 @@ function EmailEditorInner({ params }: { params: Promise<{ id: string }> }) {
           </div>
         </Header>
 
-        <main className="p-8 max-w-6xl w-full mx-auto space-y-6">
+        <main className="p-4 sm:p-6 lg:p-8 max-w-6xl w-full mx-auto space-y-6 min-w-0">
           {saveStatus && (
             <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-indigo-400" />
