@@ -382,8 +382,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
         const refreshed = await refreshAccessToken(refreshToken);
         accessToken = refreshed.access_token;
-        await dbService.upsertEmailAccount({
-          ...emailAccount,
+        await dbService.updateEmailAccount(emailAccount.id, {
           encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
           token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
         });
@@ -409,8 +408,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
           const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
           const refreshed = await refreshAccessToken(refreshToken);
           accessToken = refreshed.access_token;
-          await dbService.upsertEmailAccount({
-            ...emailAccount,
+          await dbService.updateEmailAccount(emailAccount.id, {
             encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
             token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
           });
@@ -517,8 +515,7 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
         const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
         const refreshed = await refreshAccessToken(refreshToken);
         accessToken = refreshed.access_token;
-        await dbService.upsertEmailAccount({
-          ...emailAccount,
+        await dbService.updateEmailAccount(emailAccount.id, {
           encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
           token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
         });
@@ -537,8 +534,7 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
           const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
           const refreshed = await refreshAccessToken(refreshToken);
           accessToken = refreshed.access_token;
-          await dbService.upsertEmailAccount({
-            ...emailAccount,
+          await dbService.updateEmailAccount(emailAccount.id, {
             encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
             token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
           });

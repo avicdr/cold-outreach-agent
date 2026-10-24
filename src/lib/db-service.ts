@@ -1334,7 +1334,31 @@ export const dbService = {
     };
 
 
-    // 1. Multi-account schema upsert (user_id, email_address)
+    // 1. If an existing account id is provided, update by primary key directly
+    if (account.id) {
+      try {
+        const { data: updated, error: updateErr } = await supabase
+          .from('email_accounts')
+          .update(payload)
+          .eq('id', account.id)
+          .select('*')
+          .maybeSingle();
+        if (!updateErr && updated) {
+          if (updated.group_id) {
+            try {
+              updated.group = await this.getAccountGroup(updated.group_id);
+            } catch {
+              updated.group = null;
+            }
+          }
+          return updated;
+        }
+      } catch {
+        // Fallback to upsert below
+      }
+    }
+
+    // 2. Multi-account schema upsert (user_id, email_address)
     try {
       const { data, error } = await supabase
         .from('email_accounts')
@@ -1351,61 +1375,36 @@ export const dbService = {
         }
         return data;
       }
-    } catch {
-      // Fallback
+      if (error && !account.id) {
+        throw new Error(error.message);
+      }
+    } catch (err: any) {
+      if (!account.id) throw err;
     }
 
-    // 2. Direct upsert
-    try {
-      const { data, error } = await supabase
+    // 3. Fallback upsert by id if account.id is provided
+    if (account.id) {
+      const { data: idData, error: idErr } = await supabase
         .from('email_accounts')
-        .upsert(payload)
+        .upsert(payload, { onConflict: 'id' })
         .select('*')
         .single();
-      if (!error && data) {
-        if (data.group_id) {
+      if (!idErr && idData) {
+        if (idData.group_id) {
           try {
-            data.group = await this.getAccountGroup(data.group_id);
+            idData.group = await this.getAccountGroup(idData.group_id);
           } catch {
-            data.group = null;
+            idData.group = null;
           }
         }
-        return data;
+        return idData;
       }
-    } catch {
-      // Fallback to legacy schema
+      if (idErr) {
+        throw new Error(idErr.message);
+      }
     }
 
-    // 3. Fallback for unmigrated schema (where only original columns exist: user_id, provider unique)
-    const legacyPayload = {
-      user_id: account.user_id,
-      provider: account.provider || 'gmail',
-      email_address: account.email_address,
-      encrypted_access_token: account.encrypted_access_token || '',
-      encrypted_refresh_token: account.encrypted_refresh_token || '',
-      token_expires_at: account.token_expires_at || null,
-      granted_scopes: account.granted_scopes || [],
-      last_sync_at: account.last_sync_at || null,
-      connected_at: account.connected_at || new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const legacyRes = await supabase
-      .from('email_accounts')
-      .upsert(legacyPayload, { onConflict: 'user_id,provider' })
-      .select('*')
-      .single();
-
-    if (legacyRes.error) {
-      throw new Error(legacyRes.error.message);
-    }
-
-    return {
-      daily_limit: 18,
-      min_interval_minutes: 15,
-      status: 'active',
-      ...legacyRes.data,
-    };
+    throw new Error('Failed to upsert email account');
   },
 
   async updateEmailAccount(id: string, updates: Partial<EmailAccount>): Promise<EmailAccount> {

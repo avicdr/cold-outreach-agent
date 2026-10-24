@@ -91,8 +91,7 @@ export async function POST(
           const refreshed = await refreshAccessToken(refreshToken);
           accessToken = refreshed.access_token;
 
-          await dbService.upsertEmailAccount({
-            ...emailAccount,
+          await dbService.updateEmailAccount(emailAccount.id, {
             encrypted_access_token: encryptToken(accessToken),
             token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
           });
@@ -117,8 +116,7 @@ export async function POST(
             const refreshed = await refreshAccessToken(refreshToken);
             accessToken = refreshed.access_token;
 
-            await dbService.upsertEmailAccount({
-              ...emailAccount,
+            await dbService.updateEmailAccount(emailAccount.id, {
               encrypted_access_token: encryptToken(accessToken),
               token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
             });
