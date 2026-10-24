@@ -11,6 +11,7 @@ import {
   isWithinSendingWindow,
   getNextSendingWindowDate,
   calculateStaggeredSchedule,
+  getNextScheduledSlot,
   getTimezoneParts,
   createDateInTimezone,
 } from '../scheduler';
@@ -19,6 +20,7 @@ export {
   isWithinSendingWindow,
   getNextSendingWindowDate,
   calculateStaggeredSchedule,
+  getNextScheduledSlot,
   getTimezoneParts,
   createDateInTimezone,
 };
@@ -141,7 +143,14 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
 
     // Enqueue sending job if campaign is active
     if (campaign.status === 'active') {
-      const scheduledDate = getNextSendingWindowDate(campaign.sending_config, new Date());
+      const emailAccounts = await dbService.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const lastScheduled = await dbService.getLatestScheduledDateForCampaign(campaign.id);
+      const scheduledDate = getNextScheduledSlot(
+        campaign,
+        emailAccounts,
+        lastScheduled,
+        new Date()
+      );
       await dbService.createOrUpdateMessage({
         id: msg.id,
         campaign_lead_id: campaignLeadId,
@@ -281,9 +290,12 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
 
     // 2. Campaign hourly limit
     const campHourlyLimit = campaign.sending_config.hourly_limit;
-    if (campHourlyLimit && campStats.sentPastHour >= campHourlyLimit) {
+    const windowHours = Math.max(1, (campaign.sending_config.end_hour ?? 17) - (campaign.sending_config.start_hour ?? 9));
+    const minRequiredHourly = Math.ceil((campaign.sending_config.daily_limit || 10) / windowHours);
+    const effectiveHourlyLimit = Math.max(campHourlyLimit || 0, minRequiredHourly);
+    if (effectiveHourlyLimit > 0 && campStats.sentPastHour >= effectiveHourlyLimit) {
       const throttleExit = new Date(campStats.earliestHourSendMs + 60 * 60 * 1000 + 2000);
-      console.info(`[RateLimit] Campaign ${campaign.id} hourly limit (${campHourlyLimit}) reached (${campStats.sentPastHour} sent in past hour). Rescheduling send to ${throttleExit.toISOString()}`);
+      console.info(`[RateLimit] Campaign ${campaign.id} hourly limit (${effectiveHourlyLimit}) reached (${campStats.sentPastHour} sent in past hour). Rescheduling send to ${throttleExit.toISOString()}`);
       await dbService.createOrUpdateMessage({
         ...message,
         status: 'scheduled',

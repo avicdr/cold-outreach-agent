@@ -60,6 +60,11 @@ export async function POST(
       }
     }
 
+    // If campaign is active and new drafts were generated, ensure all scheduled messages are cleanly staggered
+    if (campaign.status === 'active' && newlyGenerated > 0) {
+      await dbService.rescheduleCampaignScheduledMessages(campaign.id);
+    }
+
     await dbService.logActivity(user.id, 'campaign_drafts_generated', 'campaign', id, {
       totalGenerated: generatedCount,
       newlyGenerated,
