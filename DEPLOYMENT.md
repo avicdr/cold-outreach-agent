@@ -89,18 +89,30 @@ Go to **Project Settings** -> **API**:
 
 ---
 
-## 3. Gemini API Key Configuration
+## 3. AI Providers: Gemini & OpenAI Fallback Configuration
+ 
+1. **Google Gemini (Primary)**:
+   - Visit [Google AI Studio](https://aistudio.google.com/).
+   - Click **Get API key** and create a new key.
+   - Add to environment variables:
+     ```env
+     GEMINI_API_KEY=your_gemini_api_key
+     GEMINI_MODEL=gemini-2.5-flash
+     ```
 
-1. Visit [Google AI Studio](https://aistudio.google.com/).
-2. Click **Get API key** and create a new key in a Google Cloud project.
-3. Add to your environment variables:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key
-   GEMINI_MODEL=gemini-2.5-flash
-   ```
-4. **Quota Considerations**:
+2. **OpenAI (Automatic Fallback or Alternative)**:
+   - If Gemini is unavailable, rate-limited (HTTP 429), quota-exhausted, or not configured, the system automatically falls back to OpenAI with zero downtime.
+   - Visit [OpenAI Platform](https://platform.openai.com/api-keys) to generate an API key.
+   - Add to environment variables:
+     ```env
+     OPENAI_API_KEY=sk-proj-your_openai_api_key
+     OPENAI_MODEL=gpt-4o-mini
+     ```
+   - Candidate model fallbacks: `gpt-4o-mini`, `gpt-4o`, `gpt-3.5-turbo`.
+
+3. **Quota Considerations**:
    - Google AI Studio free tier offers a generous RPM (requests per minute) limit.
-   - For high volume campaigns (>500 draft generations/hour), enable Pay-As-You-Go billing in Google Cloud.
+   - Having `OPENAI_API_KEY` configured acts as a high-reliability safety net to keep outbound email drafting and inbound reply classification running uninterrupted.
 
 ---
 

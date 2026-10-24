@@ -5,7 +5,6 @@ import { sendGmailMessage, pollGmailReplies } from '../gmail/client';
 import { sendSmtpEmail } from '../smtp/client';
 import { refreshAccessToken } from '../gmail/oauth';
 import { encryptToken, decryptToken } from '../crypto';
-import { generateUnsubscribeToken } from '../unsubscribe-token';
 import { env } from '../env';
 import { JobQueueItem, SendingConfig, Campaign, Lead } from '@/types/database';
 import {
@@ -326,15 +325,6 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
 
   const emailAccount = accountResult.account;
 
-  // Generate signed unsubscribe URL
-  const unsubscribeToken = generateUnsubscribeToken({
-    userId: campaign.user_id,
-    leadId: lead.id,
-    normalizedEmail: lead.normalized_email,
-    campaignId: campaign.id,
-  });
-  const unsubscribeUrl = `${env.NEXT_PUBLIC_APP_URL}/unsubscribe?token=${unsubscribeToken}`;
-
   // Execute Send (via SMTP or Gmail OAuth)
   let sendResult: { id: string; threadId: string };
 
@@ -363,7 +353,6 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         to: lead.email,
         subject: message.subject,
         bodyText: message.body_text,
-        unsubscribeUrl,
         threadId: message.gmail_thread_id || undefined,
       }
     );
@@ -398,7 +387,6 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         to: lead.email,
         subject: message.subject,
         bodyText: message.body_text,
-        unsubscribeUrl,
         threadId: message.gmail_thread_id || undefined,
       });
     } catch (sendErr: unknown) {
@@ -417,7 +405,6 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
             to: lead.email,
             subject: message.subject,
             bodyText: message.body_text,
-            unsubscribeUrl,
             threadId: message.gmail_thread_id || undefined,
           });
         } catch {

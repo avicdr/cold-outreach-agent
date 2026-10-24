@@ -2,6 +2,12 @@ import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { env } from './env';
 import { Lead, Campaign, ReplyClassification } from '@/types/database';
+import { callOpenAIWithFallback, isOpenAIConfigured, cleanJsonText } from './openai';
+
+export function hasAiKeyConfigured(): boolean {
+  const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+  return Boolean((geminiKey && geminiKey.trim()) || isOpenAIConfigured());
+}
 
 export const GeneratedEmailSchema = z.object({
   subject: z.string().min(1).max(200),
@@ -270,14 +276,77 @@ async function callGeminiWithFallback(
 }
 
 /**
+ * Calls Gemini with internal candidate model fallback, and seamlessly falls back
+ * to OpenAI if Gemini is unavailable, rate-limited, quota-exhausted, or not configured.
+ */
+export async function callAiWithFallback({
+  prompt,
+  systemInstruction,
+}: {
+  prompt: string;
+  systemInstruction?: string;
+}): Promise<string> {
+  const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+  let geminiError: any = null;
+
+  if (geminiKey && geminiKey.trim()) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: geminiKey.trim() });
+      const response = await callGeminiWithFallback(ai, {
+        contents: prompt,
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+        },
+      });
+      if (response && response.text) {
+        return cleanJsonText(response.text);
+      }
+    } catch (err: any) {
+      geminiError = err;
+      const msg = err?.message || String(err);
+      console.warn(`[AI Engine] Gemini API call failed (${msg}).`);
+    }
+  }
+
+  // Fallback to OpenAI if configured
+  if (isOpenAIConfigured()) {
+    if (geminiError) {
+      console.warn('[AI Engine] Falling back to OpenAI API...');
+    }
+    try {
+      const openAiText = await callOpenAIWithFallback({
+        prompt,
+        systemInstruction,
+        responseMimeType: 'application/json',
+      });
+      return cleanJsonText(openAiText);
+    } catch (openAiErr: any) {
+      const openAiMsg = openAiErr?.message || String(openAiErr);
+      console.error(`[AI Engine] OpenAI fallback failed (${openAiMsg}).`);
+      if (geminiError) {
+        throw new Error(`Both AI providers failed. Gemini: ${geminiError.message || geminiError}. OpenAI: ${openAiMsg}`);
+      }
+      throw openAiErr;
+    }
+  }
+
+  if (geminiError) {
+    throw geminiError;
+  }
+
+  throw new Error('No AI provider configured (neither GEMINI_API_KEY nor OPENAI_API_KEY is available)');
+}
+
+/**
  * Generates an initial cold email using Google Gemini or Mock mode fallback.
  */
 export async function generateInitialEmail(params: GenerateInitialEmailParams): Promise<GeneratedEmail> {
   const { lead, campaign, senderName = 'The Team', maxWords = 100 } = params;
   const profile = extractLeadEnrichment(lead);
 
-  // Use rich tailored response if no API key or in mock mode
-  if (!env.GEMINI_API_KEY || env.MOCK_MODE) {
+  // Use rich tailored response if no AI key or in mock mode
+  if (!hasAiKeyConfigured() || env.MOCK_MODE) {
     const openingSentence = profile.personalizationHook
       ? profile.personalizationHook
       : profile.googleReviewCount
@@ -305,8 +374,6 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
       needs_review: false,
     };
   }
-
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
   const systemInstruction = `You are a world-class B2B cold email copywriter specializing in high-converting outreach to local clinics, practices, and service businesses (Dental, Med Spa, Chiropractic, Dermatology, Veterinary, Eye Care, Auto Repair, Home Maintenance/HVAC, etc.).
 
@@ -369,16 +436,12 @@ Campaign Context:
 Write an exceptional, personalized cold email for this lead following all rules.`;
 
   try {
-    const response = await callGeminiWithFallback(ai, {
-      contents: prompt,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const responseText = await callAiWithFallback({
+      prompt,
+      systemInstruction,
     });
 
-    const responseText = response.text || '{}';
-    const parsed = JSON.parse(responseText);
+    const parsed = JSON.parse(responseText || '{}');
     const validated = GeneratedEmailSchema.parse(parsed);
 
     // Complement with code-level checks
@@ -391,7 +454,7 @@ Write an exceptional, personalized cold email for this lead following all rules.
 
     return validated;
   } catch (error: unknown) {
-    console.error('Gemini generateInitialEmail error:', error);
+    console.error('AI generateInitialEmail error:', error);
     throw new Error(`AI generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -403,7 +466,7 @@ export async function generateFollowupEmail(params: GenerateFollowupEmailParams)
   const { lead, campaign, stepNumber, stepInstructions, previousSubject, previousBody, senderName = 'The Team' } = params;
   const profile = extractLeadEnrichment(lead);
 
-  if (!env.GEMINI_API_KEY || env.MOCK_MODE) {
+  if (!hasAiKeyConfigured() || env.MOCK_MODE) {
     const isThreaded = previousSubject.toLowerCase().startsWith('re:') ? previousSubject : `Re: ${previousSubject}`;
     
     let body = '';
@@ -421,8 +484,6 @@ export async function generateFollowupEmail(params: GenerateFollowupEmailParams)
       needs_review: false,
     };
   }
-
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
   const systemInstruction = `You are an expert B2B follow-up email copywriter.
 CRITICAL RULES:
@@ -460,18 +521,15 @@ Personalization Hook: ${sanitizePromptInput(profile.personalizationHook)}
 Write follow-up email #${stepNumber}.`;
 
   try {
-    const response = await callGeminiWithFallback(ai, {
-      contents: prompt,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const responseText = await callAiWithFallback({
+      prompt,
+      systemInstruction,
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(responseText || '{}');
     return GeneratedEmailSchema.parse(parsed);
   } catch (error: unknown) {
-    console.error('Gemini generateFollowupEmail error:', error);
+    console.error('AI generateFollowupEmail error:', error);
     throw new Error(`AI follow-up generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -544,7 +602,7 @@ export async function classifyReply(replyBody: string): Promise<ReplyClassificat
     };
   }
 
-  if (!env.GEMINI_API_KEY || env.MOCK_MODE) {
+  if (!hasAiKeyConfigured() || env.MOCK_MODE) {
     // Basic heuristic mock classification
     if (lower.includes('not interested') || lower.includes('no thanks') || lower.includes('bad timing') || lower.includes('stop')) {
       return {
@@ -579,7 +637,6 @@ export async function classifyReply(replyBody: string): Promise<ReplyClassificat
     };
   }
 
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
   const systemInstruction = `You are an email reply classifier.
 Classify the inbound email into one of these categories:
 - positive: recipient wants to chat, meet, or learn more
@@ -598,15 +655,12 @@ Return JSON strictly adhering to schema:
 }`;
 
   try {
-    const response = await callGeminiWithFallback(ai, {
-      contents: `Reply text:\n${replyBody.slice(0, 2000)}`,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-      },
+    const responseText = await callAiWithFallback({
+      prompt: `Reply text:\n${replyBody.slice(0, 2000)}`,
+      systemInstruction,
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(responseText || '{}');
     const validated = ReplyClassificationResultSchema.parse(parsed);
 
     // Safeguard: never let model override explicit unsubscribe words
@@ -617,7 +671,7 @@ Return JSON strictly adhering to schema:
 
     return validated;
   } catch (error: unknown) {
-    console.error('Gemini classifyReply error:', error);
+    console.error('AI classifyReply error:', error);
     return {
       classification: 'other',
       summary: 'Failed to classify with AI, marked for review.',

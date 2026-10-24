@@ -106,13 +106,7 @@ export function buildMimeEmail(options: SendEmailOptions): string {
   headers.push(`Content-Type: text/plain; charset="UTF-8"`);
   headers.push(`Content-Transfer-Encoding: 7bit`);
 
-  // Append footer unsubscribe link if plain text
-  let finalBody = bodyText;
-  if (unsubscribeUrl) {
-    finalBody += `\n\n---\nTo stop receiving these emails, click here: ${unsubscribeUrl}`;
-  }
-
-  return `${headers.join('\r\n')}\r\n\r\n${finalBody}`;
+  return `${headers.join('\r\n')}\r\n\r\n${bodyText}`;
 }
 
 /**

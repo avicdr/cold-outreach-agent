@@ -45,6 +45,8 @@ describe('Gmail & OAuth Integrations', () => {
     expect(mime).toContain('List-Unsubscribe-Post: List-Unsubscribe=One-Click');
     expect(mime).toContain('Message-ID:');
     expect(mime).toContain('Hey there, wanted to reach out.');
+    expect(mime).not.toContain('To stop receiving these emails');
+    expect(mime).not.toContain('click here:');
   });
 
   it('builds threaded email with In-Reply-To and References', () => {

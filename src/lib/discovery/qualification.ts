@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { env } from '../env';
 import { EnrichedBusiness } from './enrichment';
 import { LeadQualificationResult, QualificationPriority, QualificationConfidence } from '@/types/database';
+import { callOpenAIWithFallback, isOpenAIConfigured, cleanJsonText } from '../openai';
 
 export interface QualificationRubricConfig {
   weights: {
@@ -164,12 +165,14 @@ export async function qualifyBusinessWithGemini(
   business: EnrichedBusiness,
   config: QualificationRubricConfig = DEFAULT_RUBRIC_CONFIG
 ): Promise<LeadQualificationResult> {
+  const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+  const hasAiKey = Boolean((geminiKey && geminiKey.trim()) || isOpenAIConfigured());
+
   // Use Heuristic qualification if no API key or in mock mode
-  if (!env.GEMINI_API_KEY || env.MOCK_MODE) {
+  if (!hasAiKey || env.MOCK_MODE) {
     return evaluateHeuristicQualification(business, config);
   }
 
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
   const model = process.env.GEMINI_MODEL || env.GEMINI_MODEL || 'gemini-2.5-flash';
 
   const rubricPrompt = `
@@ -241,47 +244,65 @@ OUTPUT SCHEMA (Must be pure JSON without markdown code fences or backticks):
 }
 `;
 
-  try {
-    const candidateModels = [
-      model,
-      'gemini-2.5-flash',
-      'gemini-1.5-flash',
-      'gemini-2.0-flash',
-    ];
-    const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
+  let rawText = '';
+  let geminiError: any = null;
 
-    let rawText = '';
-    let lastError: any = null;
+  if (geminiKey && geminiKey.trim()) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: geminiKey.trim() });
+      const candidateModels = [
+        model,
+        'gemini-2.5-flash',
+        'gemini-1.5-flash',
+        'gemini-2.0-flash',
+      ];
+      const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
 
-    for (const m of uniqueModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: m,
-          contents: rubricPrompt,
-          config: {
-            temperature: 0.1,
-            responseMimeType: 'application/json',
-          },
-        });
-        rawText = response.text || '';
-        if (rawText) break;
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[Qualification] Model ${m} failed, trying fallback:`, err.message);
+      for (const m of uniqueModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model: m,
+            contents: rubricPrompt,
+            config: {
+              temperature: 0.1,
+              responseMimeType: 'application/json',
+            },
+          });
+          rawText = response.text || '';
+          if (rawText) break;
+        } catch (err: any) {
+          geminiError = err;
+          console.warn(`[Qualification] Gemini model ${m} failed, trying fallback:`, err.message);
+        }
       }
+    } catch (err: any) {
+      geminiError = err;
+      console.warn(`[Qualification] Gemini qualification failed (${err.message}).`);
     }
+  }
 
-    if (!rawText) {
-      throw lastError || new Error('No response received from Gemini');
+  // Fallback to OpenAI if Gemini failed or is not configured
+  if (!rawText && isOpenAIConfigured()) {
+    console.warn('[Qualification] Falling back to OpenAI for lead qualification...');
+    try {
+      rawText = await callOpenAIWithFallback({
+        prompt: rubricPrompt,
+        systemInstruction: 'You are an expert B2B sales qualification engine. Output pure JSON without markdown code fences or backticks.',
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      });
+    } catch (openAiErr: any) {
+      console.warn(`[Qualification] OpenAI fallback failed (${openAiErr.message}).`);
     }
+  }
 
-    // Clean JSON markdown fences if present
-    const cleanedJson = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
+  if (!rawText) {
+    console.warn('[Qualification] All AI providers failed. Falling back to heuristic qualification.');
+    return evaluateHeuristicQualification(business, config);
+  }
 
+  try {
+    const cleanedJson = cleanJsonText(rawText);
     const parsed = JSON.parse(cleanedJson);
     const validated = LeadQualificationResultSchema.parse(parsed);
 
@@ -296,8 +317,10 @@ OUTPUT SCHEMA (Must be pure JSON without markdown code fences or backticks):
       lead_score: clampedScore,
       priority,
     };
-  } catch (err: any) {
-    console.warn(`[Qualification] Gemini API call or validation failed (${err.message}). Falling back to heuristic qualification.`);
+  } catch (parseErr: any) {
+    console.warn(`[Qualification] AI response validation failed (${parseErr.message}). Falling back to heuristic qualification.`);
     return evaluateHeuristicQualification(business, config);
   }
 }
+
+export const qualifyBusinessWithAI = qualifyBusinessWithGemini;
