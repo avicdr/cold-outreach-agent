@@ -23,11 +23,17 @@ export async function POST(request: NextRequest) {
     let headers: string[] = [];
     let customMapping: ColumnMapping | undefined;
     let filename = 'import_data';
+    let requestedGroupId: string | null = null;
+    let requestedGroupName: string | null = null;
+    let requestedGroupDesc: string | null = null;
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
       const file = formData.get('file') as File | null;
       const mappingStr = formData.get('mapping') as string | null;
+      requestedGroupId = (formData.get('group_id') as string | null) || null;
+      requestedGroupName = (formData.get('group_name') as string | null) || null;
+      requestedGroupDesc = (formData.get('group_description') as string | null) || null;
 
       if (!file) {
         return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
@@ -61,6 +67,9 @@ export async function POST(request: NextRequest) {
       headers = json.headers || (rows.length > 0 ? Object.keys(rows[0]) : []);
       customMapping = json.mapping;
       filename = json.filename || 'import.json';
+      requestedGroupId = json.group_id || null;
+      requestedGroupName = json.group_name || json.new_group_name || null;
+      requestedGroupDesc = json.group_description || null;
     }
 
     if (rows.length === 0) {
@@ -79,26 +88,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Resolve Lead Group if specified
+    let targetGroup: { id: string; name: string } | null = null;
+    let targetGroupId: string | null = null;
+
+    if (requestedGroupId && requestedGroupId.trim()) {
+      const g = await dbService.getLeadGroup(requestedGroupId.trim());
+      if (g) {
+        targetGroup = { id: g.id, name: g.name };
+        targetGroupId = g.id;
+      }
+    } else if (requestedGroupName && requestedGroupName.trim()) {
+      const cleanName = requestedGroupName.trim();
+      const existingGroups = await dbService.getLeadGroups(user.id);
+      const existing = existingGroups.find((g) => g.name.toLowerCase() === cleanName.toLowerCase());
+      if (existing) {
+        targetGroup = { id: existing.id, name: existing.name };
+        targetGroupId = existing.id;
+      } else {
+        const created = await dbService.createLeadGroup(user.id, {
+          name: cleanName,
+          description: (requestedGroupDesc || '').trim(),
+        });
+        targetGroup = { id: created.id, name: created.name };
+        targetGroupId = created.id;
+      }
+    }
+
     // Retrieve existing and suppressed emails for user
     const existingEmails = await dbService.getExistingNormalizedEmails(user.id);
     const suppressedEmails = await dbService.getSuppressedNormalizedEmails(user.id);
 
     // Validate and normalize rows
-    const validation = processImportRows(rows, mapping, existingEmails, suppressedEmails);
+    const validation = processImportRows(rows, mapping, existingEmails, suppressedEmails, targetGroupId);
 
     // Insert valid leads
     const insertResult = await dbService.insertLeads(
       user.id,
       validation.validLeads.map((l) => ({
         ...l,
+        group_id: targetGroupId,
         status: 'active',
         source_import: filename,
       }))
     );
 
     // Log activity
-    await dbService.logActivity(user.id, 'lead_import', 'leads', null, {
+    await dbService.logActivity(user.id, 'lead_import', 'leads', targetGroupId, {
       filename,
+      group_id: targetGroupId,
+      group_name: targetGroup ? targetGroup.name : null,
       total_rows: validation.totalRows,
       inserted: insertResult.inserted,
       duplicates_in_file: validation.duplicatesInFile,
@@ -108,6 +147,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       filename,
+      group: targetGroup,
       total_rows: validation.totalRows,
       inserted: insertResult.inserted,
       duplicates_in_file: validation.duplicatesInFile,

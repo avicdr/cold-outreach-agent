@@ -23,6 +23,7 @@ export interface ParsedLead {
   qualification_score?: number | null;
   suggested_opening?: string | null;
   sales_angle?: string | null;
+  group_id?: string | null;
   custom_fields: Record<string, string | number | boolean>;
 }
 
@@ -43,6 +44,7 @@ export interface ColumnMapping {
   review_count?: string;
   qualification_score?: string;
   personalization_hook?: string;
+  group?: string;
   custom_fields?: string[];
 }
 
@@ -109,6 +111,8 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
       mapping.qualification_score = original;
     } else if (!mapping.personalization_hook && (lower === 'coldemailpersonalizationhook' || lower === 'personalizationhook' || lower === 'hook' || lower === 'suggestedopening' || lower === 'salesangle')) {
       mapping.personalization_hook = original;
+    } else if (!mapping.group && (lower === 'group' || lower === 'leadgroup' || lower === 'groupname' || lower === 'segment' || lower === 'tag' || lower === 'categorygroup')) {
+      mapping.group = original;
     } else if (!mapping.notes && (lower === 'notes' || lower === 'note' || lower === 'bio' || lower === 'summary' || lower === 'context')) {
       mapping.notes = original;
     }
@@ -159,7 +163,8 @@ export function processImportRows(
   rows: RawLeadRow[],
   mapping: ColumnMapping,
   existingNormalizedEmails: Set<string> = new Set(),
-  suppressedNormalizedEmails: Set<string> = new Set()
+  suppressedNormalizedEmails: Set<string> = new Set(),
+  defaultGroupId?: string | null
 ): ImportValidationResult {
   const validLeads: ParsedLead[] = [];
   const seenEmailsInFile = new Set<string>();
@@ -272,6 +277,7 @@ export function processImportRows(
       qualification_score: qualificationScore,
       suggested_opening: personalizationHook || undefined,
       sales_angle: personalizationHook || undefined,
+      group_id: defaultGroupId || null,
       custom_fields: customFields,
     });
   });

@@ -48,7 +48,16 @@ export interface AccountGroup {
   // Computed / joined fields
   accounts_count?: number;
   daily_capacity?: number;
-  warmup_inboxes_count?: number;
+}
+
+export interface LeadGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  leads_count?: number;
 }
 
 export type EmailAccountStatus = 'active' | 'paused' | 'error';
@@ -162,6 +171,8 @@ export interface Lead {
   custom_fields: Record<string, string | number | boolean>;
   status: LeadStatus;
   source_import: string;
+  group_id?: string | null;
+  lead_group?: LeadGroup | null;
   created_at: string;
   updated_at: string;
   // Enriched & Qualified Discovery fields

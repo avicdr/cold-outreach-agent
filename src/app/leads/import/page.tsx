@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
@@ -15,6 +15,10 @@ import {
   ArrowLeft,
   XCircle,
   FileText,
+  Folder,
+  FolderPlus,
+  Layers,
+  Tag,
 } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -25,6 +29,7 @@ interface ImportSummary {
   duplicates_in_file: number;
   invalid_count: number;
   invalid_rows: { rowNumber: number; reason: string }[];
+  group?: { id: string; name: string } | null;
 }
 
 export default function LeadImportPage() {
@@ -34,6 +39,28 @@ export default function LeadImportPage() {
   const [previewRows, setPreviewRows] = useState<any[]>([]);
   const [allRows, setAllRows] = useState<any[]>([]);
   const [step, setStep] = useState<1 | 2 | 3>(1); // 1: Upload, 2: Map & Preview, 3: Summary
+
+  // Lead Group State
+  const [leadGroups, setLeadGroups] = useState<{ id: string; name: string; leads_count?: number }[]>([]);
+  const [groupMode, setGroupMode] = useState<'new' | 'existing' | 'none'>('new');
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDescription, setNewGroupDescription] = useState('');
+
+  // Load existing lead groups
+  useEffect(() => {
+    fetch('/api/lead-groups')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setLeadGroups(data);
+          if (data.length > 0) {
+            setSelectedGroupId(data[0].id);
+          }
+        }
+      })
+      .catch((err) => console.error('Failed to load lead groups:', err));
+  }, []);
 
   // Column Mapping
   const [mapping, setMapping] = useState<any>({
@@ -79,6 +106,14 @@ export default function LeadImportPage() {
     }
 
     setFile(selected);
+
+    // Auto-populate group name from file name if not already set
+    const defaultName = selected.name
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[-_]/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    setNewGroupName(defaultName || 'Imported Leads');
 
     // Parse file
     if (selected.name.endsWith('.csv')) {
@@ -170,6 +205,16 @@ export default function LeadImportPage() {
       return;
     }
 
+    if (groupMode === 'new' && !newGroupName.trim()) {
+      setError('Please provide a name for the new lead group, or choose an existing group.');
+      return;
+    }
+
+    if (groupMode === 'existing' && !selectedGroupId) {
+      setError('Please select an existing lead group, or create a new one.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -182,6 +227,9 @@ export default function LeadImportPage() {
           headers,
           mapping,
           filename: file?.name || 'import.csv',
+          group_id: groupMode === 'existing' ? selectedGroupId : undefined,
+          group_name: groupMode === 'new' ? newGroupName.trim() : undefined,
+          group_description: groupMode === 'new' ? newGroupDescription.trim() : undefined,
         }),
       });
 
@@ -277,6 +325,136 @@ export default function LeadImportPage() {
                 >
                   Change file
                 </button>
+              </div>
+
+              {/* Lead Group Assignment Card */}
+              <div className="p-5 rounded-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/20 via-slate-900/40 to-slate-900/30 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+                      <FolderPlus className="w-4 h-4 text-indigo-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                        <span>Lead Group Assignment</span>
+                        <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                          Group Upload
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        Organize this batch of leads into a group for segmented, automated campaigns.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Group Mode Segmented Buttons */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGroupMode('new')}
+                    className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                      groupMode === 'new'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-600/30'
+                        : 'bg-slate-950/60 text-slate-300 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    <span>Create New Group</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGroupMode('existing')}
+                    className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                      groupMode === 'existing'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-600/30'
+                        : 'bg-slate-950/60 text-slate-300 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <Folder className="w-3.5 h-3.5" />
+                    <span>Existing Group ({leadGroups.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGroupMode('none')}
+                    className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                      groupMode === 'none'
+                        ? 'bg-slate-800 text-white border-slate-700'
+                        : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <span>No Group (Ungrouped)</span>
+                  </button>
+                </div>
+
+                {/* Group Details based on Mode */}
+                {groupMode === 'new' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                        Group Name <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        placeholder="e.g. Q4 SaaS Founders, Dentists NYC"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                        Group Description (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={newGroupDescription}
+                        onChange={(e) => setNewGroupDescription(e.target.value)}
+                        placeholder="e.g. Verified cold prospects with website URLs"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {groupMode === 'existing' && (
+                  <div className="pt-1">
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      Choose Lead Group <span className="text-rose-400">*</span>
+                    </label>
+                    {leadGroups.length > 0 ? (
+                      <select
+                        value={selectedGroupId}
+                        onChange={(e) => setSelectedGroupId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="">-- Select an Existing Group --</option>
+                        {leadGroups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name} ({g.leads_count ?? 0} leads currently)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+                        <span>No existing groups found.</span>
+                        <button
+                          type="button"
+                          onClick={() => setGroupMode('new')}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+                        >
+                          Switch to Create New Group →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {groupMode === 'none' && (
+                  <div className="text-xs text-slate-400 italic">
+                    Leads will be uploaded into the general leads pool without being linked to a group.
+                  </div>
+                )}
               </div>
 
               {/* Column Mapping Selectors */}
@@ -569,6 +747,38 @@ export default function LeadImportPage() {
                   <div className="text-xl font-bold text-rose-400 mt-1">{summary.invalid_count}</div>
                 </div>
               </div>
+
+              {/* Lead Group Information */}
+              {summary.group ? (
+                <div className="p-4 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/40 to-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-indigo-600/20 flex items-center justify-center border border-indigo-500/30 shrink-0">
+                      <Folder className="w-5 h-5 text-indigo-400" />
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-indigo-300 font-medium uppercase tracking-wider">Uploaded as Group</div>
+                      <div className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>{summary.group.name}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                          {summary.inserted} leads assigned
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/leads?groupId=${summary.group.id}`}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition-colors self-start sm:self-auto shrink-0 shadow-sm shadow-indigo-600/30"
+                  >
+                    <span>View Group Leads</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/30 text-xs text-slate-400 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span>Leads were imported into the general leads pool without a group assignment.</span>
+                </div>
+              )}
 
               {summary.invalid_rows.length > 0 && (
                 <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 space-y-3">

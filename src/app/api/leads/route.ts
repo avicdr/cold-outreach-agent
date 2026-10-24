@@ -12,6 +12,7 @@ const createLeadSchema = z.object({
   job_title: z.string().optional().default(''),
   website: z.string().optional().default(''),
   notes: z.string().optional().default(''),
+  group_id: z.string().nullable().optional(),
   custom_fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().default({}),
 });
 
@@ -24,12 +25,13 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status') || undefined;
   const search = searchParams.get('search') || undefined;
+  const groupId = searchParams.get('group_id') || searchParams.get('groupId') || undefined;
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = parseInt(searchParams.get('limit') || searchParams.get('pageSize') || '25', 10);
   const offset = searchParams.get('offset') !== null ? parseInt(searchParams.get('offset')!, 10) : (page - 1) * limit;
 
   try {
-    const data = await dbService.getLeads(user.id, { status, search, limit, offset });
+    const data = await dbService.getLeads(user.id, { status, search, limit, offset, groupId });
     return NextResponse.json({
       ...data,
       page,

@@ -14,6 +14,7 @@ import {
   ActivityLog,
   EmailAccount,
   AccountGroup,
+  LeadGroup,
   AccountDailyStats,
   JobType,
   SendingConfig,
@@ -121,11 +122,21 @@ export const dbService = {
   },
 
   // Leads
-  async getLeads(userId: string, filters?: { status?: string; search?: string; limit?: number; offset?: number }): Promise<{ leads: Lead[]; total: number }> {
+  async getLeads(
+    userId: string,
+    filters?: { status?: string; search?: string; limit?: number; offset?: number; groupId?: string }
+  ): Promise<{ leads: Lead[]; total: number }> {
     if (!isLiveSupabase()) {
       let all = Array.from(mockDb.leads.values()).filter((l) => l.user_id === userId);
       if (filters?.status) {
         all = all.filter((l) => l.status === filters.status);
+      }
+      if (filters?.groupId) {
+        if (filters.groupId === 'ungrouped') {
+          all = all.filter((l) => !l.group_id);
+        } else {
+          all = all.filter((l) => l.group_id === filters.groupId);
+        }
       }
       if (filters?.search) {
         const query = filters.search.toLowerCase();
@@ -140,13 +151,23 @@ export const dbService = {
       const total = all.length;
       const offset = filters?.offset || 0;
       const limit = filters?.limit || 50;
-      const paginated = all.slice(offset, offset + limit);
+      const paginated = all.slice(offset, offset + limit).map((l) => ({
+        ...l,
+        lead_group: l.group_id ? mockDb.leadGroups.get(l.group_id) || null : null,
+      }));
       return { leads: paginated, total };
     }
 
     const supabase = createAdminClient();
     let query = supabase.from('leads').select('*', { count: 'exact' }).eq('user_id', userId);
     if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.groupId) {
+      if (filters.groupId === 'ungrouped') {
+        query = query.is('group_id', null);
+      } else {
+        query = query.eq('group_id', filters.groupId);
+      }
+    }
     if (filters?.search) {
       query = query.or(`email.ilike.%${filters.search}%,first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,company.ilike.%${filters.search}%`);
     }
@@ -154,7 +175,25 @@ export const dbService = {
     const limit = filters?.limit || 50;
     const { data, count, error } = await query.range(offset, offset + limit - 1).order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return { leads: data || [], total: count || 0 };
+
+    let leadsWithGroup: Lead[] = data || [];
+    const groupIds = Array.from(new Set(leadsWithGroup.map((l) => l.group_id).filter(Boolean))) as string[];
+    if (groupIds.length > 0) {
+      try {
+        const { data: groupsData } = await supabase.from('lead_groups').select('*').in('id', groupIds);
+        if (groupsData) {
+          const map = new Map(groupsData.map((g) => [g.id, g]));
+          leadsWithGroup = leadsWithGroup.map((l) => ({
+            ...l,
+            lead_group: l.group_id ? map.get(l.group_id) || null : null,
+          }));
+        }
+      } catch {
+        // Table lead_groups might not exist yet; safe fallback
+      }
+    }
+
+    return { leads: leadsWithGroup, total: count || 0 };
   },
 
   async insertLeads(userId: string, leads: Omit<Lead, 'id' | 'user_id' | 'created_at' | 'updated_at'>[]): Promise<{ inserted: number; errors: string[] }> {
@@ -177,6 +216,7 @@ export const dbService = {
           ...lead,
           id,
           user_id: userId,
+          group_id: lead.group_id || null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -190,11 +230,19 @@ export const dbService = {
     const rows = leads.map((l) => ({
       ...l,
       user_id: userId,
+      group_id: l.group_id || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }));
 
-    const { data, error } = await supabase.from('leads').insert(rows).select();
+    let { data, error } = await supabase.from('leads').insert(rows).select();
+    if (error && error.message.includes('group_id')) {
+      // If column group_id doesn't exist on older schema, fallback without group_id
+      const fallbackRows = rows.map(({ group_id, ...rest }) => rest);
+      const fallbackRes = await supabase.from('leads').insert(fallbackRows).select();
+      data = fallbackRes.data;
+      error = fallbackRes.error;
+    }
     if (error) {
       errors.push(error.message);
       return { inserted: 0, errors };
@@ -393,6 +441,15 @@ export const dbService = {
     const { data, error } = await supabase.from('campaign_leads').upsert(rows, { onConflict: 'campaign_id,lead_id' }).select();
     if (error) throw new Error(error.message);
     return { enrolled: data?.length || 0 };
+  },
+
+  async enrollLeadGroupInCampaign(campaignId: string, groupId: string): Promise<{ enrolled: number }> {
+    const campaign = await this.getCampaign(campaignId);
+    if (!campaign) throw new Error('Campaign not found');
+    const { leads } = await this.getLeads(campaign.user_id, { groupId, limit: 10000 });
+    const activeLeadIds = leads.filter((l) => l.status === 'active').map((l) => l.id);
+    if (activeLeadIds.length === 0) return { enrolled: 0 };
+    return this.enrollLeadsInCampaign(campaignId, activeLeadIds);
   },
 
   async getCampaignLeads(campaignId: string): Promise<CampaignLead[]> {
@@ -660,6 +717,174 @@ export const dbService = {
       lead: data.campaign_lead?.lead || undefined,
       campaign_id: data.campaign_lead?.campaign_id || undefined,
     };
+  },
+
+  // Lead Groups
+  async getLeadGroups(userId: string): Promise<LeadGroup[]> {
+    if (!userId) return [];
+    let groups: LeadGroup[] = [];
+    if (!isLiveSupabase()) {
+      groups = Array.from(mockDb.leadGroups.values()).filter((g) => g.user_id === userId);
+    } else {
+      const supabase = createAdminClient();
+      try {
+        const { data, error } = await supabase
+          .from('lead_groups')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (!error && data) {
+          groups = data;
+        }
+      } catch {
+        groups = [];
+      }
+    }
+
+    // Populate leads count for each group
+    try {
+      if (!isLiveSupabase()) {
+        const allLeads = Array.from(mockDb.leads.values()).filter((l) => l.user_id === userId);
+        return groups.map((g) => ({
+          ...g,
+          leads_count: allLeads.filter((l) => l.group_id === g.id).length,
+        }));
+      } else {
+        const supabase = createAdminClient();
+        const { data: countsData } = await supabase
+          .from('leads')
+          .select('group_id')
+          .eq('user_id', userId)
+          .not('group_id', 'is', null);
+
+        const countMap = new Map<string, number>();
+        (countsData || []).forEach((row: { group_id: string }) => {
+          if (row.group_id) {
+            countMap.set(row.group_id, (countMap.get(row.group_id) || 0) + 1);
+          }
+        });
+
+        return groups.map((g) => ({
+          ...g,
+          leads_count: countMap.get(g.id) || 0,
+        }));
+      }
+    } catch {
+      return groups.map((g) => ({ ...g, leads_count: 0 }));
+    }
+  },
+
+  async getLeadGroup(id: string): Promise<LeadGroup | null> {
+    if (!id) return null;
+    if (!isLiveSupabase()) {
+      const g = mockDb.leadGroups.get(id);
+      if (!g) return null;
+      const count = Array.from(mockDb.leads.values()).filter((l) => l.group_id === id).length;
+      return { ...g, leads_count: count };
+    }
+    try {
+      const supabase = createAdminClient();
+      const { data, error } = await supabase.from('lead_groups').select('*').eq('id', id).maybeSingle();
+      if (error || !data) return null;
+      const { count } = await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('group_id', id);
+      return { ...data, leads_count: count || 0 };
+    } catch {
+      return null;
+    }
+  },
+
+  async createLeadGroup(
+    userId: string,
+    group: {
+      name: string;
+      description?: string;
+    }
+  ): Promise<LeadGroup> {
+    const id = crypto.randomUUID();
+    const newGroup: LeadGroup = {
+      id,
+      user_id: userId,
+      name: group.name.trim(),
+      description: (group.description || '').trim(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      leads_count: 0,
+    };
+
+    if (!isLiveSupabase()) {
+      mockDb.leadGroups.set(id, newGroup);
+      return newGroup;
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('lead_groups')
+      .insert({
+        id,
+        user_id: userId,
+        name: group.name.trim(),
+        description: (group.description || '').trim(),
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return {
+      ...data,
+      leads_count: 0,
+    };
+  },
+
+  async updateLeadGroup(id: string, updates: { name?: string; description?: string }): Promise<LeadGroup> {
+    const cleanUpdates: Record<string, any> = {};
+    if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
+    if (updates.description !== undefined) cleanUpdates.description = updates.description.trim();
+
+    if (!isLiveSupabase()) {
+      const existing = mockDb.leadGroups.get(id);
+      if (!existing) throw new Error('Lead group not found');
+      const updated = { ...existing, ...cleanUpdates, updated_at: new Date().toISOString() };
+      mockDb.leadGroups.set(id, updated);
+      const count = Array.from(mockDb.leads.values()).filter((l) => l.group_id === id).length;
+      return { ...updated, leads_count: count };
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('lead_groups')
+      .update({ ...cleanUpdates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    const { count } = await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('group_id', id);
+    return {
+      ...data,
+      leads_count: count || 0,
+    };
+  },
+
+  async deleteLeadGroup(id: string): Promise<void> {
+    if (!isLiveSupabase()) {
+      mockDb.leadGroups.delete(id);
+      for (const lead of mockDb.leads.values()) {
+        if (lead.group_id === id) {
+          lead.group_id = null;
+        }
+      }
+      return;
+    }
+
+    const supabase = createAdminClient();
+    try {
+      await supabase.from('leads').update({ group_id: null }).eq('group_id', id);
+    } catch {
+      // Ignore if group_id column doesn't exist
+    }
+    try {
+      await supabase.from('lead_groups').delete().eq('id', id);
+    } catch {
+      // Ignore if lead_groups doesn't exist
+    }
   },
 
   // Account Groups

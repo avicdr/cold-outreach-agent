@@ -3,9 +3,14 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
 import { z } from 'zod';
 
-const enrollSchema = z.object({
-  lead_ids: z.array(z.string()).min(1, 'At least one lead ID must be provided'),
-});
+const enrollSchema = z
+  .object({
+    lead_ids: z.array(z.string()).optional(),
+    group_id: z.string().optional(),
+  })
+  .refine((data) => (data.lead_ids && data.lead_ids.length > 0) || Boolean(data.group_id), {
+    message: 'Either lead_ids or group_id must be provided',
+  });
 
 export async function POST(
   request: NextRequest,
@@ -25,15 +30,23 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { lead_ids } = enrollSchema.parse(body);
+    const { lead_ids, group_id } = enrollSchema.parse(body);
 
-    const result = await dbService.enrollLeadsInCampaign(id, lead_ids);
+    let enrolledCount = 0;
+    if (group_id) {
+      const result = await dbService.enrollLeadGroupInCampaign(id, group_id);
+      enrolledCount = result.enrolled;
+    } else if (lead_ids && lead_ids.length > 0) {
+      const result = await dbService.enrollLeadsInCampaign(id, lead_ids);
+      enrolledCount = result.enrolled;
+    }
 
     await dbService.logActivity(user.id, 'campaign_enrolled_leads', 'campaign', id, {
-      count: result.enrolled,
+      count: enrolledCount,
+      group_id: group_id || null,
     });
 
-    return NextResponse.json({ success: true, enrolled_count: result.enrolled });
+    return NextResponse.json({ success: true, enrolled_count: enrolledCount });
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: err.flatten().fieldErrors }, { status: 400 });

@@ -51,6 +51,8 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [modalPage, setModalPage] = useState(1);
   const [modalPageSize, setModalPageSize] = useState(10);
   const [modalSearch, setModalSearch] = useState('');
+  const [leadGroups, setLeadGroups] = useState<any[]>([]);
+  const [modalGroupFilter, setModalGroupFilter] = useState('');
 
   const isWindowActive = (() => {
     if (!campaign?.sending_config) return false;
@@ -94,10 +96,17 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
 
   const loadAvailableLeads = async () => {
     try {
-      const res = await fetch('/api/leads?limit=1000');
-      const data = await res.json();
-      if (res.ok) {
-        setAllAvailableLeads(data.leads || []);
+      const [leadsRes, groupsRes] = await Promise.all([
+        fetch('/api/leads?limit=1000'),
+        fetch('/api/lead-groups'),
+      ]);
+      const leadsData = await leadsRes.json();
+      const groupsData = await groupsRes.json();
+      if (leadsRes.ok) {
+        setAllAvailableLeads(leadsData.leads || []);
+      }
+      if (groupsRes.ok && Array.isArray(groupsData)) {
+        setLeadGroups(groupsData);
       }
     } catch (err) {
       console.error(err);
@@ -527,7 +536,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                 <button onClick={() => setShowEnrollModal(false)} className="text-slate-400 hover:text-white">✕</button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <input
                   type="text"
                   placeholder="Search available leads..."
@@ -538,11 +547,27 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                   }}
                   className="flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
+                <select
+                  value={modalGroupFilter}
+                  onChange={(e) => {
+                    setModalGroupFilter(e.target.value);
+                    setModalPage(1);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">All Lead Groups</option>
+                  <option value="ungrouped">Ungrouped</option>
+                  {leadGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.leads_count ?? 0})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {(() => {
                 const unenrolled = allAvailableLeads.filter((l) => !leads.some((cl) => cl.lead_id === l.id));
-                const filtered = modalSearch.trim()
+                let filtered = modalSearch.trim()
                   ? unenrolled.filter(
                       (l) =>
                         l.email.toLowerCase().includes(modalSearch.toLowerCase()) ||
@@ -550,10 +575,41 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                         l.company.toLowerCase().includes(modalSearch.toLowerCase())
                     )
                   : unenrolled;
+
+                if (modalGroupFilter) {
+                  if (modalGroupFilter === 'ungrouped') {
+                    filtered = filtered.filter((l) => !l.group_id);
+                  } else {
+                    filtered = filtered.filter((l) => l.group_id === modalGroupFilter);
+                  }
+                }
+
                 const paged = filtered.slice((modalPage - 1) * modalPageSize, modalPage * modalPageSize);
 
                 return (
                   <>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                      <span>Available: {filtered.length} leads</span>
+                      {filtered.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ids = filtered.map((l) => l.id);
+                            const allSelected = ids.every((id) => selectedLeadIds.includes(id));
+                            if (allSelected) {
+                              setSelectedLeadIds(selectedLeadIds.filter((id) => !ids.includes(id)));
+                            } else {
+                              setSelectedLeadIds(Array.from(new Set([...selectedLeadIds, ...ids])));
+                            }
+                          }}
+                          className="text-indigo-400 hover:text-indigo-300 font-medium"
+                        >
+                          {filtered.every((l) => selectedLeadIds.includes(l.id))
+                            ? 'Deselect visible'
+                            : `Select all visible (${filtered.length})`}
+                        </button>
+                      )}
+                    </div>
                     <div className="max-h-60 overflow-y-auto space-y-2 text-xs divide-y divide-slate-800">
                       {paged.length === 0 ? (
                         <div className="py-6 text-center text-slate-500">
