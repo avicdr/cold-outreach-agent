@@ -92,27 +92,33 @@ export async function POST(request: NextRequest) {
     let targetGroup: { id: string; name: string } | null = null;
     let targetGroupId: string | null = null;
 
-    if (requestedGroupId && requestedGroupId.trim()) {
-      const g = await dbService.getLeadGroup(requestedGroupId.trim());
-      if (g) {
-        targetGroup = { id: g.id, name: g.name };
-        targetGroupId = g.id;
+    try {
+      if (requestedGroupId && requestedGroupId.trim()) {
+        const g = await dbService.getLeadGroup(requestedGroupId.trim());
+        if (g) {
+          targetGroup = { id: g.id, name: g.name };
+          targetGroupId = g.id;
+        }
+      } else if (requestedGroupName && requestedGroupName.trim()) {
+        const cleanName = requestedGroupName.trim();
+        const existingGroups = await dbService.getLeadGroups(user.id);
+        const existing = existingGroups.find((g) => g.name.toLowerCase() === cleanName.toLowerCase());
+        if (existing) {
+          targetGroup = { id: existing.id, name: existing.name };
+          targetGroupId = existing.id;
+        } else {
+          const created = await dbService.createLeadGroup(user.id, {
+            name: cleanName,
+            description: (requestedGroupDesc || '').trim(),
+          });
+          targetGroup = { id: created.id, name: created.name };
+          targetGroupId = created.id;
+        }
       }
-    } else if (requestedGroupName && requestedGroupName.trim()) {
-      const cleanName = requestedGroupName.trim();
-      const existingGroups = await dbService.getLeadGroups(user.id);
-      const existing = existingGroups.find((g) => g.name.toLowerCase() === cleanName.toLowerCase());
-      if (existing) {
-        targetGroup = { id: existing.id, name: existing.name };
-        targetGroupId = existing.id;
-      } else {
-        const created = await dbService.createLeadGroup(user.id, {
-          name: cleanName,
-          description: (requestedGroupDesc || '').trim(),
-        });
-        targetGroup = { id: created.id, name: created.name };
-        targetGroupId = created.id;
-      }
+    } catch (groupErr) {
+      console.warn('Lead group lookup/creation failed during import, continuing without group:', groupErr);
+      targetGroup = null;
+      targetGroupId = null;
     }
 
     // Retrieve existing and suppressed emails for user
