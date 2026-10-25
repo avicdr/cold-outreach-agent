@@ -475,6 +475,10 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                               <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
                                 <Clock className="w-3 h-3" /> Scheduled
                               </span>
+                            ) : msg?.status === 'paused' ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                                <Pause className="w-3 h-3" /> Paused
+                              </span>
                             ) : msg?.status === 'draft' ? (
                               <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700/60">
                                 <FileEdit className="w-3 h-3" /> Drafted

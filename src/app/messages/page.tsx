@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { Pagination } from '@/components/Pagination';
@@ -12,14 +13,18 @@ import {
   Clock,
   FileEdit,
   XCircle,
+  Pause,
   Search,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 
-export default function MessagesPage() {
+function MessagesContent() {
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get('status') || '';
   const [messages, setMessages] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -55,6 +60,8 @@ export default function MessagesPage() {
         return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><CheckCircle2 className="w-3 h-3" /> Sent</span>;
       case 'scheduled':
         return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20"><Clock className="w-3 h-3" /> Scheduled</span>;
+      case 'paused':
+        return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20"><Pause className="w-3 h-3" /> Paused</span>;
       case 'draft':
         return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60"><FileEdit className="w-3 h-3" /> Draft</span>;
       case 'failed':
@@ -77,9 +84,10 @@ export default function MessagesPage() {
         <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {/* Status Tabs */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/40 p-2 rounded-xl border border-slate-800 w-full sm:w-fit">
-            {['', 'sent', 'scheduled', 'draft', 'failed'].map((st) => (
+            {['', 'sent', 'scheduled', 'paused', 'draft', 'failed'].map((st) => (
               <button
                 key={st}
+                id={`tab-${st || 'all'}`}
                 onClick={() => setStatusFilter(st)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   statusFilter === st ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
@@ -133,6 +141,11 @@ export default function MessagesPage() {
                           {msg.sent_at ? (
                             <span className="text-emerald-400 font-medium">
                               {new Date(msg.sent_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          ) : msg.status === 'paused' ? (
+                            <span className="inline-flex flex-col text-amber-400 font-medium">
+                              <span>Campaign Paused</span>
+                              <span className="text-[10px] text-slate-500">Auto-reschedules on resume</span>
                             </span>
                           ) : msg.status === 'scheduled' ? (
                             <span className="text-blue-400 font-medium">
@@ -190,5 +203,19 @@ export default function MessagesPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
+          <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
+        </div>
+      }
+    >
+      <MessagesContent />
+    </Suspense>
   );
 }

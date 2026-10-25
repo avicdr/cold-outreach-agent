@@ -15,8 +15,9 @@ export async function POST(
 
   try {
     const updated = await dbService.updateCampaign(id, { status: 'active' });
-    await dbService.logActivity(user.id, 'campaign_resumed', 'campaign', id);
-    return NextResponse.json({ success: true, campaign: updated });
+    const { rescheduledCount } = await dbService.resumeAndRescheduleCampaignMessages(id);
+    await dbService.logActivity(user.id, 'campaign_resumed', 'campaign', id, { rescheduledCount });
+    return NextResponse.json({ success: true, campaign: updated, rescheduledCount });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

@@ -220,8 +220,8 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     throw new Error(`Message not found: ${emailMessageId}`);
   }
 
-  // Already sent check
-  if (message.status === 'sent') {
+  // Already sent or paused check
+  if (message.status === 'sent' || message.status === 'paused') {
     return;
   }
 

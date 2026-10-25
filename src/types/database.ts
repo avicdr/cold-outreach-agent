@@ -1,7 +1,7 @@
 export type LeadStatus = 'active' | 'contacted' | 'replied' | 'unsubscribed' | 'bounced';
 export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
 export type CampaignLeadStatus = 'enrolled' | 'drafted' | 'in_progress' | 'replied' | 'unsubscribed' | 'completed' | 'failed';
-export type EmailMessageStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'cancelled';
+export type EmailMessageStatus = 'draft' | 'scheduled' | 'paused' | 'sending' | 'sent' | 'failed' | 'cancelled';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead';
 export type JobType = 
   | 'generate_email' 

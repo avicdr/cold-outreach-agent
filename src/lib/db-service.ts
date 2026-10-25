@@ -830,6 +830,208 @@ export const dbService = {
     return { rescheduledCount: messages.length };
   },
 
+  async pauseCampaignMessages(campaignId: string): Promise<{ pausedCount: number }> {
+    if (!campaignId) return { pausedCount: 0 };
+
+    if (!isLiveSupabase()) {
+      const cls = Array.from(mockDb.campaignLeads.values()).filter((c) => c.campaign_id === campaignId);
+      const clIds = new Set(cls.map((c) => c.id));
+      const scheduledMsgs = Array.from(mockDb.emailMessages.values()).filter(
+        (m) => clIds.has(m.campaign_lead_id) && m.status === 'scheduled'
+      );
+
+      if (scheduledMsgs.length === 0) return { pausedCount: 0 };
+
+      const msgIds = new Set(scheduledMsgs.map((m) => m.id));
+      for (const msg of scheduledMsgs) {
+        msg.status = 'paused';
+        msg.updated_at = new Date().toISOString();
+      }
+
+      // Remove queued send_email jobs for these messages
+      for (const [jobId, job] of Array.from(mockDb.jobQueue.entries())) {
+        if (
+          job.job_type === 'send_email' &&
+          job.status === 'queued' &&
+          msgIds.has((job.payload as any)?.emailMessageId)
+        ) {
+          mockDb.jobQueue.delete(jobId);
+        }
+      }
+
+      return { pausedCount: scheduledMsgs.length };
+    }
+
+    const supabase = createAdminClient();
+    const { data: cls, error: clErr } = await supabase
+      .from('campaign_leads')
+      .select('id')
+      .eq('campaign_id', campaignId);
+    if (clErr) throw new Error(clErr.message);
+    const clIds = (cls || []).map((c) => c.id);
+    if (clIds.length === 0) return { pausedCount: 0 };
+
+    const { data: messages, error: msgErr } = await supabase
+      .from('email_messages')
+      .select('id')
+      .in('campaign_lead_id', clIds)
+      .eq('status', 'scheduled');
+
+    if (msgErr) throw new Error(msgErr.message);
+    if (!messages || messages.length === 0) return { pausedCount: 0 };
+
+    const msgIds = messages.map((m) => m.id);
+
+    // Update messages to paused and delete queued send_email jobs in chunks
+    for (let i = 0; i < msgIds.length; i += 100) {
+      const chunk = msgIds.slice(i, i + 100);
+      const { error: updErr } = await supabase
+        .from('email_messages')
+        .update({ status: 'paused', updated_at: new Date().toISOString() })
+        .in('id', chunk);
+      if (updErr) throw new Error(updErr.message);
+
+      const formatted = `(${chunk.join(',')})`;
+      const { error: jobDelErr } = await supabase
+        .from('job_queue')
+        .delete()
+        .eq('job_type', 'send_email')
+        .eq('status', 'queued')
+        .filter('payload->>emailMessageId', 'in', formatted);
+      if (jobDelErr) {
+        console.warn('Warning: Failed to bulk delete queued send_email jobs:', jobDelErr.message);
+      }
+    }
+
+    return { pausedCount: msgIds.length };
+  },
+
+  async resumeAndRescheduleCampaignMessages(campaignId: string): Promise<{ rescheduledCount: number }> {
+    if (!campaignId) return { rescheduledCount: 0 };
+
+    const campaign = await this.getCampaign(campaignId);
+    if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
+
+    let accounts: EmailAccount[] = [];
+    if (campaign.account_group_id) {
+      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const inGroup = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
+      accounts = inGroup.length > 0 ? inGroup : allAccounts;
+    } else {
+      accounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+    }
+    if (accounts.length === 0) {
+      const connected = await this.getConnectedEmailAccount(campaign.user_id);
+      if (connected) accounts = [connected];
+    }
+
+    if (!isLiveSupabase()) {
+      const cls = Array.from(mockDb.campaignLeads.values()).filter((c) => c.campaign_id === campaignId);
+      const clIds = new Set(cls.map((c) => c.id));
+      const msgsToReschedule = Array.from(mockDb.emailMessages.values())
+        .filter((m) => clIds.has(m.campaign_lead_id) && (m.status === 'paused' || m.status === 'scheduled'))
+        .sort(
+          (a, b) =>
+            (a.step_number || 0) - (b.step_number || 0) ||
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+      if (msgsToReschedule.length === 0) return { rescheduledCount: 0 };
+
+      const schedule = calculateStaggeredSchedule(campaign, accounts, msgsToReschedule.length, new Date());
+      for (let i = 0; i < msgsToReschedule.length; i++) {
+        const msg = msgsToReschedule[i];
+        const newDate = schedule[i] || new Date();
+        const newIso = newDate.toISOString();
+        msg.status = 'scheduled';
+        msg.scheduled_at = newIso;
+        msg.updated_at = new Date().toISOString();
+
+        // Remove old queued job if any
+        for (const [jobId, job] of Array.from(mockDb.jobQueue.entries())) {
+          if (
+            job.job_type === 'send_email' &&
+            job.status === 'queued' &&
+            (job.payload as any)?.emailMessageId === msg.id
+          ) {
+            mockDb.jobQueue.delete(jobId);
+          }
+        }
+
+        // Enqueue new send job
+        await this.enqueueJob(
+          'send_email',
+          { emailMessageId: msg.id },
+          `resume_send_${msg.id}_${newDate.getTime()}`,
+          newDate
+        );
+      }
+
+      return { rescheduledCount: msgsToReschedule.length };
+    }
+
+    const supabase = createAdminClient();
+    const { data: cls, error: clErr } = await supabase
+      .from('campaign_leads')
+      .select('id')
+      .eq('campaign_id', campaignId);
+    if (clErr) throw new Error(clErr.message);
+    const clIds = (cls || []).map((c) => c.id);
+    if (clIds.length === 0) return { rescheduledCount: 0 };
+
+    // Fetch paused (or scheduled) messages for these leads to reschedule cleanly
+    const { data: messages, error: msgErr } = await supabase
+      .from('email_messages')
+      .select('id, step_number, created_at, scheduled_at, status')
+      .in('campaign_lead_id', clIds)
+      .in('status', ['paused', 'scheduled'])
+      .order('step_number', { ascending: true })
+      .order('created_at', { ascending: true });
+
+    if (msgErr) throw new Error(msgErr.message);
+    if (!messages || messages.length === 0) return { rescheduledCount: 0 };
+
+    const msgIds = messages.map((m) => m.id);
+
+    // Delete existing queued send_email jobs for these messages in chunks first
+    for (let i = 0; i < msgIds.length; i += 100) {
+      const chunk = msgIds.slice(i, i + 100);
+      const formatted = `(${chunk.join(',')})`;
+      await supabase
+        .from('job_queue')
+        .delete()
+        .eq('job_type', 'send_email')
+        .eq('status', 'queued')
+        .filter('payload->>emailMessageId', 'in', formatted);
+    }
+
+    const schedule = calculateStaggeredSchedule(campaign, accounts, messages.length, new Date());
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const newDate = schedule[i] || new Date();
+      const newIso = newDate.toISOString();
+
+      await supabase
+        .from('email_messages')
+        .update({
+          status: 'scheduled',
+          scheduled_at: newIso,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', msg.id);
+
+      await this.enqueueJob(
+        'send_email',
+        { emailMessageId: msg.id },
+        `resume_send_${msg.id}_${newDate.getTime()}`,
+        newDate
+      );
+    }
+
+    return { rescheduledCount: messages.length };
+  },
+
   // Lead Groups
   async getLeadGroups(userId: string): Promise<LeadGroup[]> {
     if (!userId) return [];

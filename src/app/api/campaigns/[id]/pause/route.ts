@@ -15,8 +15,9 @@ export async function POST(
 
   try {
     const updated = await dbService.updateCampaign(id, { status: 'paused' });
-    await dbService.logActivity(user.id, 'campaign_paused', 'campaign', id);
-    return NextResponse.json({ success: true, campaign: updated });
+    const { pausedCount } = await dbService.pauseCampaignMessages(id);
+    await dbService.logActivity(user.id, 'campaign_paused', 'campaign', id, { pausedCount });
+    return NextResponse.json({ success: true, campaign: updated, pausedCount });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });
