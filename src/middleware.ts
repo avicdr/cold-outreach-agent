@@ -28,6 +28,15 @@ const PUBLIC_PATH_PREFIXES = [
   '/unsubscribe',
 ];
 
+function getPublicUrl(path: string, request: NextRequest): URL {
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost && !forwardedHost.includes('10000') && !forwardedHost.includes('localhost:')) {
+    return new URL(path, `${forwardedProto}://${forwardedHost}`);
+  }
+  return new URL(path, request.nextUrl.origin);
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -42,8 +51,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.searchParams.has('code') &&
     request.nextUrl.searchParams.has('state')
   ) {
-    const callbackUrl = request.nextUrl.clone();
-    callbackUrl.pathname = '/api/integrations/google/callback';
+    const callbackUrl = getPublicUrl(`/api/integrations/google/callback?${request.nextUrl.searchParams.toString()}`, request);
     return NextResponse.redirect(callbackUrl);
   }
 
@@ -60,8 +68,7 @@ export async function middleware(request: NextRequest) {
   // 4. Handle /login route
   if (pathname === '/login') {
     if (isAuthenticated) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = '/dashboard';
+      const redirectUrl = getPublicUrl('/dashboard', request);
       return NextResponse.redirect(redirectUrl);
     }
     return NextResponse.next();
@@ -75,11 +82,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = '/login';
-    if (pathname !== '/' && pathname !== '/dashboard') {
-      loginUrl.searchParams.set('redirect', pathname);
-    }
+    const redirectQuery = (pathname !== '/' && pathname !== '/dashboard') ? `?redirect=${encodeURIComponent(pathname)}` : '';
+    const loginUrl = getPublicUrl(`/login${redirectQuery}`, request);
     return NextResponse.redirect(loginUrl);
   }
 

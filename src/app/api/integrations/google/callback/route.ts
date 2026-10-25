@@ -4,16 +4,41 @@ import { encryptToken } from '@/lib/crypto';
 import { dbService } from '@/lib/db-service';
 import { env } from '@/lib/env';
 
+function getPublicOrigin(request: NextRequest, redirectUri?: string): string {
+  // 1. If state redirectUri has a public origin (e.g. https://outreacher.arenova.in)
+  if (redirectUri) {
+    try {
+      const u = new URL(redirectUri);
+      if (!u.hostname.includes('localhost') && !u.port) {
+        return u.origin;
+      }
+    } catch {}
+  }
+
+  // 2. Check x-forwarded headers (Render, Cloudflare, Vercel, ALB)
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost && !forwardedHost.includes('10000') && !forwardedHost.includes('localhost:')) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  // 3. Fallback to NEXT_PUBLIC_APP_URL if not pointing to internal port
+  if (env.NEXT_PUBLIC_APP_URL && !env.NEXT_PUBLIC_APP_URL.includes('10000')) {
+    return env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  }
+
+  return request.nextUrl.origin;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
-  const origin = request.nextUrl.origin || env.NEXT_PUBLIC_APP_URL;
-
   const stateValidation = state ? validateOAuthState(state) : { isValid: false };
   const returnTo = (stateValidation.isValid && stateValidation.returnTo) ? stateValidation.returnTo : '/accounts';
+  const origin = getPublicOrigin(request, stateValidation.redirectUri);
 
   if (error) {
     return NextResponse.redirect(`${origin}${returnTo}?error=${encodeURIComponent(error)}`);
