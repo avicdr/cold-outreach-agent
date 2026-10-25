@@ -51,9 +51,9 @@ function UnsubscribeInner() {
   }, [token]);
 
   return (
-    <div className="min-h-screen bg-[#111110] text-[#F3F0E8] flex items-center justify-center p-4 font-sans">
-      <div className="max-w-md w-full rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] p-8 shadow-[0_8px_32px_rgba(0,0,0,0.5)] text-center space-y-6">
-        <div className="flex items-center justify-center gap-2.5 pb-2 border-b border-[rgba(243,240,232,0.08)]">
+    <div className="min-h-screen bg-obsidian text-text-primary flex items-center justify-center p-4 font-sans">
+      <div className="max-w-md w-full rounded-[14px] border border-border-subtle bg-surface-elevated p-8 card-volcanic text-center space-y-6">
+        <div className="flex items-center justify-center gap-2.5 pb-2 border-b border-border-subtle">
           <img
             src="/arenova.png"
             alt="ARENOVA"
@@ -61,7 +61,7 @@ function UnsubscribeInner() {
             height={32}
             className="w-8 h-8 object-contain filter drop-shadow-[0_0_8px_rgba(232,75,44,0.35)]"
           />
-          <span className="font-syne font-bold text-lg tracking-[-0.025em] text-[#F3F0E8]">ARENOVA</span>
+          <span className="font-syne font-bold text-lg tracking-[-0.025em] text-text-primary">ARENOVA</span>
         </div>
 
         {loading ? (

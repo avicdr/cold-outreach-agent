@@ -21,7 +21,7 @@ export default function PrivacyPolicyPage() {
               className="w-8 h-8 object-contain filter drop-shadow-[0_0_8px_rgba(232,75,44,0.35)]"
             />
             <div className="flex items-center gap-2">
-              <span className="font-bold font-syne text-[#F3F0E8] text-base tracking-[-0.025em]">ARENOVA</span>
+              <span className="font-bold font-syne text-text-primary text-base tracking-[-0.025em]">ARENOVA</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#E84B2C]/10 text-[#E87A38] font-mono font-bold border border-[#E84B2C]/25">
                 LEGAL
               </span>

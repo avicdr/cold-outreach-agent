@@ -82,12 +82,12 @@ export function Sidebar() {
             className={`flex items-center gap-3 px-3.5 py-2.5 rounded-[10px] text-xs font-medium transition-all duration-200 group relative ${
               isActive
                 ? 'bg-[#E84B2C] text-white shadow-[0_2px_12px_rgba(232,75,44,0.35)]'
-                : 'text-[#D0CBC1] hover:text-[#F3F0E8] hover:bg-[#26201B]'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
             }`}
           >
             <Icon
               className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                isActive ? 'text-white' : 'text-[#9E9B93] group-hover:text-[#E87A38]'
+                isActive ? 'text-white' : 'text-text-muted group-hover:text-[#E87A38]'
               }`}
             />
             <span className="font-sans font-medium tracking-wide">{item.name}</span>
@@ -101,22 +101,22 @@ export function Sidebar() {
   );
 
   const renderFooter = (onItemClick?: () => void) => (
-    <div className="p-3 border-t border-[rgba(243,240,232,0.08)] bg-[#0D0D0C] space-y-3">
+    <div className="p-3 border-t border-border-subtle bg-charcoal space-y-3">
       {/* Background Worker Status Pill */}
-      <div className="p-2.5 rounded-[10px] bg-[#171614] border border-[rgba(243,240,232,0.06)] space-y-1.5">
+      <div className="p-2.5 rounded-[10px] bg-surface-elevated border border-border-subtle space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#63C7A2] opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-[#63C7A2]"></span>
             </span>
-            <span className="text-[11px] font-semibold text-[#F3F0E8] tracking-tight">Autonomous Worker</span>
+            <span className="text-[11px] font-semibold text-text-primary tracking-tight">Autonomous Worker</span>
           </div>
           <span className="text-[9px] px-1.5 py-0.5 rounded-full font-mono bg-[#63C7A2]/10 text-[#63C7A2] border border-[#63C7A2]/30">
             Active
           </span>
         </div>
-        <div className="text-[10px] text-[#9E9B93] flex items-center justify-between pt-0.5">
+        <div className="text-[10px] text-text-muted flex items-center justify-between pt-0.5">
           <span>60s dispatch loop</span>
           <Link
             href="/jobs"
@@ -129,17 +129,17 @@ export function Sidebar() {
       </div>
 
       {/* Admin Profile & Theme Switch Card */}
-      <div className="p-2.5 rounded-[10px] bg-[#171614] border border-[rgba(243,240,232,0.08)] space-y-2">
+      <div className="p-2.5 rounded-[10px] bg-surface-elevated border border-border-subtle space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-full bg-[#E84B2C]/15 border border-[#E84B2C]/30 flex items-center justify-center shrink-0">
               <Flame className="w-3.5 h-3.5 text-[#E87A38]" />
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] font-semibold text-[#F3F0E8] truncate max-w-[120px]" title={adminEmail}>
+              <div className="text-[11px] font-semibold text-text-primary truncate max-w-[120px]" title={adminEmail}>
                 {adminEmail}
               </div>
-              <div className="text-[9px] text-[#9E9B93] uppercase font-mono tracking-wider">
+              <div className="text-[9px] text-text-muted uppercase font-mono tracking-wider">
                 Admin Owner
               </div>
             </div>
@@ -151,7 +151,7 @@ export function Sidebar() {
               type="button"
               onClick={toggleTheme}
               title={`Switch to ${theme === 'dark' ? 'Warm Ivory Light' : 'Obsidian Dark'} mode`}
-              className="p-1.5 rounded-[6px] text-[#D0CBC1] hover:text-[#F3F0E8] hover:bg-[#26201B] border border-transparent hover:border-[rgba(243,240,232,0.12)] transition-colors"
+              className="p-1.5 rounded-[6px] text-text-secondary hover:text-text-primary hover:bg-surface-hover border border-transparent hover:border-border-hover transition-colors"
               aria-label="Toggle Theme"
             >
               {theme === 'dark' ? (
@@ -167,7 +167,7 @@ export function Sidebar() {
               onClick={handleLogout}
               disabled={loggingOut}
               title="Sign Out"
-              className="p-1.5 rounded-[6px] text-[#9E9B93] hover:text-[#E84B2C] hover:bg-[#26201B] transition-colors disabled:opacity-50"
+              className="p-1.5 rounded-[6px] text-text-muted hover:text-[#E84B2C] hover:bg-surface-hover transition-colors disabled:opacity-50"
               aria-label="Sign out"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -177,16 +177,16 @@ export function Sidebar() {
       </div>
 
       {/* Footer Links */}
-      <div className="pt-1 flex items-center justify-between text-[10px] text-[#9E9B93]">
-        <Link href="/privacy" onClick={onItemClick} className="hover:text-[#F3F0E8] transition-colors">
+      <div className="pt-1 flex items-center justify-between text-[10px] text-text-muted">
+        <Link href="/privacy" onClick={onItemClick} className="hover:text-text-primary transition-colors">
           Privacy
         </Link>
         <span>•</span>
-        <Link href="/tos" onClick={onItemClick} className="hover:text-[#F3F0E8] transition-colors">
+        <Link href="/tos" onClick={onItemClick} className="hover:text-text-primary transition-colors">
           Terms
         </Link>
         <span>•</span>
-        <span className="font-mono text-[#9E9B93]">v2.5</span>
+        <span className="font-mono text-text-muted">v2.5</span>
       </div>
     </div>
   );
@@ -194,10 +194,10 @@ export function Sidebar() {
   return (
     <>
       {/* Desktop Sticky Sidebar */}
-      <aside className="hidden lg:flex w-64 border-r border-[rgba(243,240,232,0.08)] bg-[#0D0D0C] flex-col justify-between shrink-0 h-screen sticky top-0 select-none z-20">
+      <aside className="hidden lg:flex w-64 border-r border-border-subtle bg-charcoal flex-col justify-between shrink-0 h-screen sticky top-0 select-none z-20">
         <div className="overflow-y-auto">
-          {/* Brand Header: Clean borderless presentation of arenova.png at full scale sitting flush next to Syne wordmark */}
-          <div className="h-16 flex items-center px-5 border-b border-[rgba(243,240,232,0.08)] bg-[#111110]">
+          {/* Brand Header */}
+          <div className="h-16 flex items-center px-5 border-b border-border-subtle bg-obsidian">
             <Link href="/dashboard" className="flex items-center gap-3 group">
               <img
                 src="/arenova.png"
@@ -208,14 +208,14 @@ export function Sidebar() {
               />
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-syne font-bold text-lg tracking-[-0.025em] text-[#F3F0E8] leading-none">
+                  <span className="font-syne font-bold text-lg tracking-[-0.025em] text-text-primary leading-none">
                     ARENOVA
                   </span>
                   <span className="text-[9px] px-1 py-0.2 rounded font-mono font-bold uppercase tracking-wider bg-[#E84B2C]/15 text-[#E87A38] border border-[#E84B2C]/30 leading-tight">
                     PRO
                   </span>
                 </div>
-                <span className="text-[9px] text-[#9E9B93] tracking-widest uppercase font-cinzel mt-0.5">
+                <span className="text-[9px] text-text-muted tracking-widest uppercase font-cinzel mt-0.5">
                   Cold Outreach Agent
                 </span>
               </div>
@@ -248,14 +248,14 @@ export function Sidebar() {
           />
 
           <aside
-            className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-[#0D0D0C] border-r border-[rgba(243,240,232,0.08)] flex flex-col justify-between shadow-2xl select-none animate-in slide-in-from-left duration-200"
+            className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-charcoal border-r border-border-subtle flex flex-col justify-between shadow-2xl select-none animate-in slide-in-from-left duration-200"
             role="dialog"
             aria-modal="true"
             aria-label="Mobile Navigation Menu"
           >
             <div className="overflow-y-auto">
               {/* Header with Brand + Close Button */}
-              <div className="h-16 flex items-center justify-between px-5 border-b border-[rgba(243,240,232,0.08)] bg-[#111110]">
+              <div className="h-16 flex items-center justify-between px-5 border-b border-border-subtle bg-obsidian">
                 <div className="flex items-center gap-3">
                   <img
                     src="/arenova.png"
@@ -265,10 +265,10 @@ export function Sidebar() {
                     className="w-8 h-8 object-contain shrink-0 filter drop-shadow-[0_0_10px_rgba(232,75,44,0.35)]"
                   />
                   <div className="flex flex-col">
-                    <span className="font-syne font-bold text-base tracking-[-0.025em] text-[#F3F0E8] leading-none">
+                    <span className="font-syne font-bold text-base tracking-[-0.025em] text-text-primary leading-none">
                       ARENOVA
                     </span>
-                    <span className="text-[9px] text-[#9E9B93] tracking-wider uppercase font-cinzel mt-0.5">
+                    <span className="text-[9px] text-text-muted tracking-wider uppercase font-cinzel mt-0.5">
                       Cold Outreach Agent
                     </span>
                   </div>
@@ -276,7 +276,7 @@ export function Sidebar() {
 
                 <button
                   onClick={closeMobileNav}
-                  className="p-1.5 rounded-[8px] text-[#9E9B93] hover:text-[#F3F0E8] hover:bg-[#26201B] transition-colors"
+                  className="p-1.5 rounded-[8px] text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
                   aria-label="Close navigation"
                 >
                   <X className="w-5 h-5" />

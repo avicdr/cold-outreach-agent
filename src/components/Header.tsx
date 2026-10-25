@@ -63,14 +63,14 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
   };
 
   return (
-    <header className="min-h-16 py-3 border-b border-[rgba(243,240,232,0.08)] bg-[#0D0D0C]/85 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3 select-none">
+    <header className="min-h-16 py-3 border-b border-border-subtle bg-charcoal/90 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3 select-none">
       {/* Title & Mobile Nav Toggle */}
       <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink">
         <button
           type="button"
           onClick={toggleMobileNav}
           aria-label="Open mobile navigation menu"
-          className="p-1.5 -ml-1 rounded-[8px] text-[#9E9B93] hover:text-[#F3F0E8] hover:bg-[#26201B] lg:hidden transition-colors shrink-0"
+          className="p-1.5 -ml-1 rounded-[8px] text-text-muted hover:text-text-primary hover:bg-surface-hover lg:hidden transition-colors shrink-0"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -82,11 +82,11 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
               {category}
             </div>
           )}
-          <h1 className="text-base sm:text-lg font-bold font-syne text-[#F3F0E8] tracking-[-0.025em] truncate">
+          <h1 className="text-base sm:text-lg font-bold font-syne text-text-primary tracking-[-0.025em] truncate">
             {title}
           </h1>
           {subtitle && (
-            <p className="hidden md:block text-[11px] sm:text-xs text-[#9E9B93] mt-0.5 truncate max-w-xs lg:max-w-md xl:max-w-xl font-sans">
+            <p className="hidden md:block text-[11px] sm:text-xs text-text-muted mt-0.5 truncate max-w-xs lg:max-w-md xl:max-w-xl font-sans">
               {subtitle}
             </p>
           )}
@@ -139,7 +139,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
         >
           <RefreshCw
             className={`w-3.5 h-3.5 shrink-0 ${
-              isRunningWorker ? 'animate-spin text-[#E84B2C]' : 'text-[#9E9B93]'
+              isRunningWorker ? 'animate-spin text-[#E84B2C]' : 'text-text-muted'
             }`}
           />
           <span className="hidden sm:inline">{isRunningWorker ? 'Dispatching...' : 'Run Worker'}</span>
@@ -150,7 +150,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
           type="button"
           onClick={toggleTheme}
           title={`Switch to ${theme === 'dark' ? 'Warm Ivory Light' : 'Obsidian Dark'} mode`}
-          className="p-2 rounded-[10px] bg-[#171614] border border-[rgba(243,240,232,0.10)] text-[#D0CBC1] hover:text-[#F3F0E8] hover:border-[rgba(243,240,232,0.20)] transition-colors"
+          className="p-2 rounded-[10px] bg-surface-elevated border border-border-standard text-text-secondary hover:text-text-primary hover:border-border-hover transition-colors"
           aria-label="Toggle theme"
         >
           {theme === 'dark' ? (

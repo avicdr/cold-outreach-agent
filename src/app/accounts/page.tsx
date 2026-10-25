@@ -590,13 +590,13 @@ export default function AccountsPage() {
           )}
 
           {/* Aggregate Quota & Scaling Banner */}
-          <section className="rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/40 via-slate-900/60 to-slate-950 p-6 relative overflow-hidden">
+          <section className="rounded-2xl border border-border-standard bg-surface-elevated card-volcanic p-6 relative overflow-hidden">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="space-y-1">
                 <span className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
                   <Inbox className="w-3.5 h-3.5 text-indigo-400" /> Connected Inboxes
                 </span>
-                <div className="text-2xl font-bold text-white font-mono">
+                <div className="text-2xl font-bold text-slate-100 font-mono">
                   {stats?.totalAccounts ?? 0}{' '}
                   <span className="text-xs font-normal text-slate-400">({stats?.activeAccounts ?? 0} active)</span>
                 </div>
@@ -607,7 +607,7 @@ export default function AccountsPage() {
                 <span className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
                   <Gauge className="w-3.5 h-3.5 text-blue-400" /> Outreach Sending Quota
                 </span>
-                <div className="text-2xl font-bold text-white font-mono">
+                <div className="text-2xl font-bold text-slate-100 font-mono">
                   {stats?.dailyCapacity ?? 0}{' '}
                   <span className="text-xs font-normal text-slate-400">emails / day</span>
                 </div>
@@ -633,7 +633,7 @@ export default function AccountsPage() {
                 <span className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-emerald-400" /> Interval Safety Guard
                 </span>
-                <div className="text-2xl font-bold text-white font-mono">~15 min</div>
+                <div className="text-2xl font-bold text-slate-100 font-mono">~15 min</div>
                 <div className="text-[11px] text-slate-400">Cooldown spacing between sends</div>
               </div>
             </div>
@@ -712,9 +712,9 @@ export default function AccountsPage() {
           {activeTab === 'accounts' && (
             <div>
               {filteredAccounts.length === 0 ? (
-                <div className="py-16 text-center rounded-2xl border border-dashed border-slate-800 bg-slate-900/20 space-y-3">
-                  <Inbox className="w-10 h-10 text-slate-600 mx-auto" />
-                  <h3 className="text-sm font-semibold text-white">No outreach inboxes found</h3>
+                <div className="py-16 text-center rounded-2xl border border-dashed border-border-standard bg-surface-secondary space-y-3">
+                  <Inbox className="w-10 h-10 text-slate-500 mx-auto" />
+                  <h3 className="text-sm font-semibold text-slate-100">No outreach inboxes found</h3>
                   <p className="text-xs text-slate-400 max-w-sm mx-auto">
                     Connect as many accounts as you want. Each inbox safely sends 15–18 emails per day, multiplying your daily outreach volume.
                   </p>
@@ -745,13 +745,13 @@ export default function AccountsPage() {
                     return (
                       <div
                         key={acc.id}
-                        className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-5 space-y-4 hover:border-slate-700 transition-all flex flex-col justify-between"
+                        className="rounded-xl border border-border-subtle bg-surface-elevated card-volcanic p-5 space-y-4 hover:border-border-hover transition-all flex flex-col justify-between"
                       >
                         <div className="space-y-3">
                           {/* Header: Email and status */}
                           <div className="flex items-start justify-between gap-2">
                             <div className="space-y-1">
-                              <div className="font-semibold text-white text-sm truncate max-w-[200px]" title={acc.email_address}>
+                              <div className="font-semibold text-slate-100 text-sm truncate max-w-[200px]" title={acc.email_address}>
                                 {acc.email_address}
                               </div>
                               <div className="text-xs text-slate-400">

@@ -107,7 +107,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="flex min-h-screen bg-[#111110] text-[#F3F0E8] font-sans">
+    <div className="flex min-h-screen bg-obsidian text-text-primary font-sans">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <Header
@@ -122,7 +122,7 @@ export default function DashboardPage() {
               className="btn-secondary px-2.5 sm:px-3 py-1.5 text-xs gap-1.5 shrink-0 whitespace-nowrap"
               title="Process queued tasks, schedule next sends, and sync replies"
             >
-              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${dispatching ? 'animate-spin text-[#E84B2C]' : 'text-[#9E9B93]'}`} />
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${dispatching ? 'animate-spin text-[#E84B2C]' : 'text-text-muted'}`} />
               <span className="hidden sm:inline">{dispatching ? 'Dispatching...' : 'Run Worker Now'}</span>
               <span className="sm:hidden">{dispatching ? '...' : 'Worker'}</span>
             </button>
@@ -130,7 +130,7 @@ export default function DashboardPage() {
               href="/leads/import"
               className="btn-secondary px-2.5 sm:px-3 py-1.5 text-xs gap-1.5 shrink-0 whitespace-nowrap"
             >
-              <Upload className="w-3.5 h-3.5 text-[#9E9B93] shrink-0" />
+              <Upload className="w-3.5 h-3.5 text-text-muted shrink-0" />
               <span>Import</span>
             </Link>
             <Link
@@ -148,30 +148,30 @@ export default function DashboardPage() {
           {runNotice && (
             <div className="p-3.5 rounded-[12px] bg-[#E84B2C]/10 border border-[#E84B2C]/30 text-[#E87A38] text-xs flex items-center justify-between font-mono">
               <span>{runNotice}</span>
-              <button onClick={() => setRunNotice(null)} className="text-[#9E9B93] hover:text-[#F3F0E8]">✕</button>
+              <button onClick={() => setRunNotice(null)} className="text-text-muted hover:text-text-primary">✕</button>
             </div>
           )}
 
           {/* Multi-Account Daily Outreach Capacity Card */}
-          <section className="rounded-[16px] border border-[rgba(232,75,44,0.3)] bg-gradient-to-br from-[#1C1916] via-[#171614] to-[#111110] p-6 sm:p-7 shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative overflow-hidden">
+          <section className="capacity-card rounded-[16px] p-6 sm:p-7 relative overflow-hidden">
             {/* Atmospheric radiance overlay */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-[radial-gradient(ellipse_at_center,rgba(232,75,44,0.12),transparent_70%)] pointer-events-none" />
+            <div className="absolute top-0 right-0 w-96 h-96 bg-[radial-gradient(ellipse_at_center,rgba(232,75,44,0.10),transparent_70%)] pointer-events-none" />
 
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-[rgba(243,240,232,0.08)] relative z-10">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-border-subtle relative z-10">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E84B2C]/10 border border-[#E84B2C]/30 text-[#E87A38] text-[10px] font-mono uppercase tracking-widest font-semibold">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#E84B2C] shadow-[0_0_8px_#E84B2C]"></span>
                     Capacity Guard
                   </div>
-                  <span className="text-[11px] text-[#9E9B93] flex items-center gap-1 font-mono">
-                    <Clock className="w-3 h-3 text-[#9E9B93]" /> ~15-min safety interval between sends
+                  <span className="text-[11px] text-text-muted flex items-center gap-1 font-mono">
+                    <Clock className="w-3 h-3 text-text-muted" /> ~15-min safety interval between sends
                   </span>
                 </div>
-                <h2 className="text-xl sm:text-2xl font-bold font-syne tracking-tight text-[#F3F0E8] flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold font-syne tracking-tight text-text-primary flex items-center gap-2">
                   <span>Daily Outreach Capacity</span>
                 </h2>
-                <p className="text-xs text-[#D0CBC1] max-w-2xl leading-relaxed">
+                <p className="text-xs text-text-secondary max-w-2xl leading-relaxed">
                   Daily sending volume scales safely across connected inboxes (strictly 15–18 emails/day per account to protect domain reputation and maximize primary inbox delivery).
                 </p>
               </div>
@@ -193,20 +193,20 @@ export default function DashboardPage() {
               <div className="lg:col-span-5 space-y-2">
                 <div className="flex items-baseline gap-2.5">
                   {loading ? (
-                    <div className="h-10 w-28 bg-[#211B17] animate-pulse rounded-[8px]" />
+                    <div className="h-10 w-28 bg-surface-raised animate-pulse rounded-[8px]" />
                   ) : (
-                    <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-[#F3F0E8] font-mono text-gradient-ember">
+                    <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-text-primary font-mono text-gradient-ember">
                       {stats?.remainingToday ?? 0}
                     </span>
                   )}
-                  <span className="text-sm font-medium text-[#D0CBC1]">emails remaining today</span>
+                  <span className="text-sm font-medium text-text-secondary">emails remaining today</span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                  <span className="px-2.5 py-1 rounded-[6px] bg-[#111110] border border-[rgba(243,240,232,0.12)] text-[#E87A38] font-mono font-medium">
+                  <span className="px-2.5 py-1 rounded-[6px] bg-obsidian border border-border-standard text-amber font-mono font-medium">
                     {stats?.activeAccounts ?? 0} inboxes × 18 limit = {stats?.dailyCapacity ?? 0} max/day
                   </span>
-                  <span className="text-[#9E9B93] font-mono">
+                  <span className="text-text-muted font-mono">
                     • {stats?.sentToday ?? 0} sent today
                   </span>
                 </div>
@@ -214,8 +214,8 @@ export default function DashboardPage() {
 
               <div className="lg:col-span-7 space-y-2.5">
                 <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-[#9E9B93]">Daily Quota Utilization</span>
-                  <span className="text-[#F3F0E8] font-semibold">
+                  <span className="text-text-muted">Daily Quota Utilization</span>
+                  <span className="text-text-primary font-semibold">
                     {stats?.sentToday ?? 0} / {stats?.dailyCapacity ?? 0} emails (
                     {stats && stats.dailyCapacity && stats.dailyCapacity > 0
                       ? Math.min(100, Math.round(((stats.sentToday || 0) / stats.dailyCapacity) * 100))
@@ -223,7 +223,7 @@ export default function DashboardPage() {
                     %)
                   </span>
                 </div>
-                <div className="w-full h-3 rounded-full bg-[#111110] border border-[rgba(243,240,232,0.08)] overflow-hidden p-0.5">
+                <div className="w-full h-3 rounded-full bg-surface-secondary border border-border-subtle overflow-hidden p-0.5">
                   <div
                     className="h-full rounded-full transition-all duration-500 shadow-[0_0_12px_rgba(232,75,44,0.4)]"
                     style={{
@@ -236,7 +236,7 @@ export default function DashboardPage() {
                     }}
                   />
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-[#9E9B93] font-mono pt-0.5">
+                <div className="flex items-center justify-between text-[11px] text-text-muted font-mono pt-0.5">
                   <span>0 sent</span>
                   <span className="text-[#E87A38]">
                     {(stats?.activeAccounts ?? 0) === 0
@@ -250,9 +250,9 @@ export default function DashboardPage() {
 
             {/* Individual Accounts Mini-Bar */}
             {Array.isArray(stats?.accounts) && stats.accounts.length > 0 && (
-              <div className="mt-6 pt-5 border-t border-[rgba(243,240,232,0.08)] relative z-10">
+              <div className="mt-6 pt-5 border-t border-border-subtle relative z-10">
                 <div className="flex items-center justify-between mb-3 text-xs">
-                  <span className="font-semibold uppercase font-mono tracking-wider text-[10px] text-[#9E9B93]">
+                  <span className="font-semibold uppercase font-mono tracking-wider text-[10px] text-text-muted">
                     Connected Inboxes & Daily Allotment
                   </span>
                   <Link href="/accounts" className="text-[#E87A38] hover:text-[#E84B2C] text-xs font-mono transition-colors">
@@ -267,29 +267,29 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={acc.id}
-                        className="p-3.5 rounded-[12px] bg-[#111110] border border-[rgba(243,240,232,0.08)] hover:border-[rgba(243,240,232,0.18)] transition-colors space-y-2"
+                        className="p-3.5 rounded-[12px] bg-surface-secondary border border-border-subtle hover:border-border-hover transition-colors space-y-2"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-[#F3F0E8] truncate max-w-[170px]" title={acc.email_address}>
+                          <span className="text-xs font-semibold text-text-primary truncate max-w-[170px]" title={acc.email_address}>
                             {acc.email_address}
                           </span>
                           <span
                             className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold uppercase ${
                               acc.status === 'active'
                                 ? 'bg-[#63C7A2]/10 text-[#63C7A2] border border-[#63C7A2]/30'
-                                : 'bg-[#26201B] text-[#9E9B93]'
+                                : 'bg-surface-raised text-text-muted'
                             }`}
                           >
                             {acc.status}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-[11px] text-[#9E9B93] font-mono">
+                        <div className="flex items-center justify-between text-[11px] text-text-muted font-mono">
                           <span>
                             {sent} / {limit} sent
                           </span>
                           <span className="text-[#E87A38] font-bold">{remaining} left</span>
                         </div>
-                        <div className="w-full h-1.5 rounded-full bg-[#171614] overflow-hidden">
+                        <div className="w-full h-1.5 rounded-full bg-surface-raised overflow-hidden">
                           <div
                             className="h-full rounded-full bg-[#E84B2C]"
                             style={{ width: `${Math.min(100, Math.round((sent / limit) * 100))}%` }}
@@ -306,10 +306,10 @@ export default function DashboardPage() {
           {/* Quick Metrics Grid */}
           <section>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-[#9E9B93] font-mono">
+              <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted font-mono">
                 Core Performance Metrics
               </h2>
-              <span className="text-xs text-[#9E9B93] font-mono">Live verified database counts</span>
+              <span className="text-xs text-text-muted font-mono">Live verified database counts</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -323,12 +323,12 @@ export default function DashboardPage() {
                     className={`p-5 rounded-[14px] border transition-all duration-200 relative overflow-hidden group block ${
                       isAlert
                         ? 'border-[#E84B2C]/50 bg-[#E84B2C]/5 hover:border-[#E84B2C] shadow-[0_4px_20px_rgba(232,75,44,0.15)]'
-                        : 'border-[rgba(243,240,232,0.08)] bg-[#171614] hover:border-[rgba(243,240,232,0.20)] hover:-translate-y-0.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)]'
+                        : 'border-border-subtle bg-surface-elevated hover:border-border-hover hover:-translate-y-0.5 card-volcanic'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-[#D0CBC1] group-hover:text-[#F3F0E8] transition-colors">
+                        <span className="text-xs font-semibold text-text-secondary group-hover:text-text-primary transition-colors">
                           {card.label}
                         </span>
                         {isAlert && (
@@ -344,9 +344,9 @@ export default function DashboardPage() {
                     </div>
                     <div className="mt-3.5 flex items-baseline justify-between">
                       {loading ? (
-                        <div className="h-8 w-16 bg-[#211B17] animate-pulse rounded" />
+                        <div className="h-8 w-16 bg-surface-raised animate-pulse rounded" />
                       ) : (
-                        <div className={`text-2xl sm:text-3xl font-extrabold tracking-tight font-mono ${isAlert ? 'text-[#E84B2C]' : 'text-[#F3F0E8]'}`}>
+                        <div className={`text-2xl sm:text-3xl font-extrabold tracking-tight font-mono ${isAlert ? 'text-[#E84B2C]' : 'text-text-primary'}`}>
                           {card.value}
                         </div>
                       )}
@@ -363,11 +363,11 @@ export default function DashboardPage() {
           {/* Active Campaigns & Workflow Status */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Campaigns Table / Cards */}
-            <div className="lg:col-span-2 rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] p-6 space-y-4 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+            <div className="lg:col-span-2 rounded-[14px] border border-border-subtle bg-surface-elevated p-6 space-y-4 card-volcanic">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-bold font-syne text-[#F3F0E8]">Active Campaigns</h3>
-                  <p className="text-xs text-[#9E9B93]">Pipelines currently dispatching or preparing personalized drafts</p>
+                  <h3 className="text-base font-bold font-syne text-text-primary">Active Campaigns</h3>
+                  <p className="text-xs text-text-muted">Pipelines currently dispatching or preparing personalized drafts</p>
                 </div>
                 <Link
                   href="/campaigns"
@@ -378,10 +378,10 @@ export default function DashboardPage() {
               </div>
 
               {(!Array.isArray(campaigns) || campaigns.length === 0) ? (
-                <div className="py-12 text-center rounded-[12px] border border-dashed border-[rgba(243,240,232,0.12)] bg-[#111110]">
-                  <Sparkles className="w-8 h-8 text-[#9E9B93] mx-auto mb-2" />
-                  <p className="text-sm font-semibold text-[#F3F0E8]">No campaigns active yet</p>
-                  <p className="text-xs text-[#9E9B93] mt-1">Upload leads and launch your first AI personalization campaign.</p>
+                <div className="py-12 text-center rounded-[12px] border border-dashed border-border-standard bg-surface-secondary">
+                  <Sparkles className="w-8 h-8 text-text-muted mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-text-primary">No campaigns active yet</p>
+                  <p className="text-xs text-text-muted mt-1">Upload leads and launch your first AI personalization campaign.</p>
                   <Link
                     href="/campaigns/new"
                     className="btn-primary mt-4 px-3.5 py-1.5 text-xs gap-1.5"
@@ -394,11 +394,11 @@ export default function DashboardPage() {
                   {(Array.isArray(campaigns) ? campaigns : []).slice(0, 5).map((camp) => (
                     <div
                       key={camp.id}
-                      className="p-4 rounded-[12px] border border-[rgba(243,240,232,0.08)] bg-[#111110] flex items-center justify-between hover:border-[rgba(243,240,232,0.18)] transition-colors"
+                      className="p-4 rounded-[12px] border border-border-subtle bg-surface-secondary flex items-center justify-between hover:border-border-hover transition-colors"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <Link href={`/campaigns/${camp.id}`} className="text-sm font-semibold font-syne text-[#F3F0E8] hover:text-[#E87A38] transition-colors">
+                          <Link href={`/campaigns/${camp.id}`} className="text-sm font-semibold font-syne text-text-primary hover:text-[#E87A38] transition-colors">
                             {camp.name}
                           </Link>
                           <span
@@ -407,19 +407,19 @@ export default function DashboardPage() {
                                 ? 'bg-[#63C7A2]/10 text-[#63C7A2] border border-[#63C7A2]/30'
                                 : camp.status === 'paused'
                                 ? 'bg-[#E87A38]/10 text-[#E87A38] border border-[#E87A38]/30'
-                                : 'bg-[#26201B] text-[#D0CBC1]'
+                                : 'bg-surface-raised text-text-secondary'
                             }`}
                           >
                             {camp.status}
                           </span>
                         </div>
-                        <div className="text-xs text-[#9E9B93] line-clamp-1">{camp.offer || 'No offer specified'}</div>
+                        <div className="text-xs text-text-muted line-clamp-1">{camp.offer || 'No offer specified'}</div>
                       </div>
 
                       <div className="flex items-center gap-4 text-xs font-mono">
                         <div className="hidden sm:block text-right">
-                          <div className="text-[#F3F0E8] font-medium">Daily Limit: {camp.sending_config?.daily_limit || 10}</div>
-                          <div className="text-[10px] text-[#9E9B93]">TZ: {camp.sending_config?.timezone || 'Default'}</div>
+                          <div className="text-text-primary font-medium">Daily Limit: {camp.sending_config?.daily_limit || 10}</div>
+                          <div className="text-[10px] text-text-muted">TZ: {camp.sending_config?.timezone || 'Default'}</div>
                         </div>
                         <Link
                           href={`/campaigns/${camp.id}`}
@@ -435,16 +435,16 @@ export default function DashboardPage() {
             </div>
 
             {/* Outreach Guidelines & AI Engine Box */}
-            <div className="rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] p-6 flex flex-col justify-between shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+            <div className="rounded-[14px] border border-border-subtle bg-surface-elevated p-6 flex flex-col justify-between card-volcanic">
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-[#E87A38]">
                   <Flame className="w-5 h-5 text-[#E84B2C]" />
-                  <h3 className="text-sm font-bold font-syne text-[#F3F0E8]">Gemini AI Safety Guardrails</h3>
+                  <h3 className="text-sm font-bold font-syne text-text-primary">Gemini AI Safety Guardrails</h3>
                 </div>
-                <p className="text-xs text-[#D0CBC1] leading-relaxed">
+                <p className="text-xs text-text-secondary leading-relaxed">
                   Every personalized outreach message is verified against known facts. If unverified claims or fake familiarity are detected, the email is flagged for your review before dispatch.
                 </p>
-                <div className="space-y-2.5 pt-2 border-t border-[rgba(243,240,232,0.08)] text-xs text-[#9E9B93]">
+                <div className="space-y-2.5 pt-2 border-t border-border-subtle text-xs text-text-muted">
                   <div className="flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#63C7A2] shadow-[0_0_6px_#63C7A2]"></span>
                     <span>Zero hallucinated case studies or news</span>
@@ -460,8 +460,8 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-[rgba(243,240,232,0.08)] flex items-center justify-between text-xs font-mono">
-                <span className="text-[#9E9B93]">Model Engine:</span>
+              <div className="mt-6 pt-4 border-t border-border-subtle flex items-center justify-between text-xs font-mono">
+                <span className="text-text-muted">Model Engine:</span>
                 <span className="text-[#E87A38] font-bold">Gemini 3.8 Flash</span>
               </div>
             </div>

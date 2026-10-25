@@ -2,34 +2,45 @@
 @import "tailwindcss";
 
 @theme {
-  --color-obsidian:           #111110;
-  --color-void:               #080505;
-  --color-charcoal:           #0D0D0C;
-  --color-surface-elevated:   #171614;
-  --color-surface-secondary:  #1C1916;
-  --color-surface-raised:     #211B17;
-  --color-surface-hover:      #26201B;
+  --color-obsidian:           var(--color-obsidian);
+  --color-void:               var(--color-void);
+  --color-charcoal:           var(--color-charcoal);
+  --color-surface-elevated:   var(--color-surface-elevated);
+  --color-surface-secondary:  var(--color-surface-secondary);
+  --color-surface-raised:     var(--color-surface-raised);
+  --color-surface-hover:      var(--color-surface-hover);
+
+  --color-text-primary:       var(--color-text-primary);
+  --color-text-secondary:     var(--color-text-secondary);
+  --color-text-muted:         var(--color-text-muted);
+
+  --color-border-subtle:      var(--color-border-subtle);
+  --color-border-standard:    var(--color-border-standard);
+  --color-border-hover:       var(--color-border-hover);
+  --color-border-flame:       var(--color-border-flame);
 
   --color-flame:              #E84B2C;
   --color-amber:              #E87A38;
   --color-copper:             #C86938;
   --color-gold:               #D4AF37;
 
-  --color-slate-950:          #111110;
-  --color-slate-900:          #171614;
-  --color-slate-800:          #211B17;
-  --color-slate-700:          #2D2520;
-  --color-slate-600:          #6B655D;
-  --color-slate-500:          #9E9B93;
-  --color-slate-400:          #D0CBC1;
-  --color-slate-300:          #E6E1D6;
-  --color-slate-200:          #F3F0E8;
-  --color-slate-100:          #FAF7F2;
+  --color-slate-950:          var(--slate-950);
+  --color-slate-900:          var(--slate-900);
+  --color-slate-850:          var(--slate-850);
+  --color-slate-800:          var(--slate-800);
+  --color-slate-700:          var(--slate-700);
+  --color-slate-600:          var(--slate-600);
+  --color-slate-500:          var(--slate-500);
+  --color-slate-400:          var(--slate-400);
+  --color-slate-300:          var(--slate-300);
+  --color-slate-200:          var(--slate-200);
+  --color-slate-100:          var(--slate-100);
+  --color-slate-50:           var(--slate-50);
 
-  --color-indigo-950:         #1C120C;
-  --color-indigo-900:         #2D180F;
-  --color-indigo-800:         #5C2214;
-  --color-indigo-700:         #9C331B;
+  --color-indigo-950:         var(--indigo-950);
+  --color-indigo-900:         var(--indigo-900);
+  --color-indigo-800:         var(--indigo-800);
+  --color-indigo-700:         var(--indigo-700);
   --color-indigo-600:         #E84B2C;
   --color-indigo-500:         #E87A38;
   --color-indigo-400:         #E87A38;
@@ -41,7 +52,9 @@
   --font-mono:                'JetBrains Mono', ui-monospace, monospace;
 }
 
-:root {
+:root,
+[data-theme='dark'],
+.dark {
   /* Surfaces & Depths (Dark Mode Default) */
   --color-obsidian:           #111110; /* Root Canvas */
   --color-void:               #080505; /* Deepest Underlays */
@@ -58,9 +71,29 @@
 
   /* Phoenix Ember Accents */
   --color-flame:              #E84B2C; /* Primary CTA & Brand Flame */
-  --color-amber:              #E87A38; /* Vibrant Radiant Amber (Tags, Highlights) */
+  --color-amber:              #E87A38; /* Vibrant Radiant Amber */
   --color-copper:             #C86938; /* Deep Warm Copper */
   --color-gold:               #D4AF37; /* Elite/VIP/Pro status highlights */
+
+  /* Tailwind Slate Dynamic Bridges */
+  --slate-950:                #111110;
+  --slate-900:                #171614;
+  --slate-850:                #1C1916;
+  --slate-800:                #211B17;
+  --slate-700:                #2D2520;
+  --slate-600:                #6B655D;
+  --slate-500:                #9E9B93;
+  --slate-400:                #D0CBC1;
+  --slate-300:                #E6E1D6;
+  --slate-200:                #F3F0E8;
+  --slate-100:                #FAF7F2;
+  --slate-50:                 #FFFFFF;
+
+  /* Tailwind Indigo Dynamic Bridges */
+  --indigo-950:               #1C120C;
+  --indigo-900:               #2D180F;
+  --indigo-800:               #5C2214;
+  --indigo-700:               #9C331B;
 
   /* Borders & Dividers */
   --color-border-subtle:      rgba(243, 240, 232, 0.08); /* Card borders */
@@ -73,6 +106,12 @@
   --color-warning:            #E87A38; /* Amber */
   --color-error:              #E84B2C; /* Flame Crimson */
   --color-info:               #C86938; /* Copper */
+
+  /* Capacity Dashboard Component */
+  --capacity-card-bg:         linear-gradient(135deg, #1C1916 0%, #171614 50%, #111110 100%);
+  --capacity-card-border:     rgba(232, 75, 44, 0.30);
+  --capacity-card-shadow:     0 8px 32px rgba(0, 0, 0, 0.5);
+  --capacity-track-bg:        #111110;
 
   /* Radii & Transitions */
   --radius-sm:                6px;
@@ -113,22 +152,185 @@
 /* Warm Ivory Light Mode Palette */
 [data-theme='light'],
 .light {
-  --color-obsidian:           #FAF7F2; /* Parchment Canvas */
+  /* Surfaces & Depths (Warm Ivory Light Mode) */
+  --color-obsidian:           #FAF7F2; /* Parchment Root Canvas */
   --color-void:               #F2ECE1; /* Deepest Underlays */
-  --color-charcoal:           #EAE3D6; /* Borders/Navbars */
-  --color-surface-elevated:   #FFFFFF; /* Crisp White Cards */
-  --color-surface-secondary:  #F6F1EA; /* Muted Panels */
-  --color-surface-raised:     #EFE8DD; /* Active Highlights */
+  --color-charcoal:           #EAE3D6; /* Sidebar, Navbar, Topbar, Footer */
+  --color-surface-elevated:   #FFFFFF; /* Crisp White Elevated Cards */
+  --color-surface-secondary:  #F6F1EA; /* Muted Panels, Inner Cards, Table Headers */
+  --color-surface-raised:     #EFE8DD; /* Active Highlights & Tabs */
   --color-surface-hover:      #E8E0D2; /* Interactive Hover */
 
+  /* Text & Ink */
   --color-text-primary:       #1C1917; /* Deep Espresso Ink */
-  --color-text-secondary:     #57534E;
-  --color-text-muted:         #78716C;
+  --color-text-secondary:     #44403C; /* Warm Charcoal Subtitles & Descriptions */
+  --color-text-muted:         #78716C; /* Warm Stone Muted Metadata */
 
+  /* Phoenix Ember Accents */
+  --color-flame:              #E84B2C;
+  --color-amber:              #C86938;
+  --color-copper:             #9C4A20;
+  --color-gold:               #B8860B;
+
+  /* Tailwind Slate Dynamic Bridges */
+  --slate-950:                #FAF7F2; /* Canvas */
+  --slate-900:                #FFFFFF; /* Primary Cards */
+  --slate-850:                #F6F1EA; /* Sub-panels */
+  --slate-800:                #F6F1EA; /* Sub-panels */
+  --slate-700:                #E5DDD0; /* Standard subtle borders */
+  --slate-600:                #D6CEBE; /* Borders hover */
+  --slate-500:                #78716C; /* Muted text */
+  --slate-400:                #57534E; /* Secondary text */
+  --slate-300:                #44403C; /* Secondary text */
+  --slate-200:                #1C1917; /* Primary espresso text */
+  --slate-100:                #1C1917; /* Primary espresso text */
+  --slate-50:                 #1C1917;
+
+  /* Tailwind Indigo Dynamic Bridges */
+  --indigo-950:               #FBF3EE;
+  --indigo-900:               #F7E6DC;
+  --indigo-800:               #EEC3AC;
+  --indigo-700:               #D46B42;
+
+  /* Borders & Dividers */
   --color-border-subtle:      rgba(28, 25, 23, 0.08);
   --color-border-standard:    rgba(28, 25, 23, 0.14);
   --color-border-hover:       rgba(28, 25, 23, 0.24);
   --color-border-flame:       rgba(232, 75, 44, 0.40);
+
+  /* Functional / Status */
+  --color-success:            #0D9488;
+  --color-warning:            #D97706;
+  --color-error:              #DC2626;
+  --color-info:               #2563EB;
+
+  /* Capacity Dashboard Component */
+  --capacity-card-bg:         linear-gradient(135deg, #FFFFFF 0%, #FAF7F2 100%);
+  --capacity-card-border:     rgba(232, 75, 44, 0.25);
+  --capacity-card-shadow:     0 8px 32px rgba(28, 25, 23, 0.08);
+  --capacity-track-bg:        #EAE3D6;
+
+  /* Tailwind semantic bridges */
+  --background:               #FAF7F2;
+  --foreground:               #1C1917;
+  --card:                     #FFFFFF;
+  --card-foreground:          #1C1917;
+  --popover:                  #FFFFFF;
+  --popover-foreground:       #1C1917;
+  --primary:                  #E84B2C;
+  --primary-foreground:       #ffffff;
+  --secondary:                #F6F1EA;
+  --secondary-foreground:     #1C1917;
+  --muted:                    #F6F1EA;
+  --muted-foreground:         #78716C;
+  --accent:                   #EFE8DD;
+  --accent-foreground:        #C86938;
+  --destructive:              #DC2626;
+  --destructive-foreground:   #ffffff;
+  --border:                   rgba(28, 25, 23, 0.14);
+  --input:                    rgba(28, 25, 23, 0.14);
+  --ring:                     #E84B2C;
+}
+
+/* Direct Semantic Utility Classes */
+.bg-obsidian { background-color: var(--color-obsidian) !important; }
+.bg-void { background-color: var(--color-void) !important; }
+.bg-charcoal { background-color: var(--color-charcoal) !important; }
+.bg-surface-elevated { background-color: var(--color-surface-elevated) !important; }
+.bg-surface-secondary { background-color: var(--color-surface-secondary) !important; }
+.bg-surface-raised { background-color: var(--color-surface-raised) !important; }
+.bg-surface-hover { background-color: var(--color-surface-hover) !important; }
+
+.text-text-primary { color: var(--color-text-primary) !important; }
+.text-text-secondary { color: var(--color-text-secondary) !important; }
+.text-text-muted { color: var(--color-text-muted) !important; }
+
+.border-border-subtle { border-color: var(--color-border-subtle) !important; }
+.border-border-standard { border-color: var(--color-border-standard) !important; }
+.border-border-hover { border-color: var(--color-border-hover) !important; }
+.border-border-flame { border-color: var(--color-border-flame) !important; }
+
+/* Capacity Card Component */
+.capacity-card {
+  background: var(--capacity-card-bg);
+  border: 1px solid var(--capacity-card-border);
+  box-shadow: var(--capacity-card-shadow);
+  transition: all 0.25s var(--ease-editorial);
+}
+
+/* Light Mode Form & Input Enhancements */
+[data-theme='light'] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+.light input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+[data-theme='light'] select,
+.light select,
+[data-theme='light'] textarea,
+.light textarea {
+  color: #1C1917 !important;
+  background-color: #FFFFFF !important;
+  border-color: rgba(28, 25, 23, 0.16) !important;
+}
+
+[data-theme='light'] input::placeholder,
+.light input::placeholder,
+[data-theme='light'] textarea::placeholder,
+.light textarea::placeholder {
+  color: #78716C !important;
+}
+
+[data-theme='light'] select option,
+.light select option {
+  background-color: #FFFFFF !important;
+  color: #1C1917 !important;
+}
+
+/* Light Mode Contrast & Typography Safeguards */
+[data-theme='light'] h1,
+.light h1,
+[data-theme='light'] h2,
+.light h2,
+[data-theme='light'] h3,
+.light h3,
+[data-theme='light'] h4,
+.light h4,
+[data-theme='light'] h5,
+.light h5,
+[data-theme='light'] h6,
+.light h6 {
+  color: var(--color-text-primary);
+}
+
+/* In Light Mode, any text-white that is not on a colored CTA button must render as deep espresso */
+[data-theme='light'] .text-white:not(button):not(button *):not(a.btn-primary):not(a.btn-primary *):not(a.btn-flame):not(a.btn-flame *):not([class*="bg-red-"]):not([class*="bg-red-"] *):not([class*="bg-indigo-600"]):not([class*="bg-indigo-600"] *):not([class*="bg-blue-"]):not([class*="bg-blue-"] *):not([class*="bg-emerald-600"]):not([class*="bg-emerald-600"] *):not([class*="bg-amber-600"]):not([class*="bg-amber-600"] *),
+.light .text-white:not(button):not(button *):not(a.btn-primary):not(a.btn-primary *):not(a.btn-flame):not(a.btn-flame *):not([class*="bg-red-"]):not([class*="bg-red-"] *):not([class*="bg-indigo-600"]):not([class*="bg-indigo-600"] *):not([class*="bg-blue-"]):not([class*="bg-blue-"] *):not([class*="bg-emerald-600"]):not([class*="bg-emerald-600"] *):not([class*="bg-amber-600"]):not([class*="bg-amber-600"] *) {
+  color: #1C1917 !important;
+}
+
+/* In Light Mode, cards with slate-900 backgrounds must be crisp elevated white cards */
+[data-theme='light'] .bg-slate-900,
+.light .bg-slate-900,
+[data-theme='light'] [class*="bg-slate-900/"],
+.light [class*="bg-slate-900/"] {
+  background-color: #FFFFFF !important;
+  border-color: rgba(28, 25, 23, 0.12) !important;
+  box-shadow: 0 2px 14px rgba(28, 25, 23, 0.05);
+}
+
+[data-theme='light'] .bg-slate-800,
+.light .bg-slate-800,
+[data-theme='light'] [class*="bg-slate-800/"],
+.light [class*="bg-slate-800/"] {
+  background-color: #F6F1EA !important;
+  border-color: rgba(28, 25, 23, 0.10) !important;
+}
+
+/* Light Mode Banner Gradients */
+[data-theme='light'] section[class*="from-indigo-950"],
+.light section[class*="from-indigo-950"],
+[data-theme='light'] section[class*="from-slate-900"],
+.light section[class*="from-slate-900"] {
+  background: #FFFFFF !important;
+  border-color: rgba(232, 75, 44, 0.22) !important;
+  box-shadow: 0 4px 24px rgba(28, 25, 23, 0.06);
 }
 
 body {

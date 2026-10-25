@@ -44,7 +44,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#111110] text-[#F3F0E8] flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans">
+    <div className="min-h-screen bg-obsidian text-text-primary flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans">
       {/* Volcanic Ambient Dual-Radial Lighting */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -72,23 +72,23 @@ export default function LoginPage() {
               height={42}
               className="w-11 h-11 object-contain filter drop-shadow-[0_0_18px_rgba(232,75,44,0.45)]"
             />
-            <span className="font-syne font-extrabold text-3xl tracking-[-0.025em] text-[#F3F0E8]">
+            <span className="font-syne font-extrabold text-3xl tracking-[-0.025em] text-text-primary">
               ARENOVA
             </span>
           </div>
 
-          <p className="text-xs text-[#9E9B93] font-cinzel tracking-wider uppercase">
+          <p className="text-xs text-text-muted font-cinzel tracking-wider uppercase">
             Autonomous Cold Outreach Agent
           </p>
         </div>
 
         {/* Login Panel Card */}
-        <div className="p-8 rounded-[14px] bg-[#171614] border border-[rgba(243,240,232,0.08)] shadow-[0_8px_32px_rgba(0,0,0,0.6)] space-y-6">
+        <div className="p-8 rounded-[14px] bg-surface-elevated border border-border-subtle card-volcanic space-y-6">
           <div className="space-y-1">
-            <h2 className="text-lg font-bold font-syne text-[#F3F0E8] tracking-tight">
+            <h2 className="text-lg font-bold font-syne text-text-primary tracking-tight">
               Single-Owner Sign In
             </h2>
-            <p className="text-xs text-[#9E9B93]">
+            <p className="text-xs text-text-muted">
               Administrative authorization required to access outreach pipelines & dispatch queues.
             </p>
           </div>
@@ -102,38 +102,38 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-4 text-xs">
             <div>
-              <label className="block text-[#D0CBC1] font-medium mb-1.5">
+              <label className="block text-text-secondary font-medium mb-1.5">
                 Admin Email Address
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-[#9E9B93] absolute left-3 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="email"
                   required
                   placeholder="name@domain.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 rounded-[10px] bg-[#111110] border border-[rgba(243,240,232,0.12)] text-[#F3F0E8] placeholder-[#9E9B93] focus:outline-none focus:border-[#E84B2C] focus:ring-2 focus:ring-[#E84B2C]/20 text-xs font-mono transition-all"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-[10px] bg-surface-secondary border border-border-standard text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#E84B2C] focus:ring-2 focus:ring-[#E84B2C]/20 text-xs font-mono transition-all"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[#D0CBC1] font-medium mb-1.5">Password</label>
+              <label className="block text-text-secondary font-medium mb-1.5">Password</label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-[#9E9B93] absolute left-3 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-10 py-2.5 rounded-[10px] bg-[#111110] border border-[rgba(243,240,232,0.12)] text-[#F3F0E8] placeholder-[#9E9B93] focus:outline-none focus:border-[#E84B2C] focus:ring-2 focus:ring-[#E84B2C]/20 text-xs font-mono transition-all"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-[10px] bg-surface-secondary border border-border-standard text-text-primary placeholder:text-text-muted focus:outline-none focus:border-[#E84B2C] focus:ring-2 focus:ring-[#E84B2C]/20 text-xs font-mono transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9E9B93] hover:text-[#F3F0E8] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -165,14 +165,14 @@ export default function LoginPage() {
           </form>
 
           {/* Security Badge */}
-          <div className="pt-2 border-t border-[rgba(243,240,232,0.06)] flex items-center justify-center gap-2 text-[11px] text-[#9E9B93]">
+          <div className="pt-2 border-t border-border-subtle flex items-center justify-center gap-2 text-[11px] text-text-muted">
             <ShieldCheck className="w-4 h-4 text-[#63C7A2]" />
             <span>Single-Account Cryptographic Gate</span>
           </div>
         </div>
 
         {/* Footer Notice */}
-        <p className="text-center text-[10px] text-[#9E9B93] font-mono">
+        <p className="text-center text-[10px] text-text-muted font-mono">
           Strictly authorized: avi@arenova.in • Protected by AES-256 HMAC
         </p>
       </div>

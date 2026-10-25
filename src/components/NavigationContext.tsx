@@ -50,9 +50,19 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       if (t === 'light') {
         root.classList.remove('dark');
         root.classList.add('light');
+        if (document.body) {
+          document.body.setAttribute('data-theme', 'light');
+          document.body.classList.remove('dark');
+          document.body.classList.add('light');
+        }
       } else {
         root.classList.remove('light');
         root.classList.add('dark');
+        if (document.body) {
+          document.body.setAttribute('data-theme', 'dark');
+          document.body.classList.remove('light');
+          document.body.classList.add('dark');
+        }
       }
     }
   };
