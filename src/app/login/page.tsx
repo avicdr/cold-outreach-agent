@@ -6,8 +6,8 @@ import { Mail, Lock, ShieldCheck, ArrowRight, Eye, EyeOff, Sparkles, Flame } fro
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('avi@arenova.in');
-  const [password, setPassword] = useState('seekerop1@');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -41,12 +41,6 @@ export default function LoginPage() {
       setErrorMessage('Network connection error. Please try again.');
       setLoading(false);
     }
-  };
-
-  const handleAutofill = () => {
-    setEmail('avi@arenova.in');
-    setPassword('seekerop1@');
-    setErrorMessage(null);
   };
 
   return (
@@ -116,7 +110,7 @@ export default function LoginPage() {
                 <input
                   type="email"
                   required
-                  placeholder="avi@arenova.in"
+                  placeholder="name@domain.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-9 pr-3 py-2.5 rounded-[10px] bg-[#111110] border border-[rgba(243,240,232,0.12)] text-[#F3F0E8] placeholder-[#9E9B93] focus:outline-none focus:border-[#E84B2C] focus:ring-2 focus:ring-[#E84B2C]/20 text-xs font-mono transition-all"
@@ -125,16 +119,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-[#D0CBC1] font-medium">Password</label>
-                <button
-                  type="button"
-                  onClick={handleAutofill}
-                  className="text-[10px] text-[#E87A38] hover:text-[#E84B2C] font-mono tracking-wide transition-colors"
-                >
-                  Quick Autofill
-                </button>
-              </div>
+              <label className="block text-[#D0CBC1] font-medium mb-1.5">Password</label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-[#9E9B93] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input

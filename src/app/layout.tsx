@@ -13,7 +13,11 @@ export const metadata: Metadata = {
   description:
     'High-velocity cinematic enterprise cold email automation, multi-inbox deliverability scaling, and lead discovery engine.',
   icons: {
-    icon: '/favicon.ico',
+    icon: [
+      { url: '/arenova.ico' },
+      { url: '/favicon.ico' },
+    ],
+    shortcut: '/arenova.ico',
     apple: '/arenova.png',
   },
 };
