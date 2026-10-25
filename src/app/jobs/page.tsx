@@ -287,6 +287,7 @@ function JobsContent() {
         <Header
           title="Background Job Queue"
           subtitle="Inspect, debug, retry, and monitor background tasks & execution history"
+          category="Execution Telemetry"
         >
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button

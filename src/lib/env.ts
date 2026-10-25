@@ -7,6 +7,8 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default('mock-service-role-key'),
   DATABASE_URL: z.string().optional(),
   OWNER_EMAIL: z.string().email().optional(),
+  ADMIN_EMAIL: z.string().email().default('avi@arenova.in'),
+  ADMIN_PASSWORD: z.string().min(1).default('seekerop1@'),
   
   GEMINI_API_KEY: z.string().optional().default(''),
   GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
@@ -39,6 +41,8 @@ export function getEnv(): Env {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
     OWNER_EMAIL: process.env.OWNER_EMAIL,
+    ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'avi@arenova.in',
+    ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || 'seekerop1@',
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_MODEL: process.env.GEMINI_MODEL,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,

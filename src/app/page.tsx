@@ -16,16 +16,13 @@ import {
   ArrowUpRight,
   Plus,
   Upload,
-  Calendar,
   Sparkles,
   RefreshCw,
   Inbox,
   Gauge,
   Clock,
-  Layers,
+  Flame,
   ShieldCheck,
-  CheckCircle2,
-  Activity,
 } from 'lucide-react';
 
 interface DashboardStats {
@@ -99,42 +96,46 @@ export default function DashboardPage() {
   };
 
   const statCards = [
-    { label: 'Total Leads', value: stats?.totalLeads ?? 0, icon: Users, color: 'text-indigo-400', bg: 'bg-indigo-500/10', href: '/leads' },
-    { label: 'Eligible Leads', value: stats?.eligibleLeads ?? 0, icon: UserCheck, color: 'text-emerald-400', bg: 'bg-emerald-500/10', href: '/leads' },
-    { label: 'Drafts Generated', value: stats?.draftsGenerated ?? 0, icon: FileEdit, color: 'text-purple-400', bg: 'bg-purple-500/10', href: '/messages' },
-    { label: 'Emails Sent', value: stats?.emailsSent ?? 0, icon: Send, color: 'text-blue-400', bg: 'bg-blue-500/10', href: '/messages' },
-    { label: 'Replies Received', value: stats?.repliesReceived ?? 0, icon: MessageSquare, color: 'text-cyan-400', bg: 'bg-cyan-500/10', href: '/replies' },
-    { label: 'Positive Replies', value: stats?.positiveReplies ?? 0, icon: ThumbsUp, color: 'text-emerald-400', bg: 'bg-emerald-500/10', href: '/replies' },
-    { label: 'Bounce Count', value: stats?.bounceCount ?? 0, icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', href: '/leads' },
-    { label: 'Failed Jobs', value: stats?.failedJobs ?? 0, icon: XCircle, color: 'text-rose-400', bg: 'bg-rose-500/10', href: '/jobs?status=failed', isAlert: (stats?.failedJobs ?? 0) > 0 },
+    { label: 'Total Leads', value: stats?.totalLeads ?? 0, icon: Users, color: 'text-[#E87A38]', bg: 'bg-[#E87A38]/10', href: '/leads' },
+    { label: 'Eligible Leads', value: stats?.eligibleLeads ?? 0, icon: UserCheck, color: 'text-[#63C7A2]', bg: 'bg-[#63C7A2]/10', href: '/leads' },
+    { label: 'Drafts Generated', value: stats?.draftsGenerated ?? 0, icon: FileEdit, color: 'text-[#D4AF37]', bg: 'bg-[#D4AF37]/10', href: '/messages' },
+    { label: 'Emails Sent', value: stats?.emailsSent ?? 0, icon: Send, color: 'text-[#E84B2C]', bg: 'bg-[#E84B2C]/10', href: '/messages' },
+    { label: 'Replies Received', value: stats?.repliesReceived ?? 0, icon: MessageSquare, color: 'text-[#C86938]', bg: 'bg-[#C86938]/10', href: '/replies' },
+    { label: 'Positive Replies', value: stats?.positiveReplies ?? 0, icon: ThumbsUp, color: 'text-[#63C7A2]', bg: 'bg-[#63C7A2]/10', href: '/replies' },
+    { label: 'Bounce Count', value: stats?.bounceCount ?? 0, icon: AlertTriangle, color: 'text-[#E87A38]', bg: 'bg-[#E87A38]/10', href: '/leads' },
+    { label: 'Failed Jobs', value: stats?.failedJobs ?? 0, icon: XCircle, color: 'text-[#E84B2C]', bg: 'bg-[#E84B2C]/10', href: '/jobs?status=failed', isAlert: (stats?.failedJobs ?? 0) > 0 },
   ];
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen bg-[#111110] text-[#F3F0E8] font-sans">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header title="Dashboard" subtitle="Overview of your cold outreach performance & active sequences">
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <Header
+          title="Dashboard"
+          subtitle="Real-time multi-inbox deliverability & autonomous pipeline command"
+          category="Enterprise Control"
+        >
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={handleRunWorker}
               disabled={dispatching}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-600 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
+              className="btn-secondary px-2.5 sm:px-3 py-1.5 text-xs gap-1.5 shrink-0 whitespace-nowrap"
               title="Process queued tasks, schedule next sends, and sync replies"
             >
-              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${dispatching ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{dispatching ? 'Running...' : 'Run Worker Now'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${dispatching ? 'animate-spin text-[#E84B2C]' : 'text-[#9E9B93]'}`} />
+              <span className="hidden sm:inline">{dispatching ? 'Dispatching...' : 'Run Worker Now'}</span>
               <span className="sm:hidden">{dispatching ? '...' : 'Worker'}</span>
             </button>
             <Link
               href="/leads/import"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors shrink-0 whitespace-nowrap"
+              className="btn-secondary px-2.5 sm:px-3 py-1.5 text-xs gap-1.5 shrink-0 whitespace-nowrap"
             >
-              <Upload className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <Upload className="w-3.5 h-3.5 text-[#9E9B93] shrink-0" />
               <span>Import</span>
             </Link>
             <Link
               href="/campaigns/new"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors shrink-0 whitespace-nowrap"
+              className="btn-primary px-3 sm:px-3.5 py-1.5 text-xs gap-1.5 shrink-0 whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Create Campaign</span>
@@ -145,73 +146,76 @@ export default function DashboardPage() {
 
         <main className="p-4 sm:p-6 lg:p-8 space-y-8 flex-1 max-w-7xl w-full mx-auto min-w-0">
           {runNotice && (
-            <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs flex items-center justify-between">
+            <div className="p-3.5 rounded-[12px] bg-[#E84B2C]/10 border border-[#E84B2C]/30 text-[#E87A38] text-xs flex items-center justify-between font-mono">
               <span>{runNotice}</span>
-              <button onClick={() => setRunNotice(null)} className="text-slate-400 hover:text-white">✕</button>
+              <button onClick={() => setRunNotice(null)} className="text-[#9E9B93] hover:text-[#F3F0E8]">✕</button>
             </div>
           )}
-          {/* Multi-Account Daily Outreach Capacity Card */}
-          <section className="rounded-2xl border border-indigo-500/25 bg-gradient-to-br from-indigo-950/30 via-slate-900/60 to-slate-950 p-6 shadow-xl shadow-indigo-950/20 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-800/80">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
-                    <Gauge className="w-3 h-3" /> Daily Sending Capacity Guard
-                  </span>
-                  <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-slate-400" /> ~15-min interval between sends
+          {/* Multi-Account Daily Outreach Capacity Card */}
+          <section className="rounded-[16px] border border-[rgba(232,75,44,0.3)] bg-gradient-to-br from-[#1C1916] via-[#171614] to-[#111110] p-6 sm:p-7 shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative overflow-hidden">
+            {/* Atmospheric radiance overlay */}
+            <div className="absolute top-0 right-0 w-96 h-96 bg-[radial-gradient(ellipse_at_center,rgba(232,75,44,0.12),transparent_70%)] pointer-events-none" />
+
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-[rgba(243,240,232,0.08)] relative z-10">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E84B2C]/10 border border-[#E84B2C]/30 text-[#E87A38] text-[10px] font-mono uppercase tracking-widest font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#E84B2C] shadow-[0_0_8px_#E84B2C]"></span>
+                    Capacity Guard
+                  </div>
+                  <span className="text-[11px] text-[#9E9B93] flex items-center gap-1 font-mono">
+                    <Clock className="w-3 h-3 text-[#9E9B93]" /> ~15-min safety interval between sends
                   </span>
                 </div>
-                <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold font-syne tracking-tight text-[#F3F0E8] flex items-center gap-2">
                   <span>Daily Outreach Capacity</span>
                 </h2>
-                <p className="text-xs text-slate-400">
-                  Daily sending volume scales safely with each inbox (strictly 15–18 emails/day per account to protect domain reputation).
+                <p className="text-xs text-[#D0CBC1] max-w-2xl leading-relaxed">
+                  Daily sending volume scales safely across connected inboxes (strictly 15–18 emails/day per account to protect domain reputation and maximize primary inbox delivery).
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0">
                 <Link
                   href="/accounts"
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-all hover:scale-[1.02]"
+                  className="btn-primary px-4 py-2 text-xs font-semibold gap-2 shrink-0"
                 >
                   <Inbox className="w-3.5 h-3.5" />
                   <span>Manage Inboxes & Groups</span>
-                  <ArrowUpRight className="w-3.5 h-3.5 ml-0.5" />
+                  <ArrowUpRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
             </div>
 
             {/* Capacity Numbers & Progress Bar */}
-            <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center relative z-10">
               <div className="lg:col-span-5 space-y-2">
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-baseline gap-2.5">
                   {loading ? (
-                    <div className="h-10 w-24 bg-slate-800 animate-pulse rounded" />
+                    <div className="h-10 w-28 bg-[#211B17] animate-pulse rounded-[8px]" />
                   ) : (
-                    <span className="text-4xl font-extrabold tracking-tight text-white font-mono">
+                    <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-[#F3F0E8] font-mono text-gradient-ember">
                       {stats?.remainingToday ?? 0}
                     </span>
                   )}
-                  <span className="text-sm font-medium text-slate-400">emails remaining today</span>
+                  <span className="text-sm font-medium text-[#D0CBC1]">emails remaining today</span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                  <span className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono font-medium">
+                  <span className="px-2.5 py-1 rounded-[6px] bg-[#111110] border border-[rgba(243,240,232,0.12)] text-[#E87A38] font-mono font-medium">
                     {stats?.activeAccounts ?? 0} inboxes × 18 limit = {stats?.dailyCapacity ?? 0} max/day
                   </span>
-                  <span className="text-slate-400">
+                  <span className="text-[#9E9B93] font-mono">
                     • {stats?.sentToday ?? 0} sent today
                   </span>
                 </div>
               </div>
 
-              <div className="lg:col-span-7 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Daily Quota Utilization</span>
-                  <span className="font-mono text-slate-300 font-medium">
+              <div className="lg:col-span-7 space-y-2.5">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-[#9E9B93]">Daily Quota Utilization</span>
+                  <span className="text-[#F3F0E8] font-semibold">
                     {stats?.sentToday ?? 0} / {stats?.dailyCapacity ?? 0} emails (
                     {stats && stats.dailyCapacity && stats.dailyCapacity > 0
                       ? Math.min(100, Math.round(((stats.sentToday || 0) / stats.dailyCapacity) * 100))
@@ -219,10 +223,11 @@ export default function DashboardPage() {
                     %)
                   </span>
                 </div>
-                <div className="w-full h-3 rounded-full bg-slate-800/80 overflow-hidden p-0.5">
+                <div className="w-full h-3 rounded-full bg-[#111110] border border-[rgba(243,240,232,0.08)] overflow-hidden p-0.5">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-400 transition-all duration-500"
+                    className="h-full rounded-full transition-all duration-500 shadow-[0_0_12px_rgba(232,75,44,0.4)]"
                     style={{
+                      background: 'linear-gradient(90deg, #E84B2C 0%, #E87A38 50%, #63C7A2 100%)',
                       width: `${
                         stats && stats.dailyCapacity && stats.dailyCapacity > 0
                           ? Math.min(100, Math.round(((stats.sentToday || 0) / stats.dailyCapacity) * 100))
@@ -231,11 +236,11 @@ export default function DashboardPage() {
                     }}
                   />
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                <div className="flex items-center justify-between text-[11px] text-[#9E9B93] font-mono pt-0.5">
                   <span>0 sent</span>
-                  <span>
+                  <span className="text-[#E87A38]">
                     {(stats?.activeAccounts ?? 0) === 0
-                      ? 'No accounts connected yet'
+                      ? 'No accounts connected'
                       : `${stats?.activeAccounts} active inboxes rotating`}
                   </span>
                   <span>{stats?.dailyCapacity ?? 0} limit</span>
@@ -245,12 +250,12 @@ export default function DashboardPage() {
 
             {/* Individual Accounts Mini-Bar */}
             {Array.isArray(stats?.accounts) && stats.accounts.length > 0 && (
-              <div className="mt-6 pt-5 border-t border-slate-800/80">
-                <div className="flex items-center justify-between mb-3 text-xs text-slate-400">
-                  <span className="font-semibold uppercase tracking-wider text-[11px] text-slate-400">
+              <div className="mt-6 pt-5 border-t border-[rgba(243,240,232,0.08)] relative z-10">
+                <div className="flex items-center justify-between mb-3 text-xs">
+                  <span className="font-semibold uppercase font-mono tracking-wider text-[10px] text-[#9E9B93]">
                     Connected Inboxes & Daily Allotment
                   </span>
-                  <Link href="/accounts" className="text-indigo-400 hover:text-indigo-300 text-xs">
+                  <Link href="/accounts" className="text-[#E87A38] hover:text-[#E84B2C] text-xs font-mono transition-colors">
                     View all {stats.accounts.length} inboxes →
                   </Link>
                 </div>
@@ -262,31 +267,31 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={acc.id}
-                        className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700 transition-colors space-y-1.5"
+                        className="p-3.5 rounded-[12px] bg-[#111110] border border-[rgba(243,240,232,0.08)] hover:border-[rgba(243,240,232,0.18)] transition-colors space-y-2"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-white truncate max-w-[170px]" title={acc.email_address}>
+                          <span className="text-xs font-semibold text-[#F3F0E8] truncate max-w-[170px]" title={acc.email_address}>
                             {acc.email_address}
                           </span>
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold uppercase ${
                               acc.status === 'active'
-                                ? 'bg-emerald-500/10 text-emerald-400'
-                                : 'bg-slate-700/30 text-slate-400'
+                                ? 'bg-[#63C7A2]/10 text-[#63C7A2] border border-[#63C7A2]/30'
+                                : 'bg-[#26201B] text-[#9E9B93]'
                             }`}
                           >
                             {acc.status}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                        <div className="flex items-center justify-between text-[11px] text-[#9E9B93] font-mono">
                           <span>
                             {sent} / {limit} sent
                           </span>
-                          <span className="text-indigo-400 font-mono font-medium">{remaining} left</span>
+                          <span className="text-[#E87A38] font-bold">{remaining} left</span>
                         </div>
-                        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                        <div className="w-full h-1.5 rounded-full bg-[#171614] overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-indigo-500"
+                            className="h-full rounded-full bg-[#E84B2C]"
                             style={{ width: `${Math.min(100, Math.round((sent / limit) * 100))}%` }}
                           />
                         </div>
@@ -301,8 +306,10 @@ export default function DashboardPage() {
           {/* Quick Metrics Grid */}
           <section>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Core Performance Metrics</h2>
-              <span className="text-xs text-slate-400">Live verified database counts</span>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-[#9E9B93] font-mono">
+                Core Performance Metrics
+              </h2>
+              <span className="text-xs text-[#9E9B93] font-mono">Live verified database counts</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -313,38 +320,38 @@ export default function DashboardPage() {
                   <Link
                     key={i}
                     href={card.href}
-                    className={`p-5 rounded-xl border transition-all duration-200 relative overflow-hidden group block ${
+                    className={`p-5 rounded-[14px] border transition-all duration-200 relative overflow-hidden group block ${
                       isAlert
-                        ? 'border-rose-500/50 bg-rose-950/20 hover:border-rose-400 hover:bg-rose-950/30 shadow-lg shadow-rose-950/30'
-                        : 'border-slate-800/80 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60'
+                        ? 'border-[#E84B2C]/50 bg-[#E84B2C]/5 hover:border-[#E84B2C] shadow-[0_4px_20px_rgba(232,75,44,0.15)]'
+                        : 'border-[rgba(243,240,232,0.08)] bg-[#171614] hover:border-[rgba(243,240,232,0.20)] hover:-translate-y-0.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)]'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">
+                        <span className="text-xs font-semibold text-[#D0CBC1] group-hover:text-[#F3F0E8] transition-colors">
                           {card.label}
                         </span>
                         {isAlert && (
                           <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E84B2C] opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#E84B2C]"></span>
                           </span>
                         )}
                       </div>
-                      <div className={`p-2 rounded-lg transition-transform group-hover:scale-110 ${card.bg}`}>
+                      <div className={`p-2 rounded-[8px] transition-transform group-hover:scale-110 ${card.bg}`}>
                         <Icon className={`w-4 h-4 ${card.color}`} />
                       </div>
                     </div>
-                    <div className="mt-3 flex items-baseline justify-between">
+                    <div className="mt-3.5 flex items-baseline justify-between">
                       {loading ? (
-                        <div className="h-8 w-16 bg-slate-800 animate-pulse rounded" />
+                        <div className="h-8 w-16 bg-[#211B17] animate-pulse rounded" />
                       ) : (
-                        <div className={`text-2xl font-bold tracking-tight ${isAlert ? 'text-rose-400' : 'text-white'}`}>
+                        <div className={`text-2xl sm:text-3xl font-extrabold tracking-tight font-mono ${isAlert ? 'text-[#E84B2C]' : 'text-[#F3F0E8]'}`}>
                           {card.value}
                         </div>
                       )}
-                      <span className="text-[11px] font-medium text-slate-500 group-hover:text-indigo-400 transition-colors flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-                        View <ArrowUpRight className="w-3 h-3" />
+                      <span className="text-[11px] font-mono text-[#E87A38] opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                        Inspect <ArrowUpRight className="w-3 h-3" />
                       </span>
                     </div>
                   </Link>
@@ -356,28 +363,28 @@ export default function DashboardPage() {
           {/* Active Campaigns & Workflow Status */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Campaigns Table / Cards */}
-            <div className="lg:col-span-2 rounded-xl border border-slate-800/80 bg-slate-900/30 p-6 space-y-4">
+            <div className="lg:col-span-2 rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] p-6 space-y-4 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-semibold text-white">Active Campaigns</h3>
-                  <p className="text-xs text-slate-400">Campaigns currently sending or preparing drafts</p>
+                  <h3 className="text-base font-bold font-syne text-[#F3F0E8]">Active Campaigns</h3>
+                  <p className="text-xs text-[#9E9B93]">Pipelines currently dispatching or preparing personalized drafts</p>
                 </div>
                 <Link
                   href="/campaigns"
-                  className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium"
+                  className="text-xs text-[#E87A38] hover:text-[#E84B2C] flex items-center gap-1 font-mono transition-colors"
                 >
                   View All <ArrowUpRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
 
               {(!Array.isArray(campaigns) || campaigns.length === 0) ? (
-                <div className="py-12 text-center rounded-lg border border-dashed border-slate-800 bg-slate-950/40">
-                  <Sparkles className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-slate-300">No campaigns created yet</p>
-                  <p className="text-xs text-slate-400 mt-1">Start by uploading leads and creating your first campaign.</p>
+                <div className="py-12 text-center rounded-[12px] border border-dashed border-[rgba(243,240,232,0.12)] bg-[#111110]">
+                  <Sparkles className="w-8 h-8 text-[#9E9B93] mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-[#F3F0E8]">No campaigns active yet</p>
+                  <p className="text-xs text-[#9E9B93] mt-1">Upload leads and launch your first AI personalization campaign.</p>
                   <Link
                     href="/campaigns/new"
-                    className="inline-flex items-center gap-1.5 mt-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white"
+                    className="btn-primary mt-4 px-3.5 py-1.5 text-xs gap-1.5"
                   >
                     <Plus className="w-3.5 h-3.5" /> Create Campaign
                   </Link>
@@ -387,36 +394,36 @@ export default function DashboardPage() {
                   {(Array.isArray(campaigns) ? campaigns : []).slice(0, 5).map((camp) => (
                     <div
                       key={camp.id}
-                      className="p-4 rounded-lg border border-slate-800/80 bg-slate-900/60 flex items-center justify-between hover:border-slate-700 transition-colors"
+                      className="p-4 rounded-[12px] border border-[rgba(243,240,232,0.08)] bg-[#111110] flex items-center justify-between hover:border-[rgba(243,240,232,0.18)] transition-colors"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <Link href={`/campaigns/${camp.id}`} className="text-sm font-medium text-white hover:underline">
+                          <Link href={`/campaigns/${camp.id}`} className="text-sm font-semibold font-syne text-[#F3F0E8] hover:text-[#E87A38] transition-colors">
                             {camp.name}
                           </Link>
                           <span
-                            className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${
+                            className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold uppercase ${
                               camp.status === 'active'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                ? 'bg-[#63C7A2]/10 text-[#63C7A2] border border-[#63C7A2]/30'
                                 : camp.status === 'paused'
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-slate-700/30 text-slate-300'
+                                ? 'bg-[#E87A38]/10 text-[#E87A38] border border-[#E87A38]/30'
+                                : 'bg-[#26201B] text-[#D0CBC1]'
                             }`}
                           >
                             {camp.status}
                           </span>
                         </div>
-                        <div className="text-xs text-slate-400 line-clamp-1">{camp.offer || 'No offer specified'}</div>
+                        <div className="text-xs text-[#9E9B93] line-clamp-1">{camp.offer || 'No offer specified'}</div>
                       </div>
 
-                      <div className="flex items-center gap-4 text-xs text-slate-400">
+                      <div className="flex items-center gap-4 text-xs font-mono">
                         <div className="hidden sm:block text-right">
-                          <div className="text-slate-300 font-medium">Daily Limit: {camp.sending_config?.daily_limit || 10}</div>
-                          <div className="text-[11px] text-slate-400">TZ: {camp.sending_config?.timezone || 'Default'}</div>
+                          <div className="text-[#F3F0E8] font-medium">Daily Limit: {camp.sending_config?.daily_limit || 10}</div>
+                          <div className="text-[10px] text-[#9E9B93]">TZ: {camp.sending_config?.timezone || 'Default'}</div>
                         </div>
                         <Link
                           href={`/campaigns/${camp.id}`}
-                          className="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors"
+                          className="btn-secondary px-3 py-1.5 text-xs"
                         >
                           Manage
                         </Link>
@@ -428,34 +435,34 @@ export default function DashboardPage() {
             </div>
 
             {/* Outreach Guidelines & AI Engine Box */}
-            <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-6 flex flex-col justify-between">
+            <div className="rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] p-6 flex flex-col justify-between shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
               <div className="space-y-4">
-                <div className="flex items-center gap-2 text-indigo-400">
-                  <Sparkles className="w-5 h-5" />
-                  <h3 className="text-sm font-semibold text-white">Gemini AI Safety Guardrails</h3>
+                <div className="flex items-center gap-2 text-[#E87A38]">
+                  <Flame className="w-5 h-5 text-[#E84B2C]" />
+                  <h3 className="text-sm font-bold font-syne text-[#F3F0E8]">Gemini AI Safety Guardrails</h3>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
+                <p className="text-xs text-[#D0CBC1] leading-relaxed">
                   Every personalized outreach message is verified against known facts. If unverified claims or fake familiarity are detected, the email is flagged for your review before dispatch.
                 </p>
-                <div className="space-y-2 pt-2 border-t border-slate-800 text-xs text-slate-400">
+                <div className="space-y-2.5 pt-2 border-t border-[rgba(243,240,232,0.08)] text-xs text-[#9E9B93]">
                   <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#63C7A2] shadow-[0_0_6px_#63C7A2]"></span>
                     <span>Zero hallucinated case studies or news</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#63C7A2] shadow-[0_0_6px_#63C7A2]"></span>
                     <span>Automatic RFC 8058 one-click opt-out</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#63C7A2] shadow-[0_0_6px_#63C7A2]"></span>
                     <span>Instant follow-up cancellation on reply</span>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                <span>Model Engine:</span>
-                <span className="font-mono text-indigo-400 font-medium">Gemini 2.5 Flash</span>
+              <div className="mt-6 pt-4 border-t border-[rgba(243,240,232,0.08)] flex items-center justify-between text-xs font-mono">
+                <span className="text-[#9E9B93]">Model Engine:</span>
+                <span className="text-[#E87A38] font-bold">Gemini 3.8 Flash</span>
               </div>
             </div>
           </section>

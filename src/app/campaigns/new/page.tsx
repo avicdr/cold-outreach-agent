@@ -154,7 +154,11 @@ export default function NewCampaignPage() {
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header title="Create Campaign" subtitle="Define campaign persona, offer, schedule, and follow-ups" />
+        <Header
+          title="Create Campaign"
+          subtitle="Define campaign persona, offer, schedule, and follow-ups"
+          category="Outreach Sequence"
+        />
 
         <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-8 min-w-0">
           {error && (

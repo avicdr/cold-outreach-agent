@@ -51,12 +51,23 @@ function UnsubscribeInner() {
   }, [token]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl backdrop-blur-xl text-center space-y-6">
+    <div className="min-h-screen bg-[#111110] text-[#F3F0E8] flex items-center justify-center p-4 font-sans">
+      <div className="max-w-md w-full rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] p-8 shadow-[0_8px_32px_rgba(0,0,0,0.5)] text-center space-y-6">
+        <div className="flex items-center justify-center gap-2.5 pb-2 border-b border-[rgba(243,240,232,0.08)]">
+          <img
+            src="/arenova.png"
+            alt="ARENOVA"
+            width={32}
+            height={32}
+            className="w-8 h-8 object-contain filter drop-shadow-[0_0_8px_rgba(232,75,44,0.35)]"
+          />
+          <span className="font-syne font-bold text-lg tracking-[-0.025em] text-[#F3F0E8]">ARENOVA</span>
+        </div>
+
         {loading ? (
           <div className="space-y-4 py-8">
-            <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-sm text-slate-400">Processing your opt-out request...</p>
+            <div className="w-8 h-8 border-2 border-[#E84B2C] border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-sm text-[#9E9B93]">Processing your opt-out request...</p>
           </div>
         ) : success ? (
           <div className="space-y-4">

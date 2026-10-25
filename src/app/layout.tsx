@@ -9,9 +9,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Antigravity AI | Cold Outreach Automation Agent',
+  title: 'ARENOVA | Autonomous Cold Outreach Agent',
   description:
-    'Autonomous B2B cold email personalization, follow-up sequencing, Gmail integration, and reply sentiment classification powered by Google Gemini.',
+    'High-velocity cinematic enterprise cold email automation, multi-inbox deliverability scaling, and lead discovery engine.',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/arenova.png',
+  },
 };
 
 export default function RootLayout({
@@ -20,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark h-full antialiased">
-      <body className="min-h-full bg-slate-950 text-slate-100 flex flex-col font-sans" suppressHydrationWarning>
+    <html lang="en" className="dark h-full antialiased" data-theme="dark">
+      <body className="min-h-full flex flex-col font-sans" suppressHydrationWarning>
         <NavigationProvider>{children}</NavigationProvider>
       </body>
     </html>

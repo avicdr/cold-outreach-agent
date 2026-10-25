@@ -280,6 +280,7 @@ export default function DiscoveryPage() {
         <Header
           title="Lead Discovery & Qualification"
           subtitle="Discover local appointment-based businesses, qualify with Gemini, and route into outreach campaigns"
+          category="Autonomous Intel"
         />
 
         <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6 min-w-0">

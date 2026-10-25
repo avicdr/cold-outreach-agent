@@ -251,7 +251,11 @@ export default function LeadImportPage() {
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header title="Lead Import Wizard" subtitle="Upload CSV or Excel files with auto-mapping and suppression checks" />
+        <Header
+          title="Lead Import Wizard"
+          subtitle="Upload CSV or Excel files with auto-mapping and suppression checks"
+          category="Data Onboarding"
+        />
 
         <main className="p-4 sm:p-6 lg:p-8 max-w-4xl w-full mx-auto space-y-6 min-w-0">
           {/* Progress Indicator */}

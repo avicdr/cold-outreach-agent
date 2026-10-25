@@ -72,21 +72,21 @@ export function Pagination({
 
   return (
     <div
-      className={`flex flex-col sm:flex-row items-center justify-between gap-4 py-3.5 px-4 rounded-xl border border-slate-800 bg-slate-900/40 text-xs text-slate-400 select-none ${className}`}
+      className={`flex flex-col sm:flex-row items-center justify-between gap-4 py-3.5 px-4 rounded-[14px] border border-[rgba(243,240,232,0.08)] bg-[#171614] text-xs text-[#9E9B93] select-none ${className}`}
       aria-label="Pagination Navigation"
     >
       {/* Left: Summary and Page Size */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-slate-300">
-          Showing <span className="font-semibold text-white">{startItem}</span> to{' '}
-          <span className="font-semibold text-white">{endItem}</span> of{' '}
-          <span className="font-semibold text-white">{totalItems.toLocaleString()}</span>{' '}
+        <span className="text-[#D0CBC1]">
+          Showing <span className="font-semibold text-[#F3F0E8] font-mono">{startItem}</span> to{' '}
+          <span className="font-semibold text-[#F3F0E8] font-mono">{endItem}</span> of{' '}
+          <span className="font-semibold text-[#F3F0E8] font-mono">{totalItems.toLocaleString()}</span>{' '}
           {itemName}
         </span>
 
         {onPageSizeChange && (
-          <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
-            <span className="text-slate-400">Rows per page:</span>
+          <div className="flex items-center gap-1.5 pl-2 border-l border-[rgba(243,240,232,0.08)]">
+            <span className="text-[#9E9B93]">Rows per page:</span>
             <select
               value={pageSize}
               onChange={(e) => {
@@ -94,10 +94,10 @@ export function Pagination({
                 onPageSizeChange(newSize);
                 onPageChange(1);
               }}
-              className="bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer transition-colors"
+              className="bg-[#111110] border border-[rgba(243,240,232,0.12)] hover:border-[rgba(243,240,232,0.20)] text-[#F3F0E8] rounded-[6px] px-2 py-1 text-xs focus:outline-none focus:border-[#E84B2C] cursor-pointer font-mono transition-colors"
             >
               {pageSizeOptions.map((opt) => (
-                <option key={opt} value={opt} className="bg-slate-950 text-slate-200">
+                <option key={opt} value={opt} className="bg-[#171614] text-[#F3F0E8]">
                   {opt}
                 </option>
               ))}
@@ -107,14 +107,14 @@ export function Pagination({
       </div>
 
       {/* Right: Page Buttons */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 font-mono">
         {/* First Page */}
         <button
           type="button"
           onClick={() => onPageChange(1)}
           disabled={safeCurrentPage <= 1}
           title="First Page"
-          className="p-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-slate-950/60 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded-[6px] border border-[rgba(243,240,232,0.08)] bg-[#111110] hover:bg-[#26201B] text-[#9E9B93] hover:text-[#F3F0E8] disabled:opacity-30 disabled:hover:bg-[#111110] disabled:cursor-not-allowed transition-colors"
         >
           <ChevronsLeft className="w-3.5 h-3.5" />
         </button>
@@ -125,7 +125,7 @@ export function Pagination({
           onClick={() => onPageChange(safeCurrentPage - 1)}
           disabled={safeCurrentPage <= 1}
           title="Previous Page"
-          className="p-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-slate-950/60 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded-[6px] border border-[rgba(243,240,232,0.08)] bg-[#111110] hover:bg-[#26201B] text-[#9E9B93] hover:text-[#F3F0E8] disabled:opacity-30 disabled:hover:bg-[#111110] disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
@@ -137,7 +137,7 @@ export function Pagination({
               return (
                 <span
                   key={`ellipsis-${idx}`}
-                  className="px-2 py-1 text-slate-600 select-none font-mono"
+                  className="px-2 py-1 text-[#9E9B93] select-none font-mono"
                 >
                   •••
                 </span>
@@ -151,10 +151,10 @@ export function Pagination({
                 type="button"
                 onClick={() => onPageChange(p)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-medium transition-all ${
+                className={`min-w-[28px] h-7 px-2 rounded-[6px] text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-indigo-600 text-white font-semibold shadow-sm shadow-indigo-600/30'
-                    : 'bg-slate-950/60 border border-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white'
+                    ? 'bg-[#E84B2C] text-white shadow-[0_2px_8px_rgba(232,75,44,0.35)]'
+                    : 'bg-[#111110] border border-[rgba(243,240,232,0.08)] text-[#D0CBC1] hover:bg-[#26201B] hover:text-[#F3F0E8]'
                 }`}
               >
                 {p}
@@ -169,7 +169,7 @@ export function Pagination({
           onClick={() => onPageChange(safeCurrentPage + 1)}
           disabled={safeCurrentPage >= totalPages}
           title="Next Page"
-          className="p-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-slate-950/60 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded-[6px] border border-[rgba(243,240,232,0.08)] bg-[#111110] hover:bg-[#26201B] text-[#9E9B93] hover:text-[#F3F0E8] disabled:opacity-30 disabled:hover:bg-[#111110] disabled:cursor-not-allowed transition-colors"
         >
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
@@ -180,7 +180,7 @@ export function Pagination({
           onClick={() => onPageChange(totalPages)}
           disabled={safeCurrentPage >= totalPages}
           title="Last Page"
-          className="p-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-slate-950/60 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded-[6px] border border-[rgba(243,240,232,0.08)] bg-[#111110] hover:bg-[#26201B] text-[#9E9B93] hover:text-[#F3F0E8] disabled:opacity-30 disabled:hover:bg-[#111110] disabled:cursor-not-allowed transition-colors"
         >
           <ChevronsRight className="w-3.5 h-3.5" />
         </button>

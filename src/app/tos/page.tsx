@@ -13,12 +13,16 @@ export default function TermsOfServicePage() {
       <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-400 flex items-center justify-center shadow-md shadow-indigo-500/20">
-              <FileText className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <span className="font-semibold text-white text-sm tracking-tight">Antigravity AI</span>
-              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono font-bold">
+            <img
+              src="/arenova.png"
+              alt="ARENOVA"
+              width={34}
+              height={34}
+              className="w-8 h-8 object-contain filter drop-shadow-[0_0_8px_rgba(232,75,44,0.35)]"
+            />
+            <div className="flex items-center gap-2">
+              <span className="font-bold font-syne text-[#F3F0E8] text-base tracking-[-0.025em]">ARENOVA</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#E84B2C]/10 text-[#E87A38] font-mono font-bold border border-[#E84B2C]/25">
                 LEGAL
               </span>
             </div>

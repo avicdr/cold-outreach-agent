@@ -246,7 +246,11 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header title={campaign.name} subtitle={`Status: ${campaign.status.toUpperCase()}`}>
+        <Header
+          title={campaign.name}
+          subtitle={`Status: ${campaign.status.toUpperCase()}`}
+          category="Campaign Details"
+        >
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <Link
               href={`/campaigns/${campaign.id}/edit`}

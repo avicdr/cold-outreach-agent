@@ -541,6 +541,7 @@ export default function AccountsPage() {
         <Header
           title="Inboxes & Warmup Pools"
           subtitle="Connect inboxes via Google OAuth, organize into campaign groups, and build domain reputation with automated peer warmup"
+          category="Infrastructure"
         >
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button

@@ -1,17 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Play, CheckCircle2, AlertCircle, RefreshCw, Menu } from 'lucide-react';
+import { CheckCircle2, AlertCircle, RefreshCw, Menu, Sun, Moon, Flame } from 'lucide-react';
 import { useNavigation } from './NavigationContext';
 
 interface HeaderProps {
   title: string;
   subtitle?: string;
+  category?: string;
   children?: React.ReactNode;
 }
 
-export function Header({ title, subtitle, children }: HeaderProps) {
-  const { toggleMobileNav } = useNavigation();
+export function Header({ title, subtitle, category, children }: HeaderProps) {
+  const { toggleMobileNav, theme, toggleTheme } = useNavigation();
   const [isRunningWorker, setIsRunningWorker] = useState(false);
   const [workerMessage, setWorkerMessage] = useState<string | null>(null);
   const [gmailStatus, setGmailStatus] = useState<{ connected: boolean; email?: string } | null>(null);
@@ -62,22 +63,30 @@ export function Header({ title, subtitle, children }: HeaderProps) {
   };
 
   return (
-    <header className="min-h-16 py-2.5 border-b border-slate-800 bg-slate-950/40 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3">
+    <header className="min-h-16 py-3 border-b border-[rgba(243,240,232,0.08)] bg-[#0D0D0C]/85 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3 select-none">
       {/* Title & Mobile Nav Toggle */}
       <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink">
         <button
           type="button"
           onClick={toggleMobileNav}
           aria-label="Open mobile navigation menu"
-          className="p-1.5 -ml-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 lg:hidden transition-colors shrink-0"
+          className="p-1.5 -ml-1 rounded-[8px] text-[#9E9B93] hover:text-[#F3F0E8] hover:bg-[#26201B] lg:hidden transition-colors shrink-0"
         >
           <Menu className="w-5 h-5" />
         </button>
 
         <div className="min-w-0">
-          <h1 className="text-base sm:text-lg font-semibold text-white tracking-tight truncate">{title}</h1>
+          {category && (
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#E84B2C]/10 border border-[#E84B2C]/25 text-[#E87A38] text-[9px] font-mono uppercase tracking-widest font-semibold mb-1">
+              <span className="w-1 h-1 rounded-full bg-[#E84B2C] shadow-[0_0_6px_#E84B2C]"></span>
+              {category}
+            </div>
+          )}
+          <h1 className="text-base sm:text-lg font-bold font-syne text-[#F3F0E8] tracking-[-0.025em] truncate">
+            {title}
+          </h1>
           {subtitle && (
-            <p className="hidden md:block text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate max-w-xs lg:max-w-md xl:max-w-xl">
+            <p className="hidden md:block text-[11px] sm:text-xs text-[#9E9B93] mt-0.5 truncate max-w-xs lg:max-w-md xl:max-w-xl font-sans">
               {subtitle}
             </p>
           )}
@@ -85,28 +94,28 @@ export function Header({ title, subtitle, children }: HeaderProps) {
       </div>
 
       {/* Action Buttons & Status Indicators */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 justify-end">
+      <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 justify-end">
         {children}
 
         {/* Gmail Status Pill */}
         {gmailStatus && (
           <div
-            title={gmailStatus.connected ? `Gmail Connected: ${gmailStatus.email || ''}` : 'Gmail Disconnected'}
-            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium border shrink-0 whitespace-nowrap ${
+            title={gmailStatus.connected ? `Google Inbox: ${gmailStatus.email || ''}` : 'No Google Inbox Connected'}
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono font-medium border shrink-0 whitespace-nowrap ${
               gmailStatus.connected
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                ? 'bg-[#63C7A2]/10 border-[#63C7A2]/30 text-[#63C7A2]'
+                : 'bg-[#E87A38]/10 border-[#E87A38]/30 text-[#E87A38]'
             }`}
           >
             {gmailStatus.connected ? (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="max-w-[100px] xl:max-w-[140px] truncate">{gmailStatus.email || 'Connected'}</span>
+                <span className="max-w-[100px] xl:max-w-[140px] truncate">{gmailStatus.email || 'OAuth Active'}</span>
               </>
             ) : (
               <>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden xl:inline">Gmail </span>Disconnected
+                <span className="hidden xl:inline">Gmail </span>Offline
               </>
             )}
           </div>
@@ -114,26 +123,45 @@ export function Header({ title, subtitle, children }: HeaderProps) {
 
         {/* Auto Worker Status Pill */}
         <div
-          title="Background worker automatically checks queue every 60s"
-          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0 whitespace-nowrap"
+          title="Background worker running autonomous dispatch loop"
+          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono font-medium bg-[#63C7A2]/10 border border-[#63C7A2]/30 text-[#63C7A2] shrink-0 whitespace-nowrap"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-          <span>Auto-Worker: Active</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-[#63C7A2] animate-pulse shrink-0 shadow-[0_0_8px_#63C7A2]" />
+          <span>Worker: Active</span>
         </div>
 
         {/* Manual Process Queue Button */}
         <button
           onClick={handleTriggerWorker}
           disabled={isRunningWorker}
-          title="Run background job worker"
-          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-slate-200 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
+          title="Trigger background worker execution"
+          className="btn-secondary px-2.5 sm:px-3 py-1.5 text-xs shrink-0 whitespace-nowrap gap-1.5"
         >
-          <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isRunningWorker ? 'animate-spin text-indigo-400' : 'text-slate-400'}`} />
-          <span className="hidden sm:inline">{isRunningWorker ? 'Processing...' : 'Run Worker'}</span>
+          <RefreshCw
+            className={`w-3.5 h-3.5 shrink-0 ${
+              isRunningWorker ? 'animate-spin text-[#E84B2C]' : 'text-[#9E9B93]'
+            }`}
+          />
+          <span className="hidden sm:inline">{isRunningWorker ? 'Dispatching...' : 'Run Worker'}</span>
+        </button>
+
+        {/* Theme Toggle Button */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          title={`Switch to ${theme === 'dark' ? 'Warm Ivory Light' : 'Obsidian Dark'} mode`}
+          className="p-2 rounded-[10px] bg-[#171614] border border-[rgba(243,240,232,0.10)] text-[#D0CBC1] hover:text-[#F3F0E8] hover:border-[rgba(243,240,232,0.20)] transition-colors"
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? (
+            <Sun className="w-4 h-4 text-[#E87A38]" />
+          ) : (
+            <Moon className="w-4 h-4 text-[#D4AF37]" />
+          )}
         </button>
 
         {workerMessage && (
-          <div className="text-xs text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2.5 py-1 rounded-lg animate-fade-in text-[11px] shrink-0 whitespace-nowrap shadow-sm">
+          <div className="text-xs text-[#E87A38] bg-[#E84B2C]/10 border border-[#E84B2C]/30 px-2.5 py-1 rounded-[8px] animate-fade-in text-[11px] shrink-0 whitespace-nowrap shadow-sm font-mono">
             {workerMessage}
           </div>
         )}
