@@ -10,6 +10,9 @@ import { POST as enrollPost } from '@/app/api/campaigns/[id]/enroll/route';
 import { POST as activatePost } from '@/app/api/campaigns/[id]/activate/route';
 import { POST as unsubscribePost } from '@/app/api/unsubscribe/route';
 import { POST as workerPost } from '@/app/api/jobs/process/route';
+import { DELETE as accountDelete } from '@/app/api/accounts/[id]/route';
+import { dbService } from '@/lib/db-service';
+import { OWNER_USER_ID } from '@/lib/auth';
 import { generateUnsubscribeToken } from '@/lib/unsubscribe-token';
 import { env } from '@/lib/env';
 
@@ -197,5 +200,31 @@ describe('API Routes Integration Tests', () => {
     expect(data.page).toBe(1);
     expect(data.limit).toBe(10);
     expect(typeof data.totalPages).toBe('number');
+  });
+
+  it('DELETE /api/accounts/[id] successfully deletes an inbox', async () => {
+    // 1. Create a temporary account
+    const acc = await dbService.upsertEmailAccount({
+      user_id: OWNER_USER_ID,
+      email_address: 'temporary_inbox@example.com',
+      provider: 'gmail',
+      encrypted_access_token: 'test-token',
+      encrypted_refresh_token: 'test-refresh',
+      status: 'active',
+    });
+
+    expect(acc.id).toBeDefined();
+
+    // 2. Call DELETE /api/accounts/[id]
+    const req = new Request(`http://localhost:3000/api/accounts/${acc.id}`, { method: 'DELETE' });
+    const res = await accountDelete(req as any, { params: Promise.resolve({ id: acc.id }) });
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.success).toBe(true);
+
+    // 3. Verify it is no longer returned
+    const deleted = await dbService.getEmailAccount(acc.id);
+    expect(deleted).toBeNull();
   });
 });

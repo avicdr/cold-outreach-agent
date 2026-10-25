@@ -243,16 +243,37 @@ export async function getGmailUserProfile(accessToken: string): Promise<GoogleUs
     };
   }
 
-  const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  try {
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to fetch Gmail profile: ${response.status} ${errorText}`);
+    if (response.ok) {
+      return response.json();
+    }
+  } catch (err) {
+    console.warn('Gmail profile API request failed, trying userinfo fallback:', err);
   }
 
-  return response.json();
+  // Fallback to Google OAuth2 userinfo endpoint (available via userinfo.email scope)
+  try {
+    const userinfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (userinfoResponse.ok) {
+      const data = await userinfoResponse.json();
+      if (data.email) {
+        return {
+          emailAddress: data.email,
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Google userinfo fallback failed:', err);
+  }
+
+  throw new Error('Failed to retrieve user email from Google OAuth. Please verify your Google account permissions.');
 }
 
 /**

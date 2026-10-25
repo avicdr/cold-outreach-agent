@@ -113,6 +113,10 @@ export default function AccountsPage() {
   const [showAddGroupModal, setShowAddGroupModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<EmailAccount | null>(null);
   const [editingGroup, setEditingGroup] = useState<AccountGroup | null>(null);
+  const [accountToDelete, setAccountToDelete] = useState<EmailAccount | null>(null);
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
+  const [groupToDelete, setGroupToDelete] = useState<AccountGroup | null>(null);
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
 
   // Form states
   const [connectionTab, setConnectionTab] = useState<'titan' | 'gmail' | 'smtp'>('titan');
@@ -154,8 +158,8 @@ export default function AccountsPage() {
   const loadData = async () => {
     try {
       const [accRes, warmupRes] = await Promise.all([
-        fetch('/api/accounts'),
-        fetch('/api/warmup'),
+        fetch('/api/accounts', { cache: 'no-store' }),
+        fetch('/api/warmup', { cache: 'no-store' }),
       ]);
 
       const accData = await accRes.json();
@@ -186,6 +190,7 @@ export default function AccountsPage() {
         const email = params.get('email');
         showNotification(`Successfully connected Google inbox ${email || ''}! Account is ready for outreach & warmup.`);
         window.history.replaceState({}, '', '/accounts');
+        loadData();
       } else if (params.get('error')) {
         showNotification(`OAuth authentication failed: ${params.get('error')}`, 'error');
         window.history.replaceState({}, '', '/accounts');
@@ -386,18 +391,32 @@ export default function AccountsPage() {
     }
   };
 
-  const handleDeleteAccount = async (account: EmailAccount) => {
-    if (!confirm(`Are you sure you want to disconnect inbox ${account.email_address}?`)) return;
+  const handleDeleteAccount = (account: EmailAccount) => {
+    setAccountToDelete(account);
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    if (!accountToDelete) return;
+    const target = accountToDelete;
+    setDeletingAccountId(target.id);
     try {
-      const res = await fetch(`/api/accounts/${account.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/accounts/${target.id}`, { method: 'DELETE' });
       if (res.ok) {
-        showNotification(`Inbox ${account.email_address} removed`);
-        loadData();
+        showNotification(`Inbox ${target.email_address} disconnected and removed`);
+        setAccounts((prev) => prev.filter((a) => a.id !== target.id));
+        setAccountToDelete(null);
+        if (editingAccount?.id === target.id) {
+          setEditingAccount(null);
+        }
+        await loadData();
       } else {
-        showNotification('Failed to delete inbox', 'error');
+        const data = await res.json().catch(() => ({}));
+        showNotification(data.error || 'Failed to delete inbox', 'error');
       }
     } catch {
       showNotification('Network error deleting inbox', 'error');
+    } finally {
+      setDeletingAccountId(null);
     }
   };
 
@@ -489,18 +508,32 @@ export default function AccountsPage() {
     }
   };
 
-  const handleDeleteGroup = async (group: AccountGroup) => {
-    if (!confirm(`Delete group "${group.name}"? Inboxes inside it will remain active and become unassigned.`)) return;
+  const handleDeleteGroup = (group: AccountGroup) => {
+    setGroupToDelete(group);
+  };
+
+  const handleConfirmDeleteGroup = async () => {
+    if (!groupToDelete) return;
+    const target = groupToDelete;
+    setDeletingGroupId(target.id);
     try {
-      const res = await fetch(`/api/groups/${group.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/groups/${target.id}`, { method: 'DELETE' });
       if (res.ok) {
-        showNotification(`Group "${group.name}" deleted`);
-        loadData();
+        showNotification(`Group "${target.name}" deleted`);
+        setGroups((prev) => prev.filter((g) => g.id !== target.id));
+        setGroupToDelete(null);
+        if (editingGroup?.id === target.id) {
+          setEditingGroup(null);
+        }
+        await loadData();
       } else {
-        showNotification('Failed to delete group', 'error');
+        const data = await res.json().catch(() => ({}));
+        showNotification(data.error || 'Failed to delete group', 'error');
       }
     } catch {
       showNotification('Failed to delete group', 'error');
+    } finally {
+      setDeletingGroupId(null);
     }
   };
 
@@ -853,8 +886,11 @@ export default function AccountsPage() {
                             <Edit2 className="w-3.5 h-3.5" /> Edit Settings
                           </button>
                           <button
-                            onClick={() => handleDeleteAccount(acc)}
-                            className="text-rose-400 hover:text-rose-300 flex items-center gap-1"
+                            type="button"
+                            id={`delete-account-${acc.id}`}
+                            onClick={() => setAccountToDelete(acc)}
+                            className="text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors font-medium"
+                            title={`Disconnect ${acc.email_address}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" /> Remove
                           </button>
@@ -997,8 +1033,11 @@ export default function AccountsPage() {
                             <Edit2 className="w-3.5 h-3.5" /> Edit
                           </button>
                           <button
-                            onClick={() => handleDeleteGroup(group)}
-                            className="text-rose-400 hover:text-rose-300 flex items-center gap-1"
+                            type="button"
+                            id={`delete-group-${group.id}`}
+                            onClick={() => setGroupToDelete(group)}
+                            className="text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors font-medium"
+                            title={`Delete group ${group.name}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" /> Delete
                           </button>
@@ -1647,21 +1686,34 @@ export default function AccountsPage() {
                 </div>
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+              <div className="pt-3 flex items-center justify-between gap-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingAccount(null)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
+                  onClick={() => {
+                    const acc = editingAccount;
+                    setEditingAccount(null);
+                    setAccountToDelete(acc);
+                  }}
+                  className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 font-medium transition-colors"
                 >
-                  Cancel
+                  <Trash2 className="w-3.5 h-3.5" /> Disconnect Inbox
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
-                >
-                  {submitting ? 'Saving...' : 'Update Inbox'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAccount(null)}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
+                  >
+                    {submitting ? 'Saving...' : 'Update Inbox'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1871,23 +1923,197 @@ export default function AccountsPage() {
                 )}
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+              <div className="pt-3 flex items-center justify-between gap-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingGroup(null)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
+                  onClick={() => {
+                    const grp = editingGroup;
+                    setEditingGroup(null);
+                    setGroupToDelete(grp);
+                  }}
+                  className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 font-medium transition-colors"
                 >
-                  Cancel
+                  <Trash2 className="w-3.5 h-3.5" /> Delete Group
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
-                >
-                  {submitting ? 'Saving...' : 'Save Group'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingGroup(null)}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
+                  >
+                    {submitting ? 'Saving...' : 'Save Group'}
+                  </button>
+                </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: CONFIRM REMOVE INBOX */}
+      {accountToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-white">Disconnect Inbox</h3>
+                  <p className="text-xs text-slate-400">Remove inbox from outreach & warmup</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={!!deletingAccountId}
+                onClick={() => setAccountToDelete(null)}
+                className="text-slate-400 hover:text-white disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Target Inbox:</span>
+                <span className="font-mono text-white font-medium">{accountToDelete.email_address}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Provider:</span>
+                <span className="capitalize text-slate-300">{accountToDelete.provider || 'Gmail'}</span>
+              </div>
+              {accountToDelete.group && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Group:</span>
+                  <span className="text-indigo-400">{accountToDelete.group.name}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 space-y-1">
+              <div className="font-semibold flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                Are you sure you want to disconnect this inbox?
+              </div>
+              <p className="text-[11px] text-rose-300/80 leading-relaxed">
+                This inbox will be immediately removed from sending rotation and the warmup pool. Any pending cold outreach messages will be automatically rerouted to your remaining active inboxes.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={!!deletingAccountId}
+                onClick={() => setAccountToDelete(null)}
+                className="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-delete-inbox-btn"
+                disabled={!!deletingAccountId}
+                onClick={handleConfirmDeleteAccount}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-rose-600/25 transition-all"
+              >
+                {deletingAccountId ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Disconnecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Disconnect Inbox</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRM DELETE GROUP */}
+      {groupToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-white">Delete Account Group</h3>
+                  <p className="text-xs text-slate-400">Remove group and unassign inboxes</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={!!deletingGroupId}
+                onClick={() => setGroupToDelete(null)}
+                className="text-slate-400 hover:text-white disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Group Name:</span>
+                <span className="font-medium text-white">{groupToDelete.name}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Member Inboxes:</span>
+                <span className="font-mono text-indigo-400">{accounts.filter((a) => a.group_id === groupToDelete.id).length} inboxes</span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 space-y-1">
+              <div className="font-semibold flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                Are you sure you want to delete this group?
+              </div>
+              <p className="text-[11px] text-rose-300/80 leading-relaxed">
+                Deleting this group will not delete your inboxes. Any inboxes currently assigned to &quot;{groupToDelete.name}&quot; will become unassigned and remain safely active in outreach rotation.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={!!deletingGroupId}
+                onClick={() => setGroupToDelete(null)}
+                className="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-delete-group-btn"
+                disabled={!!deletingGroupId}
+                onClick={handleConfirmDeleteGroup}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-rose-600/25 transition-all"
+              >
+                {deletingGroupId ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete Group</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

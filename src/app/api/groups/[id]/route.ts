@@ -25,7 +25,7 @@ export async function PATCH(
 
   try {
     const group = await dbService.getAccountGroup(id);
-    if (!group || group.user_id !== user.id) {
+    if (!group || (group.user_id !== user.id && !user.isOwner)) {
       return NextResponse.json({ error: 'Account group not found' }, { status: 404 });
     }
 
@@ -78,7 +78,7 @@ export async function DELETE(
 
   try {
     const group = await dbService.getAccountGroup(id);
-    if (!group || group.user_id !== user.id) {
+    if (!group || (group.user_id !== user.id && !user.isOwner)) {
       return NextResponse.json({ error: 'Account group not found' }, { status: 404 });
     }
 

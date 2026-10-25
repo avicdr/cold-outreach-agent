@@ -32,7 +32,7 @@ export async function GET(
 
   try {
     const account = await dbService.getEmailAccount(id);
-    if (!account || account.user_id !== user.id) {
+    if (!account || (account.user_id !== user.id && !user.isOwner)) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
@@ -56,7 +56,7 @@ export async function PATCH(
 
   try {
     const account = await dbService.getEmailAccount(id);
-    if (!account || account.user_id !== user.id) {
+    if (!account || (account.user_id !== user.id && !user.isOwner)) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
@@ -108,14 +108,14 @@ export async function DELETE(
 
   try {
     const account = await dbService.getEmailAccount(id);
-    if (!account || account.user_id !== user.id) {
+    if (!account || (account.user_id !== user.id && !user.isOwner)) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
     await dbService.deleteEmailAccount(user.id, id);
     await dbService.logActivity(user.id, 'account_deleted', 'email_accounts', id, { email: account.email_address });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, id });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

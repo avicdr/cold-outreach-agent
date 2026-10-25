@@ -1438,9 +1438,11 @@ export const dbService = {
 
     const supabase = createAdminClient();
     const { group: _g, sent_today: _st, remaining_today: _rt, ...cleanAccount } = account;
+    const normalizedEmail = (account.email_address || '').toLowerCase().trim();
     const payload = {
       ...defaultFields,
       ...cleanAccount,
+      email_address: normalizedEmail,
       updated_at: new Date().toISOString(),
     };
 
@@ -1555,10 +1557,12 @@ export const dbService = {
   async deleteEmailAccount(userId: string, identifier: string): Promise<void> {
     if (!isLiveSupabase()) {
       for (const [key, acc] of Array.from(mockDb.emailAccounts.entries())) {
-        if (
-          acc.user_id === userId &&
-          (acc.id === identifier || acc.email_address === identifier || acc.provider === identifier || key.includes(identifier))
-        ) {
+        const matchesUser = !userId || acc.user_id === userId;
+        const matchesId = acc.id === identifier;
+        const matchesEmail = acc.email_address?.toLowerCase() === identifier.toLowerCase();
+        const matchesProvider = acc.provider === identifier;
+        const matchesKey = key.includes(identifier);
+        if (matchesUser && (matchesId || matchesEmail || matchesProvider || matchesKey)) {
           mockDb.emailAccounts.delete(key);
         }
       }
@@ -1567,11 +1571,49 @@ export const dbService = {
 
     const supabase = createAdminClient();
     if (identifier.includes('-') && identifier.length === 36) {
-      await supabase.from('email_accounts').delete().eq('user_id', userId).eq('id', identifier);
+      // Unlink messages referencing this account before delete
+      try {
+        await supabase.from('email_messages').update({ email_account_id: null }).eq('email_account_id', identifier);
+      } catch {
+        // Ignore if error
+      }
+
+      // Delete from warmup_messages if table exists
+      try {
+        await supabase.from('warmup_messages').delete().or(`from_account_id.eq.${identifier},to_account_id.eq.${identifier}`);
+      } catch {
+        // Ignore if table does not exist
+      }
+
+      const { error } = await supabase.from('email_accounts').delete().eq('id', identifier);
+      if (error) {
+        console.error('Failed to delete email account by id:', error);
+        throw new Error(error.message);
+      }
     } else if (identifier.includes('@')) {
-      await supabase.from('email_accounts').delete().eq('user_id', userId).eq('email_address', identifier);
+      const normalizedEmail = identifier.toLowerCase().trim();
+      const { data: found } = await supabase.from('email_accounts').select('id').eq('email_address', normalizedEmail).maybeSingle();
+      if (found?.id) {
+        try {
+          await supabase.from('email_messages').update({ email_account_id: null }).eq('email_account_id', found.id);
+        } catch {}
+      }
+
+      const { error } = await supabase.from('email_accounts').delete().eq('email_address', normalizedEmail);
+      if (error) {
+        console.error('Failed to delete email account by email:', error);
+        throw new Error(error.message);
+      }
     } else {
-      await supabase.from('email_accounts').delete().eq('user_id', userId).eq('provider', identifier);
+      let query = supabase.from('email_accounts').delete().eq('provider', identifier);
+      if (userId) {
+        query = query.eq('user_id', userId);
+      }
+      const { error } = await query;
+      if (error) {
+        console.error('Failed to delete email account by provider:', error);
+        throw new Error(error.message);
+      }
     }
   },
 
