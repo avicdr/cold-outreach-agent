@@ -185,15 +185,22 @@ export default function AccountsPage() {
 
     // Check OAuth return params
     if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('connected') === 'true') {
-        const email = params.get('email');
-        showNotification(`Successfully connected Google inbox ${email || ''}! Account is ready for outreach & warmup.`);
-        window.history.replaceState({}, '', '/accounts');
-        loadData();
-      } else if (params.get('error')) {
-        showNotification(`OAuth authentication failed: ${params.get('error')}`, 'error');
-        window.history.replaceState({}, '', '/accounts');
+      const search = window.location.search;
+      if (search) {
+        const params = new URLSearchParams(search);
+        if (params.has('code') && params.has('state')) {
+          window.location.replace('/api/integrations/google/callback' + search);
+          return;
+        }
+        if (params.get('connected') === 'true') {
+          const email = params.get('email');
+          showNotification(`Successfully connected Google inbox ${email || ''}! Account is ready for outreach & warmup.`);
+          window.history.replaceState({}, '', '/accounts');
+          loadData();
+        } else if (params.get('error')) {
+          showNotification(`OAuth authentication failed: ${params.get('error')}`, 'error');
+          window.history.replaceState({}, '', '/accounts');
+        }
       }
     }
   }, []);

@@ -70,6 +70,16 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      if (search) {
+        const params = new URLSearchParams(search);
+        if (params.has('code') && params.has('state')) {
+          window.location.replace('/api/integrations/google/callback' + search);
+          return;
+        }
+      }
+    }
     loadData();
   }, []);
 

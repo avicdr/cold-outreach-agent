@@ -36,6 +36,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // 1.5 Intercept any OAuth callback that landed at root or any other URL
+  if (
+    pathname !== '/api/integrations/google/callback' &&
+    request.nextUrl.searchParams.has('code') &&
+    request.nextUrl.searchParams.has('state')
+  ) {
+    const callbackUrl = request.nextUrl.clone();
+    callbackUrl.pathname = '/api/integrations/google/callback';
+    return NextResponse.redirect(callbackUrl);
+  }
+
   // 2. Allow explicitly public paths
   if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
