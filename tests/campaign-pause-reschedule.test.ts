@@ -46,6 +46,7 @@ describe('Campaign Pause and Resume Rescheduling Flow', () => {
     const camp = await dbService.createCampaign(userId, {
       name: 'Test Outreach Campaign',
       status: 'active',
+      activated_at: new Date().toISOString(),
       business_context: 'B2B outreach',
       ideal_customer_profile: 'Founders',
       offer: 'Test service',
@@ -67,7 +68,6 @@ describe('Campaign Pause and Resume Rescheduling Flow', () => {
     // Create 2 leads and enroll them
     await dbService.insertLeads(userId, [
       {
-        user_id: userId,
         email: 'lead1@example.com',
         normalized_email: 'lead1@example.com',
         first_name: 'Alice',
@@ -81,7 +81,6 @@ describe('Campaign Pause and Resume Rescheduling Flow', () => {
         source_import: 'manual',
       },
       {
-        user_id: userId,
         email: 'lead2@example.com',
         normalized_email: 'lead2@example.com',
         first_name: 'Bob',

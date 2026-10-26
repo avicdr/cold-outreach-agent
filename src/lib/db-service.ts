@@ -491,7 +491,7 @@ export const dbService = {
   },
 
   // Email Messages
-  async getMessages(filters?: { campaignId?: string; status?: string; limit?: number }): Promise<EmailMessage[]> {
+  async getMessages(filters?: { campaignId?: string; status?: string; limit?: number; select?: string }): Promise<EmailMessage[]> {
     if (!isLiveSupabase()) {
       let msgs = Array.from(mockDb.emailMessages.values());
       if (filters?.campaignId) {
@@ -511,7 +511,8 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
-    let query = supabase.from('email_messages').select('*, campaign_lead:campaign_leads(*, lead:leads(*))');
+    const selectClause = filters?.select || '*, campaign_lead:campaign_leads(*, lead:leads(*))';
+    let query = supabase.from('email_messages').select(selectClause);
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.campaignId) {
       const { data: cls, error: clErr } = await supabase
@@ -1504,15 +1505,28 @@ export const dbService = {
       }
     }
 
-    // Calculate sent_today and remaining_today
+    // Calculate sent_today and remaining_today using targeted projections
     let todaySentMessages: Array<{ email_account_id?: string | null }> = [];
     try {
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
-      const allMessages = await this.getMessages({ limit: 10000 });
-      todaySentMessages = allMessages.filter(
-        (m) => m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
-      );
+      const todayIso = today.toISOString();
+
+      if (!isLiveSupabase()) {
+        for (const m of mockDb.emailMessages.values()) {
+          if (m.status === 'sent' && m.sent_at && m.sent_at >= todayIso) {
+            todaySentMessages.push({ email_account_id: m.email_account_id });
+          }
+        }
+      } else {
+        const supabase = createAdminClient();
+        const { data } = await supabase
+          .from('email_messages')
+          .select('email_account_id')
+          .eq('status', 'sent')
+          .gte('sent_at', todayIso);
+        todaySentMessages = data || [];
+      }
     } catch {
       todaySentMessages = [];
     }
@@ -1568,10 +1582,24 @@ export const dbService = {
     try {
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
-      const allMessages = await this.getMessages({ limit: 10000 });
-      sentCount = allMessages.filter(
-        (m) => m.email_account_id === acc!.id && m.status === 'sent' && m.sent_at && new Date(m.sent_at) >= today
-      ).length;
+      const todayIso = today.toISOString();
+
+      if (!isLiveSupabase()) {
+        for (const m of mockDb.emailMessages.values()) {
+          if (m.email_account_id === acc.id && m.status === 'sent' && m.sent_at && m.sent_at >= todayIso) {
+            sentCount++;
+          }
+        }
+      } else {
+        const supabase = createAdminClient();
+        const { count } = await supabase
+          .from('email_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('email_account_id', acc.id)
+          .eq('status', 'sent')
+          .gte('sent_at', todayIso);
+        sentCount = count || 0;
+      }
     } catch {
       sentCount = 0;
     }
@@ -1848,7 +1876,7 @@ export const dbService = {
     earliestHourSendMs: number;
     todayEndMs: number;
   }> {
-    const messages = await this.getMessages({ campaignId, status: 'sent', limit: 1000 });
+    const messages = await this.getMessages({ campaignId, status: 'sent', limit: 1000, select: 'id, status, sent_at' });
     const now = Date.now();
     const timeZone = sendingConfig.timezone || env.DEFAULT_TIMEZONE || 'UTC';
 
@@ -2491,35 +2519,153 @@ export const dbService = {
 
   // Analytics & Stats
   async getDashboardStats(userId: string) {
-    const leads = await this.getLeads(userId, { limit: 10000 });
-    const campaigns = await this.getCampaigns(userId);
-    const messages = await this.getMessages({ limit: 10000 });
-    const replies = await this.getReplies(userId);
-    const suppressions = await this.getSuppressedNormalizedEmails(userId);
+    // 1. Fetch account stats and account groups in parallel with core metric counts
+    const accountStatsPromise = this.getAccountDailyStats(userId);
+    const accountGroupsPromise = this.getAccountGroups(userId);
 
-    const totalLeads = leads.total;
-    const eligibleLeads = leads.leads.filter((l) => l.status === 'active').length;
-    const draftsGenerated = messages.filter((m) => m.status === 'draft').length;
-    const emailsSent = messages.filter((m) => m.status === 'sent').length;
-    const repliesReceived = replies.length;
-    const positiveReplies = replies.filter((r) => r.classification === 'positive').length;
-    const bounceCount = leads.leads.filter((l) => l.status === 'bounced').length;
-    
-    // Failed jobs count
+    let totalLeads = 0;
+    let eligibleLeads = 0;
+    let bounceCount = 0;
+    let campaignsCount = 0;
+    let activeCampaignsCount = 0;
+    let suppressionCount = 0;
+    let draftsGenerated = 0;
+    let emailsSent = 0;
+    let repliesReceived = 0;
+    let positiveReplies = 0;
     let failedJobs = 0;
+
     if (!isLiveSupabase()) {
-      failedJobs = Array.from(mockDb.jobQueue.values()).filter((j) => j.status === 'failed' || j.status === 'dead').length;
+      // In-memory mockDb fast path: direct iteration without full object cloning or N+1 joins
+      for (const l of mockDb.leads.values()) {
+        if (l.user_id === userId) {
+          totalLeads++;
+          if (l.status === 'active') eligibleLeads++;
+          else if (l.status === 'bounced') bounceCount++;
+        }
+      }
+
+      const userCampaignIds = new Set<string>();
+      for (const c of mockDb.campaigns.values()) {
+        if (c.user_id === userId) {
+          campaignsCount++;
+          userCampaignIds.add(c.id);
+          if (c.status === 'active') activeCampaignsCount++;
+        }
+      }
+
+      for (const m of mockDb.emailMessages.values()) {
+        const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
+        if (!cl || userCampaignIds.has(cl.campaign_id)) {
+          if (m.status === 'draft') draftsGenerated++;
+          else if (m.status === 'sent') emailsSent++;
+        }
+      }
+
+      for (const r of mockDb.replyEvents.values()) {
+        if (r.user_id === userId && !isMailerDaemonOrBounce(r.sender_email, r.classification_summary)) {
+          repliesReceived++;
+          if (r.classification === 'positive') positiveReplies++;
+        }
+      }
+
+      for (const s of mockDb.suppressions.values()) {
+        if (s.user_id === userId) suppressionCount++;
+      }
+
+      for (const j of mockDb.jobQueue.values()) {
+        if (j.status === 'failed' || j.status === 'dead') failedJobs++;
+      }
     } else {
       const supabase = createAdminClient();
-      const { count } = await supabase
-        .from('job_queue')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['failed', 'dead']);
-      failedJobs = count || 0;
+
+      // Primary fast path: Single round-trip PostgreSQL RPC aggregation
+      let rpcSucceeded = false;
+      try {
+        const { data: rpcCounts, error: rpcError } = await (supabase as any).rpc('get_dashboard_counts', {
+          p_user_id: userId,
+        });
+        const counts = rpcCounts as Record<string, unknown> | null;
+        if (!rpcError && counts && typeof counts === 'object') {
+          totalLeads = Number(counts.totalLeads ?? 0);
+          eligibleLeads = Number(counts.eligibleLeads ?? 0);
+          bounceCount = Number(counts.bounceCount ?? 0);
+          campaignsCount = Number(counts.campaignsCount ?? 0);
+          activeCampaignsCount = Number(counts.activeCampaignsCount ?? 0);
+          suppressionCount = Number(counts.suppressionCount ?? 0);
+          draftsGenerated = Number(counts.draftsGenerated ?? 0);
+          emailsSent = Number(counts.emailsSent ?? 0);
+          repliesReceived = Number(counts.repliesReceived ?? 0);
+          positiveReplies = Number(counts.positiveReplies ?? 0);
+          failedJobs = Number(counts.failedJobs ?? 0);
+          rpcSucceeded = true;
+        }
+      } catch {
+        rpcSucceeded = false;
+      }
+
+      // Secondary fallback: Parallelized database count/projection queries without fetching full entities
+      if (!rpcSucceeded) {
+        const [
+          leadsResult,
+          campaignsResult,
+          suppressionsCountResult,
+          repliesResult,
+          failedJobsResult,
+          draftsCountResult,
+          sentCountResult,
+        ] = await Promise.all([
+          // Only project status column for leads to count statuses
+          supabase.from('leads').select('status').eq('user_id', userId),
+          // Only project id and status for campaigns
+          supabase.from('campaigns').select('id, status').eq('user_id', userId),
+          // Head count for suppressions
+          supabase.from('suppressions').select('*', { count: 'exact', head: true }).eq('user_id', userId),
+          // Projection for replies
+          supabase
+            .from('reply_events')
+            .select('classification, sender_email, classification_summary')
+            .eq('user_id', userId)
+            .not('sender_email', 'ilike', '%mailer-daemon%')
+            .not('sender_email', 'ilike', '%mail-daemon%')
+            .not('sender_email', 'ilike', '%postmaster%'),
+          // Head count for failed jobs
+          supabase.from('job_queue').select('*', { count: 'exact', head: true }).in('status', ['failed', 'dead']),
+          // Head count for drafts
+          supabase.from('email_messages').select('*', { count: 'exact', head: true }).eq('status', 'draft'),
+          // Head count for sent emails
+          supabase.from('email_messages').select('*', { count: 'exact', head: true }).eq('status', 'sent'),
+        ]);
+
+        const leadRows = (leadsResult.data || []) as Array<{ status: string }>;
+        totalLeads = leadRows.length;
+        eligibleLeads = leadRows.filter((l) => l.status === 'active').length;
+        bounceCount = leadRows.filter((l) => l.status === 'bounced').length;
+
+        const campaignRows = (campaignsResult.data || []) as Array<{ id: string; status: string }>;
+        campaignsCount = campaignRows.length;
+        activeCampaignsCount = campaignRows.filter((c) => c.status === 'active').length;
+
+        suppressionCount = suppressionsCountResult.count || 0;
+
+        const replyRows = ((repliesResult.data || []) as Array<{
+          sender_email: string;
+          classification_summary?: string | null;
+          classification: string;
+        }>).filter((r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary));
+        repliesReceived = replyRows.length;
+        positiveReplies = replyRows.filter((r) => r.classification === 'positive').length;
+
+        failedJobs = failedJobsResult.count || 0;
+        draftsGenerated = draftsCountResult.count || 0;
+        emailsSent = sentCountResult.count || 0;
+      }
     }
 
-    const accountStats = await this.getAccountDailyStats(userId);
-    const accountGroups = await this.getAccountGroups(userId);
+    const [accountStats, accountGroups] = await Promise.all([
+      accountStatsPromise,
+      accountGroupsPromise,
+    ]);
 
     return {
       totalLeads,
@@ -2530,9 +2676,9 @@ export const dbService = {
       positiveReplies,
       bounceCount,
       failedJobs,
-      campaignsCount: campaigns.length,
-      activeCampaignsCount: campaigns.filter((c) => c.status === 'active').length,
-      suppressionCount: suppressions.size,
+      campaignsCount,
+      activeCampaignsCount,
+      suppressionCount,
       totalAccounts: accountStats.totalAccounts,
       activeAccounts: accountStats.activeAccounts,
       dailyCapacity: accountStats.dailyCapacity,

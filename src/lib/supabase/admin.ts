@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { env } from '../env';
 import WebSocket from 'ws';
 
@@ -7,14 +7,22 @@ if (typeof globalThis.WebSocket === 'undefined') {
   globalThis.WebSocket = WebSocket;
 }
 
-export function createAdminClient() {
+let cachedAdminClient: SupabaseClient | null = null;
+
+export function createAdminClient(): SupabaseClient {
+  if (cachedAdminClient) {
+    return cachedAdminClient;
+  }
+
   const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL || 'https://mock.supabase.co';
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY || 'mock-service-role-key';
 
-  return createClient(supabaseUrl, serviceKey, {
+  cachedAdminClient = createClient(supabaseUrl, serviceKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
     },
   });
+
+  return cachedAdminClient;
 }

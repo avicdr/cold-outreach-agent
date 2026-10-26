@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { cachedJsonFetch, invalidateClientCache } from '@/lib/client-fetch';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import {
@@ -53,10 +54,10 @@ export default function DashboardPage() {
   const [dispatching, setDispatching] = useState(false);
   const [runNotice, setRunNotice] = useState<string | null>(null);
 
-  const loadData = () => {
+  const loadData = (forceFresh = false) => {
     Promise.all([
-      fetch('/api/analytics').then((res) => res.json()),
-      fetch('/api/campaigns').then((res) => res.json()),
+      cachedJsonFetch<any>('/api/analytics', { skipCache: forceFresh }),
+      cachedJsonFetch<any[]>('/api/campaigns', { skipCache: forceFresh }),
     ])
       .then(([statsData, campaignsData]) => {
         setStats(statsData && !statsData.error ? statsData : null);
@@ -90,10 +91,12 @@ export default function DashboardPage() {
       const res = await fetch('/api/jobs/process', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
+        invalidateClientCache('/api/analytics');
+        invalidateClientCache('/api/campaigns');
         const completed = (data.results || []).filter((r: any) => r.status === 'completed').length;
         const failed = (data.results || []).filter((r: any) => r.status === 'failed').length;
         setRunNotice(`Worker finished: ${data.processed || 0} jobs processed (${completed} completed, ${failed} failed).`);
-        loadData();
+        loadData(true);
       } else {
         setRunNotice(`Worker error: ${data.error}`);
       }

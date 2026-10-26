@@ -20,14 +20,15 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const group = await dbService.getLeadGroup(id);
+    const [group, leadsResult] = await Promise.all([
+      dbService.getLeadGroup(id),
+      dbService.getLeads(user.id, { groupId: id, limit: 100 }),
+    ]);
     if (!group) {
       return NextResponse.json({ error: 'Lead group not found' }, { status: 404 });
     }
 
-    const { leads } = await dbService.getLeads(user.id, { groupId: id, limit: 100 });
-
-    return NextResponse.json({ group, leads });
+    return NextResponse.json({ group, leads: leadsResult.leads });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

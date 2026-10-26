@@ -33,8 +33,10 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get('status') || undefined;
 
   try {
-    const stats = await dbService.getAccountDailyStats(user.id);
-    const groups = await dbService.getAccountGroups(user.id);
+    const [stats, groups] = await Promise.all([
+      dbService.getAccountDailyStats(user.id),
+      dbService.getAccountGroups(user.id),
+    ]);
 
     let filteredAccounts = stats.accounts;
     if (groupId) {

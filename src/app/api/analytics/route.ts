@@ -10,7 +10,11 @@ export async function GET() {
 
   try {
     const stats = await dbService.getDashboardStats(user.id);
-    return NextResponse.json(stats);
+    return NextResponse.json(stats, {
+      headers: {
+        'Cache-Control': 'private, no-cache, stale-while-revalidate=15',
+      },
+    });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

@@ -64,8 +64,10 @@ export async function GET() {
   }
 
   try {
-    const campaigns = await dbService.getCampaigns(user.id);
-    const groups = await dbService.getAccountGroups(user.id);
+    const [campaigns, groups] = await Promise.all([
+      dbService.getCampaigns(user.id),
+      dbService.getAccountGroups(user.id),
+    ]);
     const groupMap = new Map(groups.map((g) => [g.id, g]));
 
     const enrichedCampaigns = campaigns.map((c) => ({
@@ -73,7 +75,11 @@ export async function GET() {
       account_group: c.account_group_id ? groupMap.get(c.account_group_id) || null : null,
     }));
 
-    return NextResponse.json(enrichedCampaigns);
+    return NextResponse.json(enrichedCampaigns, {
+      headers: {
+        'Cache-Control': 'private, no-cache, stale-while-revalidate=15',
+      },
+    });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });

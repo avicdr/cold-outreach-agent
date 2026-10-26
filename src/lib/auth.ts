@@ -4,6 +4,7 @@ import { env } from './env';
 import { isLiveSupabase } from './db-service';
 
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 import { ADMIN_COOKIE_NAME, verifyAdminSessionToken } from './admin-auth';
 
 export interface AuthenticatedUser {
@@ -24,8 +25,9 @@ export const MOCK_OWNER_USER: AuthenticatedUser = {
  * Validates the current request's user authentication.
  * In this single-user application, enforces single-owner configuration
  * and seamlessly authorizes the verified admin owner.
+ * Deduplicated per-request via React.cache.
  */
-export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
+export const getAuthenticatedUser = cache(async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> {
   const adminEmail = env.ADMIN_EMAIL || env.OWNER_EMAIL || process.env.ADMIN_EMAIL || 'avi@arenova.in';
 
   // 1. Check for signed admin session cookie
@@ -87,7 +89,7 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
   }
 
   return null;
-}
+});
 
 /**
  * Requires user authentication for API routes. Returns user or throws error response.

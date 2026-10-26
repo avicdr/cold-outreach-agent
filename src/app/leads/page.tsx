@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { cachedJsonFetch, invalidateClientCache } from '@/lib/client-fetch';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { Pagination } from '@/components/Pagination';
@@ -56,10 +57,9 @@ function LeadsPageInner() {
   const [groupActionLoading, setGroupActionLoading] = useState(false);
   const [groupActionError, setGroupActionError] = useState<string | null>(null);
 
-  const fetchGroups = async () => {
+  const fetchGroups = async (forceFresh = false) => {
     try {
-      const res = await fetch('/api/lead-groups');
-      const data = await res.json();
+      const data = await cachedJsonFetch<LeadGroup[]>('/api/lead-groups', { skipCache: forceFresh });
       if (Array.isArray(data)) {
         setGroups(data);
       }
@@ -127,7 +127,8 @@ function LeadsPageInner() {
 
       setNewGroupName('');
       setNewGroupDesc('');
-      await fetchGroups();
+      invalidateClientCache('/api/lead-groups');
+      await fetchGroups(true);
     } catch (err: any) {
       setGroupActionError(err.message || 'Failed to create group');
     } finally {
@@ -156,7 +157,8 @@ function LeadsPageInner() {
       if (!res.ok) throw new Error(data.error || 'Failed to update group');
 
       setEditingGroup(null);
-      await fetchGroups();
+      invalidateClientCache('/api/lead-groups');
+      await fetchGroups(true);
       fetchLeads(page, pageSize);
     } catch (err: any) {
       setGroupActionError(err.message || 'Failed to update group');
@@ -182,7 +184,8 @@ function LeadsPageInner() {
         setGroupFilter('');
       }
 
-      await fetchGroups();
+      invalidateClientCache('/api/lead-groups');
+      await fetchGroups(true);
       fetchLeads(page, pageSize);
     } catch (err: any) {
       setGroupActionError(err.message || 'Failed to delete group');
