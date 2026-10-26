@@ -6,7 +6,7 @@ import { sendSmtpEmail } from '../smtp/client';
 import { executeWithGmailAuth } from '../gmail/tokens';
 import { encryptToken, decryptToken } from '../crypto';
 import { env } from '../env';
-import { JobQueueItem, SendingConfig, Campaign, Lead } from '@/types/database';
+import { JobQueueItem, SendingConfig, Campaign, Lead, EmailAccount } from '@/types/database';
 import {
   isWithinSendingWindow,
   getNextSendingWindowDate,
@@ -169,25 +169,37 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
     // Follow-up generation
     const stepConfig = campaign.followup_config.steps.find((s) => s.step === stepNumber);
     const prevMsg = await dbService.getMessageByLeadAndStep(campaignLeadId, stepNumber - 1);
+    const initialMsg = await dbService.getMessageByLeadAndStep(campaignLeadId, 0);
+
+    // Guarantee threaded subject format: "Re: <originalSubject>"
+    const originalSubject = initialMsg?.subject || prevMsg?.subject || 'Quick follow up';
+    const cleanSubject = originalSubject.replace(/^Re:\s*/i, '').trim();
+    const threadedSubject = `Re: ${cleanSubject}`;
 
     const draft = await generateFollowupEmail({
       lead,
       campaign,
       stepNumber,
       stepInstructions: stepConfig?.instructions || 'Polite check-in',
-      previousSubject: prevMsg?.subject || 'Quick follow up',
+      previousSubject: threadedSubject,
       previousBody: prevMsg?.body_text || '',
       senderName: profile.sender_name || 'Outreach Team',
     });
 
+    // Enforce that follow-ups inherit the same email account and thread from the initial send
+    const emailAccountId = initialMsg?.email_account_id || prevMsg?.email_account_id || null;
+    const gmailThreadId = initialMsg?.gmail_thread_id || prevMsg?.gmail_thread_id || null;
+
     const msg = await dbService.createOrUpdateMessage({
       campaign_lead_id: campaignLeadId,
       step_number: stepNumber,
-      subject: draft.subject || (prevMsg?.subject ? `Re: ${prevMsg.subject.replace(/^Re:\s*/i, '')}` : 'Re: Quick follow up'),
+      subject: threadedSubject,
       body_text: draft.body || '',
       personalization_basis: draft.personalization_basis || [],
       unsupported_claims: draft.unsupported_claims || [],
       status: 'draft',
+      email_account_id: emailAccountId,
+      gmail_thread_id: gmailThreadId,
       scheduled_at: new Date().toISOString(),
     });
 
@@ -198,6 +210,8 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
         campaign_lead_id: campaignLeadId,
         step_number: stepNumber,
         status: 'scheduled',
+        email_account_id: emailAccountId,
+        gmail_thread_id: gmailThreadId,
         scheduled_at: scheduledDate.toISOString(),
       });
       await dbService.enqueueJob(
@@ -308,36 +322,149 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     }
   }
 
-  // Pre-flight check: Account availability, rotation & daily/interval rate limit guards
-  const accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+  // Account selection & Threading setup
+  let emailAccount: EmailAccount;
+  let targetThreadId: string | undefined = message.gmail_thread_id || undefined;
+  let inReplyToMessageId: string | undefined = undefined;
 
-  if (accountResult.status === 'no_accounts') {
-    throw new Error(accountResult.error);
+  if (message.step_number > 0) {
+    // 1. Follow-up: Resolve initial (step 0) and preceding step messages
+    const initialMsg = await dbService.getMessageByLeadAndStep(message.campaign_lead_id, 0);
+    const prevMsg = message.step_number > 1
+      ? await dbService.getMessageByLeadAndStep(message.campaign_lead_id, message.step_number - 1)
+      : initialMsg;
+
+    // Safety guard: Preceding email must have actually been sent
+    if ((!prevMsg || prevMsg.status !== 'sent') && (!initialMsg || initialMsg.status !== 'sent')) {
+      message.status = 'cancelled';
+      await dbService.createOrUpdateMessage(message);
+      console.warn(
+        `[PreFlight] Preceding email for follow-up message ${emailMessageId} (step ${message.step_number}) was not sent. Cancelling follow-up.`
+      );
+      return;
+    }
+
+    // 2. Lock to the SAME thread as initial email
+    targetThreadId = message.gmail_thread_id || prevMsg?.gmail_thread_id || initialMsg?.gmail_thread_id || undefined;
+    inReplyToMessageId = prevMsg?.gmail_message_id || initialMsg?.gmail_message_id || undefined;
+
+    // Guarantee threaded subject "Re: <originalSubject>"
+    const originalSubject = initialMsg?.subject || prevMsg?.subject || message.subject;
+    const cleanSubject = originalSubject.replace(/^Re:\s*/i, '').trim();
+    message.subject = `Re: ${cleanSubject}`;
+
+    // 3. Lock to the SAME email account ID that sent the initial email
+    const originalAccountId = message.email_account_id || initialMsg?.email_account_id || prevMsg?.email_account_id;
+    if (!originalAccountId) {
+      throw new Error(
+        `Cannot identify original sender inbox ID for follow-up message ${emailMessageId}. Initial outreach email missing email_account_id.`
+      );
+    }
+
+    const origAccount = await dbService.getEmailAccount(originalAccountId);
+    if (!origAccount) {
+      throw new Error(
+        `Original sending inbox (${originalAccountId}) for follow-up email was not found. Cannot switch inboxes to maintain thread consistency.`
+      );
+    }
+
+    if (origAccount.status !== 'active') {
+      throw new Error(
+        `Original sending inbox ${origAccount.email_address} is currently ${origAccount.status}. Follow-up must be sent from the same ID/inbox to keep the conversation on the same thread. Please reactivate or reconnect ${origAccount.email_address}.`
+      );
+    }
+
+    // Rate-limit check specifically for the locked inbox
+    const now = Date.now();
+    const limit = origAccount.daily_limit || 18;
+    const sentToday = origAccount.sent_today || 0;
+    if (sentToday >= limit) {
+      const tomorrowInTz = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const nextDayWindow = getNextSendingWindowDate(campaign.sending_config, tomorrowInTz);
+      console.info(
+        `[RateLimit] Daily limit reached for original inbox ${origAccount.email_address}. Rescheduling follow-up to ${nextDayWindow.toISOString()}`
+      );
+      await dbService.createOrUpdateMessage({
+        ...message,
+        status: 'scheduled',
+        email_account_id: origAccount.id,
+        gmail_thread_id: targetThreadId || null,
+        scheduled_at: nextDayWindow.toISOString(),
+      });
+      await dbService.enqueueJob(
+        'send_email',
+        { emailMessageId },
+        `resched_orig_limit_${emailMessageId}_${nextDayWindow.getTime()}`,
+        nextDayWindow
+      );
+      return;
+    }
+
+    const intervalMs = (origAccount.min_interval_minutes || 15) * 60 * 1000;
+    const lastSentTime = origAccount.last_sent_at ? new Date(origAccount.last_sent_at).getTime() : 0;
+    const timeSinceLastSend = now - lastSentTime;
+    if (lastSentTime > 0 && timeSinceLastSend < intervalMs) {
+      const remainingCooldownMs = intervalMs - timeSinceLastSend;
+      const rescheduleAt = new Date(now + remainingCooldownMs + 2000);
+      console.info(
+        `[RateLimit] Original inbox ${origAccount.email_address} in cooldown. Rescheduling follow-up to ${rescheduleAt.toISOString()}`
+      );
+      await dbService.createOrUpdateMessage({
+        ...message,
+        status: 'scheduled',
+        email_account_id: origAccount.id,
+        gmail_thread_id: targetThreadId || null,
+        scheduled_at: rescheduleAt.toISOString(),
+      });
+      await dbService.enqueueJob(
+        'send_email',
+        { emailMessageId },
+        `resched_orig_cooldown_${emailMessageId}_${rescheduleAt.getTime()}`,
+        rescheduleAt
+      );
+      return;
+    }
+
+    emailAccount = origAccount;
+  } else {
+    // Step 0 Initial Outreach: Pre-flight check: Account availability, rotation & daily/interval rate limit guards
+    const accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+
+    if (accountResult.status === 'no_accounts') {
+      throw new Error(accountResult.error);
+    }
+
+    if (accountResult.status === 'daily_limit_reached') {
+      console.info(`[RateLimit] Daily limit reached for accounts in campaign ${campaign.id}. Rescheduling send to ${accountResult.rescheduleAt.toISOString()}`);
+      await dbService.createOrUpdateMessage({
+        ...message,
+        status: 'scheduled',
+        scheduled_at: accountResult.rescheduleAt.toISOString(),
+      });
+      await dbService.enqueueJob('send_email', { emailMessageId }, `resched_limit_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
+      return;
+    }
+
+    if (accountResult.status === 'cooldown') {
+      console.info(`[RateLimit] Accounts in cooldown (interval safety guard). Rescheduling send for inbox ${accountResult.accountEmail} to ${accountResult.rescheduleAt.toISOString()}`);
+      await dbService.createOrUpdateMessage({
+        ...message,
+        status: 'scheduled',
+        scheduled_at: accountResult.rescheduleAt.toISOString(),
+      });
+      await dbService.enqueueJob('send_email', { emailMessageId }, `resched_cooldown_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
+      return;
+    }
+
+    emailAccount = accountResult.account;
   }
 
-  if (accountResult.status === 'daily_limit_reached') {
-    console.info(`[RateLimit] Daily limit reached for accounts in campaign ${campaign.id}. Rescheduling send to ${accountResult.rescheduleAt.toISOString()}`);
-    await dbService.createOrUpdateMessage({
-      ...message,
-      status: 'scheduled',
-      scheduled_at: accountResult.rescheduleAt.toISOString(),
-    });
-    await dbService.enqueueJob('send_email', { emailMessageId }, `resched_limit_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
-    return;
-  }
-
-  if (accountResult.status === 'cooldown') {
-    console.info(`[RateLimit] Accounts in cooldown (interval safety guard). Rescheduling send for inbox ${accountResult.accountEmail} to ${accountResult.rescheduleAt.toISOString()}`);
-    await dbService.createOrUpdateMessage({
-      ...message,
-      status: 'scheduled',
-      scheduled_at: accountResult.rescheduleAt.toISOString(),
-    });
-    await dbService.enqueueJob('send_email', { emailMessageId }, `resched_cooldown_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`, accountResult.rescheduleAt);
-    return;
-  }
-
-  const emailAccount = accountResult.account;
+  // Format RFC 2822 In-Reply-To header
+  const formattedInReplyTo = inReplyToMessageId
+    ? (inReplyToMessageId.startsWith('<') && inReplyToMessageId.endsWith('>')
+        ? inReplyToMessageId
+        : `<${inReplyToMessageId}>`)
+    : undefined;
 
   // Execute Send (via SMTP or Gmail OAuth)
   let sendResult: { id: string; threadId: string };
@@ -367,7 +494,9 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         to: lead.email,
         subject: message.subject,
         bodyText: message.body_text,
-        threadId: message.gmail_thread_id || undefined,
+        threadId: targetThreadId,
+        inReplyToMessageId: formattedInReplyTo,
+        references: formattedInReplyTo,
       }
     );
   } else {
@@ -377,7 +506,9 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         to: lead.email,
         subject: message.subject,
         bodyText: message.body_text,
-        threadId: message.gmail_thread_id || undefined,
+        threadId: targetThreadId,
+        inReplyToMessageId: formattedInReplyTo,
+        references: formattedInReplyTo,
       })
     );
   }
@@ -386,7 +517,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
   message.status = 'sent';
   message.email_account_id = emailAccount.id;
   message.gmail_message_id = sendResult.id;
-  message.gmail_thread_id = sendResult.threadId;
+  message.gmail_thread_id = sendResult.threadId || targetThreadId || null;
   message.sent_at = new Date().toISOString();
   await dbService.createOrUpdateMessage(message);
   await dbService.recordAccountSend(emailAccount.id);

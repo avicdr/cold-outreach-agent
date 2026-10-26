@@ -68,16 +68,27 @@ export async function POST(
         senderName: profile.sender_name || 'Outreach Team',
       });
     } else {
+      const initialMsg = await dbService.getMessageByLeadAndStep(message.campaign_lead_id, 0);
+      const originalSubject = initialMsg?.subject || message.subject || 'Quick question';
+      const cleanSubject = originalSubject.replace(/^Re:\s*/i, '').trim();
+      const threadedSubject = `Re: ${cleanSubject}`;
+
       newDraft = await generateFollowupEmail({
         lead,
         campaign,
         stepNumber: message.step_number,
         stepInstructions: customInstructions || 'Follow-up note',
-        previousSubject: message.subject,
+        previousSubject: threadedSubject,
         previousBody: message.body_text,
         senderName: profile.sender_name || 'Outreach Team',
       });
+
+      newDraft.subject = threadedSubject;
     }
+
+    const initialMsg = message.step_number > 0
+      ? await dbService.getMessageByLeadAndStep(message.campaign_lead_id, 0)
+      : null;
 
     const updated = await dbService.createOrUpdateMessage({
       ...message,
@@ -85,6 +96,8 @@ export async function POST(
       body_text: newDraft.body,
       personalization_basis: newDraft.personalization_basis,
       unsupported_claims: newDraft.unsupported_claims,
+      email_account_id: message.email_account_id || initialMsg?.email_account_id || null,
+      gmail_thread_id: message.gmail_thread_id || initialMsg?.gmail_thread_id || null,
       status: 'draft',
     });
 
