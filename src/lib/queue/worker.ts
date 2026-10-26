@@ -3,7 +3,7 @@ import { dbService } from '../db-service';
 import { generateInitialEmail, generateFollowupEmail, classifyReply } from '../gemini';
 import { sendGmailMessage, pollGmailReplies } from '../gmail/client';
 import { sendSmtpEmail } from '../smtp/client';
-import { refreshAccessToken } from '../gmail/oauth';
+import { executeWithGmailAuth } from '../gmail/tokens';
 import { encryptToken, decryptToken } from '../crypto';
 import { env } from '../env';
 import { JobQueueItem, SendingConfig, Campaign, Lead } from '@/types/database';
@@ -245,7 +245,8 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
   if (lead.status === 'unsubscribed' || lead.status === 'replied' || lead.status === 'bounced') {
     message.status = 'cancelled';
     await dbService.createOrUpdateMessage(message);
-    throw new Error(`Lead status is ${lead.status}. Cancelling send.`);
+    console.info(`[PreFlight] Lead status is ${lead.status}. Cancelling send for message ${emailMessageId}.`);
+    return;
   }
 
   // Pre-flight check: Suppression list
@@ -253,7 +254,8 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
   if (suppressions.has(lead.normalized_email)) {
     message.status = 'cancelled';
     await dbService.createOrUpdateMessage(message);
-    throw new Error(`Lead ${lead.normalized_email} is on the suppression list.`);
+    console.info(`[PreFlight] Lead ${lead.normalized_email} is on suppression list. Cancelling send for message ${emailMessageId}.`);
+    return;
   }
 
   // Pre-flight check: Sending window
@@ -369,63 +371,15 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
       }
     );
   } else {
-    // Decrypt token
-    let accessToken = '';
-    try {
-      accessToken = decryptToken(emailAccount.encrypted_access_token);
-    } catch {
-      accessToken = emailAccount.encrypted_access_token; // Fallback for mock tokens
-    }
-
-    // Refresh if expired
-    if (emailAccount.token_expires_at && new Date(emailAccount.token_expires_at) < new Date()) {
-      try {
-        const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-        const refreshed = await refreshAccessToken(refreshToken);
-        accessToken = refreshed.access_token;
-        await dbService.updateEmailAccount(emailAccount.id, {
-          encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
-          token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-        });
-      } catch (err) {
-        console.warn('Failed to refresh token, proceeding with existing:', err);
-      }
-    }
-
-    // Execute Send (with 401 auto-refresh retry)
-    try {
-      sendResult = await sendGmailMessage(accessToken, {
+    sendResult = await executeWithGmailAuth(emailAccount, (token) =>
+      sendGmailMessage(token, {
         from: emailAccount.email_address,
         to: lead.email,
         subject: message.subject,
         bodyText: message.body_text,
         threadId: message.gmail_thread_id || undefined,
-      });
-    } catch (sendErr: unknown) {
-      const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-      if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
-        try {
-          const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-          const refreshed = await refreshAccessToken(refreshToken);
-          accessToken = refreshed.access_token;
-          await dbService.updateEmailAccount(emailAccount.id, {
-            encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
-            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-          });
-          sendResult = await sendGmailMessage(accessToken, {
-            from: emailAccount.email_address,
-            to: lead.email,
-            subject: message.subject,
-            bodyText: message.body_text,
-            threadId: message.gmail_thread_id || undefined,
-          });
-        } catch {
-          throw sendErr;
-        }
-      } else {
-        throw sendErr;
-      }
-    }
+      })
+    );
   }
 
   // Confirmed success: update records
@@ -502,48 +456,15 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
       // SMTP/IMAP inboxes (Titan, GoDaddy, etc.) don't use Gmail API sync
       continue;
     }
-    let accessToken = '';
-    try {
-      accessToken = decryptToken(emailAccount.encrypted_access_token);
-    } catch {
-      accessToken = emailAccount.encrypted_access_token;
-    }
-
-    if (emailAccount.token_expires_at && new Date(emailAccount.token_expires_at) < new Date()) {
-      try {
-        const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-        const refreshed = await refreshAccessToken(refreshToken);
-        accessToken = refreshed.access_token;
-        await dbService.updateEmailAccount(emailAccount.id, {
-          encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
-          token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-        });
-      } catch (err) {
-        console.warn(`Failed to refresh token during sync replies for ${emailAccount.email_address}:`, err);
-      }
-    }
 
     let inboundReplies = [];
     try {
-      inboundReplies = await pollGmailReplies(accessToken, sentThreads);
-    } catch (syncErr: unknown) {
-      const errMsg = syncErr instanceof Error ? syncErr.message : String(syncErr);
-      if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
-        try {
-          const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-          const refreshed = await refreshAccessToken(refreshToken);
-          accessToken = refreshed.access_token;
-          await dbService.updateEmailAccount(emailAccount.id, {
-            encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
-            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-          });
-          inboundReplies = await pollGmailReplies(accessToken, sentThreads);
-        } catch {
-          continue;
-        }
-      } else {
-        continue;
-      }
+      inboundReplies = await executeWithGmailAuth(emailAccount, (token) =>
+        pollGmailReplies(token, sentThreads)
+      );
+    } catch (syncErr) {
+      console.warn(`[SyncReplies] Could not poll replies for ${emailAccount.email_address}:`, syncErr);
+      continue;
     }
 
     for (const reply of inboundReplies) {

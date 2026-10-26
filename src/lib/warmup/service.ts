@@ -3,8 +3,8 @@ import { dbService, isLiveSupabase } from '../db-service';
 import { createAdminClient } from '../supabase/admin';
 import { sendGmailMessage } from '../gmail/client';
 import { sendSmtpEmail } from '../smtp/client';
-import { refreshAccessToken } from '../gmail/oauth';
-import { decryptToken, encryptToken } from '../crypto';
+import { executeWithGmailAuth } from '../gmail/tokens';
+import { decryptToken } from '../crypto';
 import { EmailAccount, AccountGroup, WarmupMessage } from '@/types/database';
 
 const WARMUP_TEMPLATES = [
@@ -68,35 +68,6 @@ export function getWarmupDailyTarget(
 }
 
 
-/**
- * Helper to get a valid decrypted access token for an account.
- */
-async function getAccountAccessToken(account: EmailAccount): Promise<string> {
-  let accessToken = '';
-  try {
-    accessToken = decryptToken(account.encrypted_access_token);
-  } catch {
-    accessToken = account.encrypted_access_token;
-  }
-
-  // Auto-refresh token if expired
-  if (account.token_expires_at && new Date(account.token_expires_at) < new Date()) {
-    try {
-      const refreshToken = decryptToken(account.encrypted_refresh_token);
-      const refreshed = await refreshAccessToken(refreshToken);
-      accessToken = refreshed.access_token;
-      await dbService.upsertEmailAccount({
-        ...account,
-        encrypted_access_token: accessToken.startsWith('mock-') ? accessToken : encryptToken(accessToken),
-        token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-      });
-    } catch (err) {
-      console.warn(`[Warmup] Failed to refresh token for ${account.email_address}:`, err);
-    }
-  }
-
-  return accessToken;
-}
 
 /**
  * Sends a single peer warmup email from one account to another in the pool.
@@ -143,13 +114,14 @@ export async function executeWarmupSend(
         }
       );
     } else {
-      const accessToken = await getAccountAccessToken(fromAccount);
-      sendResult = await sendGmailMessage(accessToken, {
-        from: fromAccount.email_address,
-        to: toAccount.email_address,
-        subject,
-        bodyText,
-      });
+      sendResult = await executeWithGmailAuth(fromAccount, (token) =>
+        sendGmailMessage(token, {
+          from: fromAccount.email_address,
+          to: toAccount.email_address,
+          subject,
+          bodyText,
+        })
+      );
     }
 
     const now = new Date().toISOString();
@@ -211,16 +183,17 @@ export async function executeWarmupSend(
 
     if (shouldReply) {
       try {
-        const toAccessToken = await getAccountAccessToken(toAccount);
         const replyText = template.reply(senderName);
 
-        const replyResult = await sendGmailMessage(toAccessToken, {
-          from: toAccount.email_address,
-          to: fromAccount.email_address,
-          subject: `Re: ${subject}`,
-          bodyText: replyText,
-          threadId: sendResult.threadId,
-        });
+        const replyResult = await executeWithGmailAuth(toAccount, (token) =>
+          sendGmailMessage(token, {
+            from: toAccount.email_address,
+            to: fromAccount.email_address,
+            subject: `Re: ${subject}`,
+            bodyText: replyText,
+            threadId: sendResult.threadId,
+          })
+        );
 
         const replyTime = new Date().toISOString();
 

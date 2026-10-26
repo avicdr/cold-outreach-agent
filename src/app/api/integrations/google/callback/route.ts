@@ -63,11 +63,32 @@ export async function GET(request: NextRequest) {
       throw new Error('Google account did not return a valid email address');
     }
 
+    // Check if an existing account exists to preserve its valid refresh token if Google omitted it
+    const existingAccounts = await dbService.getEmailAccounts(userId);
+    const existing = existingAccounts.find(
+      (a) => a.email_address.toLowerCase() === normalizedEmail.toLowerCase()
+    );
+
     // Encrypt sensitive tokens
     const encryptedAccessToken = encryptToken(tokens.access_token);
-    const encryptedRefreshToken = tokens.refresh_token
-      ? encryptToken(tokens.refresh_token)
-      : encryptedAccessToken; // Refresh token may be omitted on re-approval if not prompted
+    let encryptedRefreshToken = '';
+
+    if (tokens.refresh_token) {
+      encryptedRefreshToken = encryptToken(tokens.refresh_token);
+    } else if (existing?.encrypted_refresh_token && existing.encrypted_refresh_token !== existing.encrypted_access_token) {
+      // Preserve existing valid refresh token
+      encryptedRefreshToken = existing.encrypted_refresh_token;
+    } else {
+      encryptedRefreshToken = existing?.encrypted_refresh_token || '';
+    }
+
+    if (!encryptedRefreshToken) {
+      return NextResponse.redirect(
+        `${origin}${returnTo}?error=${encodeURIComponent(
+          'Google did not return an offline refresh token. Please remove cold outreach agent access at myaccount.google.com/permissions and reconnect to grant offline access.'
+        )}`
+      );
+    }
 
     const tokenExpiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
     const grantedScopes = tokens.scope ? tokens.scope.split(' ') : [];
@@ -75,6 +96,7 @@ export async function GET(request: NextRequest) {
     await dbService.upsertEmailAccount({
       user_id: userId,
       provider: 'gmail',
+      status: 'active',
       email_address: normalizedEmail,
       encrypted_access_token: encryptedAccessToken,
       encrypted_refresh_token: encryptedRefreshToken,

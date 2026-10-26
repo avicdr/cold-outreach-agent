@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
-import { decryptToken, encryptToken } from '@/lib/crypto';
-import { refreshAccessToken } from '@/lib/gmail/oauth';
+import { decryptToken } from '@/lib/crypto';
+import { executeWithGmailAuth } from '@/lib/gmail/tokens';
 import { sendGmailMessage } from '@/lib/gmail/client';
 import { sendSmtpEmail } from '@/lib/smtp/client';
 import { z } from 'zod';
@@ -72,68 +72,14 @@ export async function POST(
         }
       );
     } else {
-      // 3. Decrypt and validate token
-      let accessToken = '';
-      try {
-        accessToken = decryptToken(emailAccount.encrypted_access_token);
-      } catch {
-        accessToken = emailAccount.encrypted_access_token;
-      }
-
-      // Check expiration and refresh if needed
-      const isExpired = emailAccount.token_expires_at
-        ? new Date(emailAccount.token_expires_at).getTime() - Date.now() < 60000
-        : false;
-
-      if (isExpired && emailAccount.encrypted_refresh_token) {
-        try {
-          const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-          const refreshed = await refreshAccessToken(refreshToken);
-          accessToken = refreshed.access_token;
-
-          await dbService.updateEmailAccount(emailAccount.id, {
-            encrypted_access_token: encryptToken(accessToken),
-            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-          });
-        } catch (refreshErr) {
-          console.warn('Failed to refresh token during test send:', refreshErr);
-        }
-      }
-
-      // 4. Send the test email via Gmail API (with auto-refresh retry on 401)
-      try {
-        sendResult = await sendGmailMessage(accessToken, {
+      sendResult = await executeWithGmailAuth(emailAccount, (token) =>
+        sendGmailMessage(token, {
           to: recipient_email,
           from: emailAccount.email_address,
           subject: `[TEST] ${subject}`,
           bodyText: `${bodyText}\n\n---\n[Test Email sent from ${emailAccount.email_address} via AI Cold Outreach Agent]`,
-        });
-      } catch (sendErr: unknown) {
-        const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
-        if (emailAccount.encrypted_refresh_token && (errMsg.includes('401') || errMsg.includes('invalid_grant'))) {
-          try {
-            const refreshToken = decryptToken(emailAccount.encrypted_refresh_token);
-            const refreshed = await refreshAccessToken(refreshToken);
-            accessToken = refreshed.access_token;
-
-            await dbService.updateEmailAccount(emailAccount.id, {
-              encrypted_access_token: encryptToken(accessToken),
-              token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-            });
-
-            sendResult = await sendGmailMessage(accessToken, {
-              to: recipient_email,
-              from: emailAccount.email_address,
-              subject: `[TEST] ${subject}`,
-              bodyText: `${bodyText}\n\n---\n[Test Email sent from ${emailAccount.email_address} via AI Cold Outreach Agent]`,
-            });
-          } catch {
-            throw sendErr;
-          }
-        } else {
-          throw sendErr;
-        }
-      }
+        })
+      );
     }
 
     await dbService.logActivity(user.id, 'test_email_sent', 'email_messages', id, {

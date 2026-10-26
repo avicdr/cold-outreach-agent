@@ -197,8 +197,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ access
   const clientId = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET;
 
-  if (!clientId || !clientSecret || clientId === 'mock-client-id') {
-    if (env.MOCK_MODE) {
+  if (!clientId || !clientSecret || clientId === 'mock-client-id' || refreshToken.startsWith('mock-')) {
+    if (env.MOCK_MODE || refreshToken.startsWith('mock-')) {
       return {
         access_token: 'refreshed-mock-access-token-' + crypto.randomBytes(8).toString('hex'),
         expires_in: 3600,

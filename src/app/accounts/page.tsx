@@ -798,18 +798,31 @@ export default function AccountsPage() {
                                 Sender: <span className="text-slate-300 font-medium">{acc.sender_name || 'Default'}</span>
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleToggleAccountStatus(acc)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 ${
-                                acc.status === 'active'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                              }`}
-                              title={`Click to ${acc.status === 'active' ? 'pause' : 'resume'}`}
-                            >
-                              {acc.status === 'active' ? <Play className="w-2.5 h-2.5" /> : <Pause className="w-2.5 h-2.5" />}
-                              <span className="capitalize">{acc.status}</span>
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {acc.status === 'error' ? (
+                                <button
+                                  onClick={acc.provider === 'smtp' ? () => setEditingAccount(acc) : handleConnectGmailOAuth}
+                                  className="px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 transition-colors"
+                                  title="Authentication expired or revoked. Click to reconnect."
+                                >
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>Reconnect</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleToggleAccountStatus(acc)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 ${
+                                    acc.status === 'active'
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  }`}
+                                  title={`Click to ${acc.status === 'active' ? 'pause' : 'resume'}`}
+                                >
+                                  {acc.status === 'active' ? <Play className="w-2.5 h-2.5" /> : <Pause className="w-2.5 h-2.5" />}
+                                  <span className="capitalize">{acc.status}</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           {/* Badges: Provider, Group & Warmup */}
@@ -883,6 +896,21 @@ export default function AccountsPage() {
                             </div>
                           </div>
                         </div>
+
+                        {acc.status === 'error' && (
+                          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-between text-xs text-rose-300">
+                            <span className="flex items-center gap-1.5 text-[11px]">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                              OAuth session expired or revoked
+                            </span>
+                            <button
+                              onClick={acc.provider === 'smtp' ? () => setEditingAccount(acc) : handleConnectGmailOAuth}
+                              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-[11px] transition-colors shadow-sm"
+                            >
+                              Reconnect Now
+                            </button>
+                          </div>
+                        )}
 
                         {/* Actions Footer */}
                         <div className="flex items-center justify-between pt-3 border-t border-slate-800/80 text-xs">
