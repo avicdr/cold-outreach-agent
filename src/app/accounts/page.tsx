@@ -554,7 +554,8 @@ export default function AccountsPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification(`Warmup cycle dispatched! ${data.messagesSent || 0} peer emails exchanged across ${data.groupsProcessed || 0} active groups.`);
+        const count = data.emailsSent ?? data.messagesSent ?? 0;
+        showNotification(`Warmup cycle dispatched! ${count} peer emails exchanged across ${data.groupsProcessed || 0} active groups.`);
         loadData();
       } else {
         showNotification(data.error || 'Warmup cycle failed', 'error');

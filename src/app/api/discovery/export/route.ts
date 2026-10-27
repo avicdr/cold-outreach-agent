@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
-
-function escapeCsv(value: unknown): string {
-  if (value === null || value === undefined) return '""';
-  const str = String(value).replace(/"/g, '""');
-  return `"${str}"`;
-}
+import { sanitizeCsvCell } from '@/lib/security';
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -60,26 +55,26 @@ export async function GET(request: NextRequest) {
       const location = [lead.city, lead.state, lead.country].filter(Boolean).join(', ');
 
       return [
-        escapeCsv(lead.id),
-        escapeCsv(lead.company),
-        escapeCsv(lead.category || ''),
-        escapeCsv(lead.normalized_phone || lead.phone || ''),
-        escapeCsv(lead.email || ''),
-        escapeCsv(lead.website || ''),
-        escapeCsv(location),
-        escapeCsv(lead.rating ?? ''),
-        escapeCsv(lead.review_count ?? ''),
-        escapeCsv(lead.qualification_score ?? ''),
-        escapeCsv(lead.qualification_priority ?? ''),
-        escapeCsv(lead.qualification_confidence ?? ''),
-        escapeCsv(lead.qualification_summary ?? ''),
-        escapeCsv(frictionSummary),
-        escapeCsv(lead.sales_angle ?? ''),
-        escapeCsv(lead.suggested_opening ?? ''),
-        escapeCsv(lead.google_maps_url || lead.evidence_urls?.[0] || ''),
-        escapeCsv(lead.discovery_timestamp || lead.created_at),
-        escapeCsv(lead.last_enriched_at || ''),
-        escapeCsv(lead.status),
+        sanitizeCsvCell(lead.id),
+        sanitizeCsvCell(lead.company),
+        sanitizeCsvCell(lead.category || ''),
+        sanitizeCsvCell(lead.normalized_phone || lead.phone || ''),
+        sanitizeCsvCell(lead.email || ''),
+        sanitizeCsvCell(lead.website || ''),
+        sanitizeCsvCell(location),
+        sanitizeCsvCell(lead.rating ?? ''),
+        sanitizeCsvCell(lead.review_count ?? ''),
+        sanitizeCsvCell(lead.qualification_score ?? ''),
+        sanitizeCsvCell(lead.qualification_priority ?? ''),
+        sanitizeCsvCell(lead.qualification_confidence ?? ''),
+        sanitizeCsvCell(lead.qualification_summary ?? ''),
+        sanitizeCsvCell(frictionSummary),
+        sanitizeCsvCell(lead.sales_angle ?? ''),
+        sanitizeCsvCell(lead.suggested_opening ?? ''),
+        sanitizeCsvCell(lead.google_maps_url || lead.evidence_urls?.[0] || ''),
+        sanitizeCsvCell(lead.discovery_timestamp || lead.created_at),
+        sanitizeCsvCell(lead.last_enriched_at || ''),
+        sanitizeCsvCell(lead.status),
       ].join(',');
     });
 

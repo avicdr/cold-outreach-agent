@@ -535,6 +535,7 @@ export const dbService = {
   },
 
   async getPaginatedMessages(filters?: {
+    userId?: string;
     campaignId?: string;
     status?: string;
     limit?: number;
@@ -542,6 +543,13 @@ export const dbService = {
   }): Promise<{ messages: EmailMessage[]; total: number }> {
     if (!isLiveSupabase()) {
       let msgs = Array.from(mockDb.emailMessages.values());
+      if (filters?.userId) {
+        msgs = msgs.filter((m) => {
+          const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
+          const c = cl ? mockDb.campaigns.get(cl.campaign_id) : null;
+          return c?.user_id === filters.userId;
+        });
+      }
       if (filters?.campaignId) {
         msgs = msgs.filter((m) => {
           const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
@@ -572,6 +580,14 @@ export const dbService = {
         .select('id')
         .eq('campaign_id', filters.campaignId);
       if (clErr) throw new Error(clErr.message);
+      const clIds = (cls || []).map((c) => c.id);
+      if (clIds.length === 0) return { messages: [], total: 0 };
+      query = query.in('campaign_lead_id', clIds);
+    } else if (filters?.userId) {
+      const { data: userCamps } = await supabase.from('campaigns').select('id').eq('user_id', filters.userId);
+      const campIds = (userCamps || []).map((c) => c.id);
+      if (campIds.length === 0) return { messages: [], total: 0 };
+      const { data: cls } = await supabase.from('campaign_leads').select('id').in('campaign_id', campIds);
       const clIds = (cls || []).map((c) => c.id);
       if (clIds.length === 0) return { messages: [], total: 0 };
       query = query.in('campaign_lead_id', clIds);
@@ -1507,6 +1523,8 @@ export const dbService = {
 
     // Calculate sent_today and remaining_today using targeted projections
     let todaySentMessages: Array<{ email_account_id?: string | null }> = [];
+    let todayWarmupSent: Array<{ from_account_id: string }> = [];
+    let todayWarmupReceived: Array<{ to_account_id: string }> = [];
     try {
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
@@ -1518,28 +1536,73 @@ export const dbService = {
             todaySentMessages.push({ email_account_id: m.email_account_id });
           }
         }
+        for (const wm of mockDb.warmupMessages.values()) {
+          if (wm.sent_at && wm.sent_at >= todayIso) {
+            todayWarmupSent.push({ from_account_id: wm.from_account_id });
+          }
+          if (wm.status === 'replied' && wm.replied_at && wm.replied_at >= todayIso) {
+            todayWarmupReceived.push({ to_account_id: wm.to_account_id });
+          }
+        }
       } else {
         const supabase = createAdminClient();
-        const { data } = await supabase
-          .from('email_messages')
-          .select('email_account_id')
-          .eq('status', 'sent')
-          .gte('sent_at', todayIso);
-        todaySentMessages = data || [];
+        const [{ data: outreachData }, { data: sentWarmup }, { data: replyWarmup }] = await Promise.all([
+          supabase
+            .from('email_messages')
+            .select('email_account_id')
+            .eq('status', 'sent')
+            .gte('sent_at', todayIso),
+          supabase
+            .from('warmup_messages')
+            .select('from_account_id')
+            .gte('sent_at', todayIso),
+          supabase
+            .from('warmup_messages')
+            .select('to_account_id')
+            .eq('status', 'replied')
+            .gte('replied_at', todayIso),
+        ]);
+        todaySentMessages = outreachData || [];
+        todayWarmupSent = sentWarmup || [];
+        todayWarmupReceived = replyWarmup || [];
       }
     } catch {
       todaySentMessages = [];
+      todayWarmupSent = [];
+      todayWarmupReceived = [];
     }
 
     return accounts.map((acc) => {
       const sentCount = todaySentMessages.filter(
         (m) => m.email_account_id === acc.id || (!m.email_account_id && accounts.length === 1)
       ).length;
+      const warmupSentCount = todayWarmupSent.filter((w) => w.from_account_id === acc.id).length;
+      const warmupReceivedCount = todayWarmupReceived.filter((w) => w.to_account_id === acc.id).length;
       const limit = acc.daily_limit || 18;
+
+      // If live Supabase and stored warmup counts are stale, asynchronously synchronize the DB column
+      if (
+        isLiveSupabase() &&
+        (acc.warmup_sent_today !== warmupSentCount || acc.warmup_received_today !== warmupReceivedCount)
+      ) {
+        const supabase = createAdminClient();
+        Promise.resolve(
+          supabase
+            .from('email_accounts')
+            .update({
+              warmup_sent_today: warmupSentCount,
+              warmup_received_today: warmupReceivedCount,
+            })
+            .eq('id', acc.id)
+        ).catch(() => {});
+      }
+
       return {
         ...acc,
         sent_today: sentCount,
         remaining_today: Math.max(0, limit - sentCount),
+        warmup_sent_today: warmupSentCount,
+        warmup_received_today: warmupReceivedCount,
       };
     });
   },
@@ -1579,6 +1642,8 @@ export const dbService = {
     }
 
     let sentCount = 0;
+    let warmupSentCount = 0;
+    let warmupReceivedCount = 0;
     try {
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
@@ -1590,18 +1655,43 @@ export const dbService = {
             sentCount++;
           }
         }
+        for (const wm of mockDb.warmupMessages.values()) {
+          if (wm.from_account_id === acc.id && wm.sent_at && wm.sent_at >= todayIso) {
+            warmupSentCount++;
+          }
+          if (wm.to_account_id === acc.id && wm.status === 'replied' && wm.replied_at && wm.replied_at >= todayIso) {
+            warmupReceivedCount++;
+          }
+        }
       } else {
         const supabase = createAdminClient();
-        const { count } = await supabase
-          .from('email_messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('email_account_id', acc.id)
-          .eq('status', 'sent')
-          .gte('sent_at', todayIso);
-        sentCount = count || 0;
+        const [{ count: sentExact }, { count: warmupSentExact }, { count: warmupRecExact }] = await Promise.all([
+          supabase
+            .from('email_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('email_account_id', acc.id)
+            .eq('status', 'sent')
+            .gte('sent_at', todayIso),
+          supabase
+            .from('warmup_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('from_account_id', acc.id)
+            .gte('sent_at', todayIso),
+          supabase
+            .from('warmup_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('to_account_id', acc.id)
+            .eq('status', 'replied')
+            .gte('replied_at', todayIso),
+        ]);
+        sentCount = sentExact || 0;
+        warmupSentCount = warmupSentExact || 0;
+        warmupReceivedCount = warmupRecExact || 0;
       }
     } catch {
       sentCount = 0;
+      warmupSentCount = 0;
+      warmupReceivedCount = 0;
     }
 
     const limit = acc.daily_limit || 18;
@@ -1609,6 +1699,8 @@ export const dbService = {
       ...acc,
       sent_today: sentCount,
       remaining_today: Math.max(0, limit - sentCount),
+      warmup_sent_today: warmupSentCount,
+      warmup_received_today: warmupReceivedCount,
     };
   },
 

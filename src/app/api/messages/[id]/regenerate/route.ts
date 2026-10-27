@@ -44,7 +44,7 @@ export async function POST(
     }
 
     const campaign = await dbService.getCampaign(cl.campaign_id);
-    if (!campaign) {
+    if (!campaign || campaign.user_id !== user.id) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 

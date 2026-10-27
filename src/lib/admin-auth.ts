@@ -15,8 +15,10 @@ export interface AdminSessionPayload {
   exp: number;
 }
 
+import { timingSafeEqualStr } from './security';
+
 /**
- * Validates admin credentials against configured environment variables.
+ * Validates admin credentials against configured environment variables using constant-time comparison.
  */
 export function verifyAdminCredentials(email?: string, password?: string): boolean {
   if (!email || !password) return false;
@@ -27,7 +29,10 @@ export function verifyAdminCredentials(email?: string, password?: string): boole
   const providedEmail = email.trim().toLowerCase();
   const providedPassword = password;
 
-  return providedEmail === expectedEmail && providedPassword === expectedPassword;
+  const emailMatch = timingSafeEqualStr(providedEmail, expectedEmail);
+  const passwordMatch = timingSafeEqualStr(providedPassword, expectedPassword);
+
+  return emailMatch && passwordMatch;
 }
 
 function base64UrlEncode(str: string): string {
@@ -108,7 +113,7 @@ export async function verifyAdminSessionToken(token?: string | null): Promise<Ad
     const expectedSigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadB64));
     const expectedSigB64 = arrayBufferToBase64Url(expectedSigBuffer);
 
-    if (expectedSigB64 !== signatureB64) {
+    if (!timingSafeEqualStr(expectedSigB64, signatureB64)) {
       return null;
     }
 

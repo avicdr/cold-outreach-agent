@@ -26,6 +26,11 @@ export async function GET(
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
+    const campaign = message.campaign_id ? await dbService.getCampaign(message.campaign_id) : null;
+    if (!campaign || campaign.user_id !== user.id) {
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
     const validation = validateDraft(message.body_text, message.subject);
 
     return NextResponse.json({
@@ -42,7 +47,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -52,6 +57,11 @@ export async function PATCH(
   try {
     const message = await dbService.getMessage(id);
     if (!message) {
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
+    const campaign = message.campaign_id ? await dbService.getCampaign(message.campaign_id) : null;
+    if (!campaign || campaign.user_id !== user.id) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 

@@ -7,6 +7,8 @@ import { sendGmailMessage } from '@/lib/gmail/client';
 import { sendSmtpEmail } from '@/lib/smtp/client';
 import { z } from 'zod';
 
+import { checkRateLimit, getClientIp } from '@/lib/security';
+
 const testEmailSchema = z.object({
   recipient_email: z.string().email('Please provide a valid email address'),
   subject: z.string().optional(),
@@ -17,9 +19,25 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Rate limit: max 5 test emails per 10 minutes per user/IP to prevent spam relay abuse
+  const clientIp = getClientIp(request);
+  const rateKey = `test_email:${user.id}:${clientIp}`;
+  const rateCheck = checkRateLimit(rateKey, 5, 10 * 60 * 1000);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded: You can send at most 5 test emails every 10 minutes.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((rateCheck.resetAt - Date.now()) / 1000)),
+        },
+      }
+    );
   }
 
   const { id } = await params;
@@ -28,8 +46,14 @@ export async function POST(
     const body = await request.json();
     const { recipient_email, subject: bodySubject, body_text: bodyContent } = testEmailSchema.parse(body);
 
-    // 1. Get the draft message from database
+    // 1. Get the draft message from database and verify ownership
     const message = await dbService.getMessage(id);
+    if (message && message.campaign_id) {
+      const campaign = await dbService.getCampaign(message.campaign_id);
+      if (!campaign || campaign.user_id !== user.id) {
+        return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      }
+    }
     const subject = bodySubject || message?.subject || 'Test Outreach Email';
     const bodyText = bodyContent || message?.body_text || 'This is a test email from your AI Cold Outreach Agent.';
 

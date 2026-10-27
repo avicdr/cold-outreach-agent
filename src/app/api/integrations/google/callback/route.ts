@@ -3,6 +3,7 @@ import { validateOAuthState, exchangeCodeForTokens, getGmailUserProfile } from '
 import { encryptToken } from '@/lib/crypto';
 import { dbService } from '@/lib/db-service';
 import { env } from '@/lib/env';
+import { isSafeRedirectUrl } from '@/lib/security';
 
 function getPublicOrigin(request: NextRequest, redirectUri?: string): string {
   // 1. If state redirectUri has a public origin (e.g. https://outreacher.arenova.in)
@@ -37,7 +38,10 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error');
 
   const stateValidation = state ? validateOAuthState(state) : { isValid: false };
-  const returnTo = (stateValidation.isValid && stateValidation.returnTo) ? stateValidation.returnTo : '/accounts';
+  const returnTo = isSafeRedirectUrl(
+    stateValidation.isValid ? stateValidation.returnTo : null,
+    '/accounts'
+  );
   const origin = getPublicOrigin(request, stateValidation.redirectUri);
 
   if (error) {

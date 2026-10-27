@@ -24,7 +24,7 @@ export async function GET(
       dbService.getLeadGroup(id),
       dbService.getLeads(user.id, { groupId: id, limit: 100 }),
     ]);
-    if (!group) {
+    if (!group || group.user_id !== user.id) {
       return NextResponse.json({ error: 'Lead group not found' }, { status: 404 });
     }
 
@@ -39,7 +39,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -48,7 +48,7 @@ export async function PATCH(
 
   try {
     const existing = await dbService.getLeadGroup(id);
-    if (!existing) {
+    if (!existing || existing.user_id !== user.id) {
       return NextResponse.json({ error: 'Lead group not found' }, { status: 404 });
     }
 
@@ -70,10 +70,10 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -82,7 +82,7 @@ export async function DELETE(
 
   try {
     const group = await dbService.getLeadGroup(id);
-    if (!group) {
+    if (!group || group.user_id !== user.id) {
       return NextResponse.json({ error: 'Lead group not found' }, { status: 404 });
     }
 

@@ -32,10 +32,13 @@ export default function LoginPage() {
         return;
       }
 
-      // Check redirect param
+      // Check redirect param and sanitize against Open Redirect attacks
       const params = new URLSearchParams(window.location.search);
-      const redirectUrl = params.get('redirect') || '/dashboard';
-      router.push(redirectUrl);
+      const rawRedirect = params.get('redirect') || '/dashboard';
+      const safeRedirect = (rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') && !rawRedirect.startsWith('/\\') && !rawRedirect.includes('\\'))
+        ? rawRedirect
+        : '/dashboard';
+      router.push(safeRedirect);
       router.refresh();
     } catch {
       setErrorMessage('Network connection error. Please try again.');

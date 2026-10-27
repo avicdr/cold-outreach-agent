@@ -16,7 +16,26 @@ export async function GET(request: NextRequest) {
   const offset = searchParams.get('offset') !== null ? parseInt(searchParams.get('offset')!, 10) : (page - 1) * limit;
 
   try {
-    const result = await dbService.getPaginatedMessages({ status, campaignId, limit, offset });
+    if (campaignId) {
+      const campaign = await dbService.getCampaign(campaignId);
+      if (!campaign || campaign.user_id !== user.id) {
+        return NextResponse.json({
+          messages: [],
+          total: 0,
+          page,
+          limit,
+          totalPages: 1,
+        });
+      }
+    }
+
+    const result = await dbService.getPaginatedMessages({
+      userId: user.id,
+      status,
+      campaignId,
+      limit,
+      offset,
+    });
     return NextResponse.json({
       messages: result.messages,
       total: result.total,

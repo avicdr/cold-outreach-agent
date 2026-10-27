@@ -234,4 +234,46 @@ describe('Follow-up Threading and Same Inbox Enforcement', () => {
     const scheduledTime = new Date(step1Rescheduled!.scheduled_at!).getTime();
     expect(scheduledTime).toBeGreaterThan(Date.now());
   });
+
+  it('gracefully falls back to available campaign inbox and auto-repairs step 0 if initial outreach email is missing email_account_id', async () => {
+    // 1. Step 0 was sent prior to multi-account tracking, so email_account_id is null
+    const step0 = await dbService.createOrUpdateMessage({
+      campaign_lead_id: campaignLead.id,
+      step_number: 0,
+      subject: 'Legacy outreach email',
+      body_text: 'Sent before multi-account tracking',
+      status: 'sent',
+      email_account_id: null,
+      gmail_message_id: 'legacy_msg_101',
+      gmail_thread_id: 'legacy_thread_101',
+      sent_at: new Date(Date.now() - 86400000).toISOString(),
+    });
+    expect(step0.email_account_id).toBeNull();
+
+    // 2. Step 1 is scheduled with null email_account_id
+    const step1 = await dbService.createOrUpdateMessage({
+      campaign_lead_id: campaignLead.id,
+      step_number: 1,
+      subject: 'Re: Legacy outreach email',
+      body_text: 'Following up on legacy outreach',
+      status: 'scheduled',
+      scheduled_at: new Date().toISOString(),
+      email_account_id: null,
+      gmail_thread_id: 'legacy_thread_101',
+    });
+
+    // 3. Executing send should NOT throw 'Initial outreach email missing email_account_id'
+    // Instead it falls back to an available campaign account, sends successfully, and repairs step 0
+    await handleSendEmailJob({ emailMessageId: step1.id }, true);
+
+    const step1Sent = await dbService.getMessage(step1.id);
+    expect(step1Sent?.status).toBe('sent');
+    expect(step1Sent?.email_account_id).toBeTruthy();
+    expect([account1.id, account2.id]).toContain(step1Sent?.email_account_id);
+
+    // Verify step 0 was repaired
+    const step0Repaired = await dbService.getMessageByLeadAndStep(campaignLead.id, 0);
+    expect(step0Repaired?.email_account_id).toBe(step1Sent?.email_account_id);
+  });
 });
+

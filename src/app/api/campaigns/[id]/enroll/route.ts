@@ -25,7 +25,7 @@ export async function POST(
 
   try {
     const campaign = await dbService.getCampaign(id);
-    if (!campaign) {
+    if (!campaign || campaign.user_id !== user.id) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
@@ -34,6 +34,10 @@ export async function POST(
 
     let enrolledCount = 0;
     if (group_id) {
+      const group = await dbService.getLeadGroup(group_id);
+      if (!group || group.user_id !== user.id) {
+        return NextResponse.json({ error: 'Lead group not found' }, { status: 404 });
+      }
       const result = await dbService.enrollLeadGroupInCampaign(id, group_id);
       enrolledCount = result.enrolled;
     } else if (lead_ids && lead_ids.length > 0) {

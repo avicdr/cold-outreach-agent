@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
 import { encryptToken } from '@/lib/crypto';
+import { sanitizeAccountForClient } from '@/lib/security';
 import { z } from 'zod';
 
 const createAccountSchema = z.object({
@@ -46,8 +47,10 @@ export async function GET(request: NextRequest) {
       filteredAccounts = filteredAccounts.filter((a) => a.status === status);
     }
 
+    const sanitizedAccounts = filteredAccounts.map(sanitizeAccountForClient);
+
     return NextResponse.json({
-      accounts: filteredAccounts,
+      accounts: sanitizedAccounts,
       stats: {
         totalAccounts: stats.totalAccounts,
         activeAccounts: stats.activeAccounts,
@@ -117,7 +120,7 @@ export async function POST(request: NextRequest) {
       group_id: account.group_id,
     });
 
-    return NextResponse.json({ success: true, account }, { status: 201 });
+    return NextResponse.json({ success: true, account: sanitizeAccountForClient(account) }, { status: 201 });
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.issues[0]?.message || 'Validation error' }, { status: 400 });

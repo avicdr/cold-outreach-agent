@@ -1,8 +1,27 @@
 import { NextResponse } from 'next/server';
 import { verifyAdminCredentials, createAdminSessionToken, ADMIN_COOKIE_NAME } from '@/lib/admin-auth';
+import { checkRateLimit, getClientIp, verifyCsrfOrigin } from '@/lib/security';
 
 export async function POST(req: Request) {
   try {
+    if (!verifyCsrfOrigin(req)) {
+      return NextResponse.json({ error: 'Forbidden: Invalid request origin' }, { status: 403 });
+    }
+
+    const clientIp = getClientIp(req);
+    const rateCheck = checkRateLimit(`login:${clientIp}`, 5, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Too many login attempts. Please wait a minute before trying again.' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.ceil((rateCheck.resetAt - Date.now()) / 1000)),
+          },
+        }
+      );
+    }
+
     const body = await req.json();
     const { email, password } = body || {};
 

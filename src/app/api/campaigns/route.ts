@@ -57,8 +57,8 @@ const campaignSchema = z.object({
     }),
 });
 
-export async function GET() {
-  const user = await getAuthenticatedUser();
+export async function GET(request?: NextRequest) {
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

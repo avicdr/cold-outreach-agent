@@ -187,8 +187,30 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
     });
 
     // Enforce that follow-ups inherit the same email account and thread from the initial send
-    const emailAccountId = initialMsg?.email_account_id || prevMsg?.email_account_id || null;
+    let emailAccountId = initialMsg?.email_account_id || prevMsg?.email_account_id || null;
     const gmailThreadId = initialMsg?.gmail_thread_id || prevMsg?.gmail_thread_id || null;
+
+    if (!emailAccountId) {
+      try {
+        const accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+        if (accountResult.status === 'available') {
+          emailAccountId = accountResult.account.id;
+        } else {
+          const accounts = await dbService.getEmailAccounts(campaign.user_id, { status: 'active' });
+          if (accounts.length > 0) {
+            emailAccountId = accounts[0].id;
+          }
+        }
+        if (emailAccountId && initialMsg && !initialMsg.email_account_id) {
+          await dbService.createOrUpdateMessage({
+            ...initialMsg,
+            email_account_id: emailAccountId,
+          });
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
 
     const msg = await dbService.createOrUpdateMessage({
       campaign_lead_id: campaignLeadId,
@@ -355,23 +377,84 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
 
     // 3. Lock to the SAME email account ID that sent the initial email
     const originalAccountId = message.email_account_id || initialMsg?.email_account_id || prevMsg?.email_account_id;
-    if (!originalAccountId) {
-      throw new Error(
-        `Cannot identify original sender inbox ID for follow-up message ${emailMessageId}. Initial outreach email missing email_account_id.`
-      );
+    let origAccount: EmailAccount | null = null;
+
+    if (originalAccountId) {
+      origAccount = await dbService.getEmailAccount(originalAccountId);
     }
 
-    const origAccount = await dbService.getEmailAccount(originalAccountId);
     if (!origAccount) {
-      throw new Error(
-        `Original sending inbox (${originalAccountId}) for follow-up email was not found. Cannot switch inboxes to maintain thread consistency.`
+      // Fallback: If initial outreach message is missing email_account_id (e.g. sent prior to multi-account tracking)
+      // or the original inbox was deleted/unlinked, gracefully resolve an available email account from the campaign
+      console.warn(
+        `[PreFlight] Original sender inbox (${originalAccountId || 'unknown'}) for follow-up message ${emailMessageId} not found or missing. Falling back to available account from campaign.`
       );
-    }
+      const accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+      if (accountResult.status === 'no_accounts') {
+        throw new Error(accountResult.error);
+      }
+      if (accountResult.status === 'daily_limit_reached') {
+        console.info(
+          `[RateLimit] Daily limit reached for accounts in campaign ${campaign.id}. Rescheduling follow-up send to ${accountResult.rescheduleAt.toISOString()}`
+        );
+        await dbService.createOrUpdateMessage({
+          ...message,
+          status: 'scheduled',
+          scheduled_at: accountResult.rescheduleAt.toISOString(),
+        });
+        await dbService.enqueueJob(
+          'send_email',
+          { emailMessageId },
+          `resched_limit_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`,
+          accountResult.rescheduleAt
+        );
+        return;
+      }
+      if (accountResult.status === 'cooldown') {
+        console.info(
+          `[RateLimit] Accounts in cooldown. Rescheduling follow-up send for inbox ${accountResult.accountEmail} to ${accountResult.rescheduleAt.toISOString()}`
+        );
+        await dbService.createOrUpdateMessage({
+          ...message,
+          status: 'scheduled',
+          scheduled_at: accountResult.rescheduleAt.toISOString(),
+        });
+        await dbService.enqueueJob(
+          'send_email',
+          { emailMessageId },
+          `resched_cooldown_${emailMessageId}_${accountResult.rescheduleAt.getTime()}`,
+          accountResult.rescheduleAt
+        );
+        return;
+      }
+      origAccount = accountResult.account;
 
-    if (origAccount.status !== 'active') {
-      throw new Error(
-        `Original sending inbox ${origAccount.email_address} is currently ${origAccount.status}. Follow-up must be sent from the same ID/inbox to keep the conversation on the same thread. Please reactivate or reconnect ${origAccount.email_address}.`
+      // Auto-repair step 0 & current message so subsequent follow-ups remain consistently locked
+      if (initialMsg && !initialMsg.email_account_id) {
+        try {
+          await dbService.createOrUpdateMessage({
+            ...initialMsg,
+            email_account_id: origAccount.id,
+          });
+        } catch (repairErr) {
+          console.warn(`[PreFlight] Could not backfill initial email_account_id:`, repairErr);
+        }
+      }
+      message.email_account_id = origAccount.id;
+    } else if (origAccount.status !== 'active') {
+      // Check if user reconnected the same email address under a new account ID
+      const userAccounts = await dbService.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const reconnectedAccount = userAccounts.find(
+        (a) => a.email_address.toLowerCase() === origAccount!.email_address.toLowerCase()
       );
+      if (reconnectedAccount) {
+        origAccount = reconnectedAccount;
+        message.email_account_id = origAccount.id;
+      } else {
+        throw new Error(
+          `Original sending inbox ${origAccount.email_address} is currently ${origAccount.status}. Follow-up must be sent from the same ID/inbox to keep the conversation on the same thread. Please reactivate or reconnect ${origAccount.email_address}.`
+        );
+      }
     }
 
     // Rate-limit check specifically for the locked inbox

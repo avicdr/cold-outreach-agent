@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { ADMIN_COOKIE_NAME, verifyAdminSessionToken } from '@/lib/admin-auth';
+import { isSafeRedirectUrl } from '@/lib/security';
+import { env } from '@/lib/env';
 
 // Paths that never require authentication
 const PUBLIC_FILE_EXTENSIONS = [
@@ -37,7 +39,7 @@ function getPublicUrl(path: string, request: NextRequest): URL {
   return new URL(path, request.nextUrl.origin);
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 1. Allow public static assets
@@ -60,7 +62,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 3. Check for admin session cookie
+  // 2.5 Allow CRON_SECRET authenticated calls to jobs APIs
+  if (pathname.startsWith('/api/jobs')) {
+    const authHeader = request.headers.get('authorization') || '';
+    if (env.CRON_SECRET && authHeader === `Bearer ${env.CRON_SECRET}`) {
+      return NextResponse.next();
+    }
+  }
+
+  // 3. Check for admin session cookie or Bearer token
   const sessionToken = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
   const session = await verifyAdminSessionToken(sessionToken);
   const isAuthenticated = Boolean(session);
@@ -68,7 +78,9 @@ export async function middleware(request: NextRequest) {
   // 4. Handle /login route
   if (pathname === '/login') {
     if (isAuthenticated) {
-      const redirectUrl = getPublicUrl('/dashboard', request);
+      const redirectParam = request.nextUrl.searchParams.get('redirect');
+      const safeRedirect = isSafeRedirectUrl(redirectParam, '/dashboard');
+      const redirectUrl = getPublicUrl(safeRedirect, request);
       return NextResponse.redirect(redirectUrl);
     }
     return NextResponse.next();
@@ -78,17 +90,27 @@ export async function middleware(request: NextRequest) {
   if (!isAuthenticated) {
     // If it's an API route that's not explicitly public, return 401 instead of redirecting
     if (pathname.startsWith('/api/')) {
-      // Allow testing or internal requests if mock mode or cron is authorized
-      return NextResponse.next();
+      return NextResponse.json(
+        { error: 'Unauthorized: Authentication required' },
+        { status: 401 }
+      );
     }
 
-    const redirectQuery = (pathname !== '/' && pathname !== '/dashboard') ? `?redirect=${encodeURIComponent(pathname)}` : '';
+    const rawRedirect = (pathname !== '/' && pathname !== '/dashboard') ? pathname : '';
+    const safeRedirect = rawRedirect ? isSafeRedirectUrl(rawRedirect, '') : '';
+    const redirectQuery = safeRedirect ? `?redirect=${encodeURIComponent(safeRedirect)}` : '';
     const loginUrl = getPublicUrl(`/login${redirectQuery}`, request);
     return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
 }
+
+// Next.js 16 supports proxy as standard export
+export default proxy;
+
+// Maintain middleware named export for backward compatibility
+export const middleware = proxy;
 
 export const config = {
   matcher: [

@@ -1,5 +1,6 @@
 import { DiscoveredBusinessRaw } from './providers/types';
 import { ObservedFrictionItem } from '@/types/database';
+import { isSafeUrlForFetch } from '@/lib/security';
 
 export interface WebsiteInspectionResult {
   email?: string;
@@ -126,10 +127,19 @@ export async function inspectWebsite(
     return result;
   }
 
-  let formattedUrl = websiteUrl.trim();
-  if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
-    formattedUrl = 'https://' + formattedUrl;
+  const safeCheck = isSafeUrlForFetch(websiteUrl);
+  if (!safeCheck.safe) {
+    result.observed_friction.push({
+      finding: `Website address rejected for security inspection: ${safeCheck.reason}`,
+      evidence_type: 'observed',
+      source_url: websiteUrl,
+      confidence: 'high',
+    });
+    result.snippet_for_ai = `Website check blocked: ${safeCheck.reason}`;
+    return result;
   }
+
+  const formattedUrl = safeCheck.url!;
 
   try {
     const res = await fetch(formattedUrl, {

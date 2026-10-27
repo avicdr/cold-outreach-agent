@@ -18,7 +18,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -26,6 +26,11 @@ export async function PATCH(
   const { id } = await params;
 
   try {
+    const lead = await dbService.getLead(id);
+    if (!lead || lead.user_id !== user.id) {
+      return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const validated = updateLeadSchema.parse(body);
 

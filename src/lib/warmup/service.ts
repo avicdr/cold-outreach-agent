@@ -141,6 +141,16 @@ export async function executeWarmupSend(
       created_at: now,
     };
 
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const todayIso = today.toISOString();
+
+    const currentDay = Math.max(1, fromAccount.warmup_day_count || 1);
+    const nextDayCount =
+      fromAccount.last_sent_at && fromAccount.last_sent_at < todayIso
+        ? currentDay + 1
+        : currentDay;
+
     if (isLiveSupabase()) {
       const supabase = createAdminClient();
       await supabase.from('warmup_messages').insert({
@@ -162,6 +172,7 @@ export async function executeWarmupSend(
         .update({
           warmup_sent_today: (fromAccount.warmup_sent_today || 0) + 1,
           total_warmup_sent: (fromAccount.total_warmup_sent || 0) + 1,
+          warmup_day_count: nextDayCount,
           warmup_status: 'warming',
           last_sent_at: now,
           updated_at: now,
@@ -172,6 +183,7 @@ export async function executeWarmupSend(
       mockDb.warmupMessages.set(warmupMsg.id, warmupMsg);
       fromAccount.warmup_sent_today = (fromAccount.warmup_sent_today || 0) + 1;
       fromAccount.total_warmup_sent = (fromAccount.total_warmup_sent || 0) + 1;
+      fromAccount.warmup_day_count = nextDayCount;
       fromAccount.warmup_status = 'warming';
       fromAccount.last_sent_at = now;
       mockDb.emailAccounts.set(fromAccount.id, fromAccount);
@@ -248,14 +260,29 @@ export async function runWarmupCycle(userId: string): Promise<{
   let emailsSent = 0;
   const errors: string[] = [];
 
-  for (const group of warmupGroups) {
-    // Inboxes in this warmup group that have warmup enabled
-    const pool = allAccounts.filter(
+  // 1. Explicit warmup groups
+  const poolsToProcess: Array<{ name: string; group?: AccountGroup; pool: EmailAccount[] }> = warmupGroups.map((group) => ({
+    name: group.name,
+    group,
+    pool: allAccounts.filter(
       (a) => a.group_id === group.id && a.warmup_enabled !== false && a.status === 'active'
-    );
+    ),
+  }));
 
+  // 2. Also form a peer pool for active warmup inboxes that are unassigned
+  const unassignedAccounts = allAccounts.filter(
+    (a) => !a.group_id && a.warmup_enabled !== false && a.status === 'active'
+  );
+  if (unassignedAccounts.length >= 2) {
+    poolsToProcess.push({
+      name: 'Unassigned Warmup Pool',
+      pool: unassignedAccounts,
+    });
+  }
+
+  for (const { name, group, pool } of poolsToProcess) {
     if (pool.length < 2) {
-      console.info(`[Warmup] Group "${group.name}" has fewer than 2 active inboxes. Need at least 2 inboxes for peer warmup.`);
+      console.info(`[Warmup] Pool "${name}" has fewer than 2 active inboxes. Need at least 2 inboxes for peer warmup.`);
       continue;
     }
 
@@ -287,7 +314,7 @@ export async function runWarmupCycle(userId: string): Promise<{
   }
 
   return {
-    groupsProcessed: warmupGroups.length,
+    groupsProcessed: warmupGroups.length > 0 ? warmupGroups.length : (poolsToProcess.length > 0 ? 1 : 0),
     inboxesWarmed,
     emailsSent,
     errors,

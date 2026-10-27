@@ -14,6 +14,11 @@ export async function POST(
   const { id } = await params;
 
   try {
+    const campaign = await dbService.getCampaign(id);
+    if (!campaign || campaign.user_id !== user.id) {
+      return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+    }
+
     const updated = await dbService.updateCampaign(id, { status: 'cancelled' });
     
     // Cancel scheduled messages

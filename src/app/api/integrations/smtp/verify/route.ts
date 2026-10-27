@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { verifySmtp } from '@/lib/smtp/client';
+import { isSafeHost, checkRateLimit, getClientIp } from '@/lib/security';
 import { z } from 'zod';
 
 const verifySmtpSchema = z.object({
@@ -12,14 +13,31 @@ const verifySmtpSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const clientIp = getClientIp(request);
+  const rateLimit = checkRateLimit(`smtp-verify:${user.id}:${clientIp}`, 5, 60 * 1000);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many verification attempts. Please wait.' },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfter || 60) } }
+    );
   }
 
   try {
     const body = await request.json();
     const validated = verifySmtpSchema.parse(body);
+
+    const hostCheck = isSafeHost(validated.host.trim());
+    if (!hostCheck.safe) {
+      return NextResponse.json(
+        { success: false, error: `Invalid or forbidden SMTP host: ${hostCheck.reason}` },
+        { status: 400 }
+      );
+    }
 
     const result = await verifySmtp({
       host: validated.host.trim(),

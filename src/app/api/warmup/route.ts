@@ -54,13 +54,18 @@ export async function POST(req: NextRequest) {
 
     if (action === 'run_cycle') {
       const result = await runWarmupCycle(user.id);
-      return NextResponse.json({ success: true, ...result });
+      return NextResponse.json({ success: true, messagesSent: result.emailsSent, ...result });
     }
 
     if (action === 'toggle_group') {
       const { groupId, is_warmup_enabled, warmup_daily_limit, warmup_ramp_per_day, warmup_reply_rate } = body;
       if (!groupId) {
         return NextResponse.json({ error: 'Missing groupId' }, { status: 400 });
+      }
+
+      const existingGroup = await dbService.getAccountGroup(groupId);
+      if (!existingGroup || existingGroup.user_id !== user.id) {
+        return NextResponse.json({ error: 'Account group not found' }, { status: 404 });
       }
 
       const updates: Record<string, unknown> = {};
@@ -91,6 +96,11 @@ export async function POST(req: NextRequest) {
       const { accountId, warmup_enabled, warmup_status } = body;
       if (!accountId) {
         return NextResponse.json({ error: 'Missing accountId' }, { status: 400 });
+      }
+
+      const existingAccount = await dbService.getEmailAccount(accountId);
+      if (!existingAccount || existingAccount.user_id !== user.id) {
+        return NextResponse.json({ error: 'Email account not found' }, { status: 404 });
       }
 
       const updates: Record<string, unknown> = {};

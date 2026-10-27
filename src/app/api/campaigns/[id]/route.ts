@@ -1,12 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
+import { z } from 'zod';
+
+const updateCampaignSchema = z.object({
+  name: z.string().min(1).optional(),
+  business_context: z.string().optional(),
+  ideal_customer_profile: z.string().optional(),
+  offer: z.string().optional(),
+  tone: z.string().optional(),
+  call_to_action: z.string().optional(),
+  initial_email_instructions: z.string().optional(),
+  account_group_id: z.string().uuid().nullable().optional(),
+  status: z.enum(['draft', 'active', 'paused', 'completed', 'cancelled']).optional(),
+  sending_config: z.record(z.string(), z.any()).optional(),
+  followup_config: z.record(z.string(), z.any()).optional(),
+});
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -15,7 +30,7 @@ export async function GET(
 
   try {
     const campaign = await dbService.getCampaign(id);
-    if (!campaign) {
+    if (!campaign || campaign.user_id !== user.id) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
@@ -43,7 +58,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -56,8 +71,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    const updates = await request.json();
-    const updated = await dbService.updateCampaign(id, updates);
+    const body = await request.json();
+    const validated = updateCampaignSchema.parse(body);
+    const updated = await dbService.updateCampaign(id, validated as any);
 
     await dbService.logActivity(user.id, 'campaign_updated', 'campaign', id, {
       name: updated.name,
@@ -66,6 +82,9 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, campaign: updated });
   } catch (err: unknown) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.flatten().fieldErrors }, { status: 400 });
+    }
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }

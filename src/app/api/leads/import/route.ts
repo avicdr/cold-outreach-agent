@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
+import { checkRateLimit, getClientIp } from '@/lib/security';
 import {
   parseCSVContent,
   parseExcelBuffer,
@@ -10,10 +11,21 @@ import {
   RawLeadRow,
 } from '@/lib/csv-excel';
 
+const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
+
 export async function POST(request: NextRequest) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const clientIp = getClientIp(request);
+  const rateLimit = checkRateLimit(`import:${user.id}:${clientIp}`, 10, 60 * 1000);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Please wait before importing more files.' },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfter || 60) } }
+    );
   }
 
   const contentType = request.headers.get('content-type') || '';
@@ -37,6 +49,13 @@ export async function POST(request: NextRequest) {
 
       if (!file) {
         return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+      }
+
+      if (file.size > MAX_IMPORT_FILE_SIZE) {
+        return NextResponse.json(
+          { error: 'File size exceeds maximum allowed limit (10MB)' },
+          { status: 413 }
+        );
       }
 
       filename = file.name;
@@ -95,9 +114,11 @@ export async function POST(request: NextRequest) {
     try {
       if (requestedGroupId && requestedGroupId.trim()) {
         const g = await dbService.getLeadGroup(requestedGroupId.trim());
-        if (g) {
+        if (g && (g.user_id === user.id || user.isOwner)) {
           targetGroup = { id: g.id, name: g.name };
           targetGroupId = g.id;
+        } else {
+          return NextResponse.json({ error: 'Lead group not found or access denied' }, { status: 404 });
         }
       } else if (requestedGroupName && requestedGroupName.trim()) {
         const cleanName = requestedGroupName.trim();

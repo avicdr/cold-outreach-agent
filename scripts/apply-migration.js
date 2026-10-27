@@ -23,11 +23,14 @@ loadEnvFile(path.join(__dirname, '../.env.local'));
 loadEnvFile(path.join(__dirname, '../.env'));
 
 async function run() {
-  console.log('Connecting to Supabase PostgreSQL database...');
-  const connectionString =
-    process.env.DATABASE_URL ||
-    'postgresql://postgres.nkiizjcwrrdggdqneuhv:I07D7kieV7DmYFHX@aws-0-ap-south-1.pooler.supabase.com:5432/postgres';
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error('❌ Error: DATABASE_URL environment variable is required to run migrations.');
+    console.error('Please configure DATABASE_URL in .env.local or your environment.');
+    process.exit(1);
+  }
 
+  console.log('Connecting to Supabase PostgreSQL database...');
   const client = new Client({
     connectionString,
     ssl: { rejectUnauthorized: false },

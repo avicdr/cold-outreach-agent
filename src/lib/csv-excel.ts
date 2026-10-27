@@ -142,7 +142,7 @@ export function parseCSVContent(csvString: string): { headers: string[]; rows: R
  * Parses XLSX / XLS buffer into array of objects and headers.
  */
 export function parseExcelBuffer(buffer: Buffer | ArrayBuffer): { headers: string[]; rows: RawLeadRow[] } {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellFormula: false, cellHTML: false });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) {
     return { headers: [], rows: [] };
@@ -242,6 +242,10 @@ export function processImportRows(
     // Save all unmapped attributes into customFields automatically
     for (const [key, val] of Object.entries(row)) {
       if (val !== undefined && val !== null && val !== '') {
+        // Prevent Prototype Pollution
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+          continue;
+        }
         const cleanVal = typeof val === 'object' ? JSON.stringify(val) : val;
         // Save if not a primary field or if it holds qualification data
         if (!mappedHeaderKeys.has(key)) {
