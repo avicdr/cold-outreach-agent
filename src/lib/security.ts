@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { EmailAccount } from '@/types/database';
 
 /**
@@ -25,13 +24,16 @@ export function sanitizeAccountForClient(account: EmailAccount): SanitizedEmailA
 
 /**
  * Constant-time string comparison to prevent timing side-channel attacks.
+ * Safe for both Edge runtime and Node.js environments without external dependencies.
  */
 export function timingSafeEqualStr(a?: string | null, b?: string | null): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const bufA = Buffer.from(a, 'utf8');
-  const bufB = Buffer.from(b, 'utf8');
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
 }
 
 /**
