@@ -1,6 +1,12 @@
 import crypto from 'crypto';
 import { env } from '../env';
 
+export interface EmailAttachment {
+  filename: string;
+  contentType: string;
+  contentBase64: string;
+}
+
 export interface SendEmailOptions {
   from: string;
   to: string;
@@ -11,6 +17,7 @@ export interface SendEmailOptions {
   threadId?: string;
   inReplyToMessageId?: string;
   references?: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface GmailSendResult {
@@ -51,6 +58,7 @@ export function buildMimeEmail(options: SendEmailOptions): string {
     unsubscribeUrl,
     inReplyToMessageId,
     references,
+    attachments,
   } = options;
 
   const date = new Date().toUTCString();
@@ -77,6 +85,64 @@ export function buildMimeEmail(options: SendEmailOptions): string {
   if (unsubscribeUrl) {
     headers.push(`List-Unsubscribe: <${unsubscribeUrl}>`);
     headers.push(`List-Unsubscribe-Post: List-Unsubscribe=One-Click`);
+  }
+
+  const hasAttachments = Boolean(attachments && attachments.length > 0);
+
+  if (hasAttachments) {
+    const mixedBoundary = `----=_Mixed_${crypto.randomBytes(8).toString('hex')}`;
+    headers.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
+
+    const parts: string[] = [];
+
+    // Body part (alternative if html present, else plain text)
+    if (bodyHtml) {
+      const altBoundary = `----=_Part_${crypto.randomBytes(8).toString('hex')}`;
+      parts.push(
+        `--${mixedBoundary}`,
+        `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+        ``,
+        `--${altBoundary}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        `Content-Transfer-Encoding: 7bit`,
+        ``,
+        bodyText,
+        ``,
+        `--${altBoundary}`,
+        `Content-Type: text/html; charset="UTF-8"`,
+        `Content-Transfer-Encoding: 7bit`,
+        ``,
+        bodyHtml,
+        ``,
+        `--${altBoundary}--`
+      );
+    } else {
+      parts.push(
+        `--${mixedBoundary}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        `Content-Transfer-Encoding: 7bit`,
+        ``,
+        bodyText
+      );
+    }
+
+    // Attachment parts
+    for (const att of attachments!) {
+      parts.push(
+        ``,
+        `--${mixedBoundary}`,
+        `Content-Type: ${att.contentType || 'application/pdf'}; name="${att.filename}"`,
+        `Content-Description: ${att.filename}`,
+        `Content-Disposition: attachment; filename="${att.filename}"`,
+        `Content-Transfer-Encoding: base64`,
+        ``,
+        att.contentBase64
+      );
+    }
+
+    parts.push(``, `--${mixedBoundary}--`);
+
+    return `${headers.join('\r\n')}\r\n\r\n${parts.join('\r\n')}`;
   }
 
   if (bodyHtml) {

@@ -266,13 +266,16 @@ export interface Campaign {
   call_to_action: string;
   initial_email_instructions: string;
   account_group_id?: string | null;
+  email_account_id?: string | null;
+  resume_url?: string | null;
   sending_config: SendingConfig;
   followup_config: FollowupConfig;
   created_at: string;
   updated_at: string;
   activated_at: string | null;
-  // Joined relation
+  // Joined relations
   account_group?: AccountGroup | null;
+  email_account?: EmailAccount | null;
 }
 
 export interface CampaignLead {

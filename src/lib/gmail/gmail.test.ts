@@ -64,6 +64,27 @@ describe('Gmail & OAuth Integrations', () => {
     expect(mime).toContain('References: <original-msg-123@business.com>');
   });
 
+  it('builds RFC 2822 compliant MIME message with attachments', () => {
+    const mime = buildMimeEmail({
+      from: 'sender@business.com',
+      to: 'lead@prospect.com',
+      subject: 'Opportunity to connect with Resume',
+      bodyText: 'Please see attached resume.',
+      attachments: [
+        {
+          filename: 'Resume_Avi.pdf',
+          contentType: 'application/pdf',
+          contentBase64: 'JVBERi0xLjQKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDw...',
+        },
+      ],
+    });
+
+    expect(mime).toContain('Content-Type: multipart/mixed;');
+    expect(mime).toContain('Content-Disposition: attachment; filename="Resume_Avi.pdf"');
+    expect(mime).toContain('Content-Type: application/pdf; name="Resume_Avi.pdf"');
+    expect(mime).toContain('JVBERi0xLjQKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDw...');
+  });
+
   it('sends via mock adapter when in mock mode', async () => {
     const result = await sendGmailMessage('mock-token', {
       from: 'sender@business.com',

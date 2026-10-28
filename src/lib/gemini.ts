@@ -42,9 +42,9 @@ export type DraftValidation = z.infer<typeof DraftValidationSchema>;
 /**
  * Detects common unresolved placeholders like {{name}}, [Company], <title>, etc.
  */
-export function detectUnresolvedPlaceholders(text: string): string[] {
+export function detectUnresolvedPlaceholders(text: string, allowedPlaceholders: string[] = []): string[] {
   const matches = text.match(/(\{\{[^}]+\}\}|\[[A-Za-z\s]+\]|<[A-Za-z\s]+>)/g) || [];
-  return Array.from(new Set(matches));
+  return Array.from(new Set(matches)).filter((p) => !allowedPlaceholders.includes(p));
 }
 
 /**
@@ -71,7 +71,9 @@ export function detectSuspiciousClaims(body: string): string[] {
 
 export interface GenerateInitialEmailParams {
   lead: Lead;
-  campaign: Pick<Campaign, 'name' | 'business_context' | 'ideal_customer_profile' | 'offer' | 'tone' | 'call_to_action' | 'initial_email_instructions'>;
+  campaign: Pick<Campaign, 'name' | 'business_context' | 'ideal_customer_profile' | 'offer' | 'tone' | 'call_to_action' | 'initial_email_instructions'> & {
+    resume_url?: string | null;
+  };
   senderName?: string;
   maxWords?: number;
 }
@@ -116,6 +118,13 @@ export interface ExtractedLeadProfile {
   qualificationScore: string | number;
   personalizationHook: string;
   leadId: string | number;
+  // Tech founder & Job/Internship fields
+  targetRoles?: string;
+  techStack?: string;
+  startupDetails?: string;
+  outreachHook?: string;
+  cohort?: string;
+  degreePolicy?: string;
 }
 
 /**
@@ -147,7 +156,7 @@ export function extractLeadEnrichment(lead: Lead): ExtractedLeadProfile {
 
   const businessName =
     lead.company ||
-    getField('Business_Name', 'BusinessName', 'company_name', 'business', 'Company') ||
+    getField('Startup_Name', 'StartupName', 'Business_Name', 'BusinessName', 'company_name', 'business', 'Company') ||
     'your team';
 
   const categoryNiche =
@@ -157,7 +166,7 @@ export function extractLeadEnrichment(lead: Lead): ExtractedLeadProfile {
 
   const cityArea =
     lead.city ||
-    getField('City_Area', 'CityArea', 'city', 'area', 'location') ||
+    getField('City_Area', 'CityArea', 'city', 'area', 'location', 'Remote_Scope', 'RemoteScope') ||
     '';
 
   const country = lead.country || getField('Country', 'country') || '';
@@ -183,14 +192,32 @@ export function extractLeadEnrichment(lead: Lead): ExtractedLeadProfile {
   const personalizationHook =
     lead.suggested_opening ||
     lead.sales_angle ||
-    getField('Cold_Email_Personalization_Hook', 'ColdEmailPersonalizationHook', 'personalization_hook', 'hook');
+    getField('Outreach_Hook', 'OutreachHook', 'Cold_Email_Personalization_Hook', 'ColdEmailPersonalizationHook', 'personalization_hook', 'hook');
 
   const leadId = getField('Lead_ID', 'LeadID', 'id');
 
+  // Tech founder and Job / Internship fields
+  const targetRoles = getField('Target_Remote_Roles', 'TargetRemoteRoles', 'target_roles') || (lead.job_title && /engineer|developer|intern|ai|systems|software|applied/i.test(lead.job_title) ? lead.job_title : '');
+  const techStack = getField('Tech_Stack', 'TechStack', 'tech_stack', 'stack') || '';
+  const startupDetails = lead.notes || getField('Startup_Details', 'StartupDetails', 'details', 'summary') || '';
+  const outreachHook = personalizationHook || getField('Outreach_Hook', 'OutreachHook', 'hook') || '';
+  const cohort = getField('Cohort', 'cohort') || '';
+  const degreePolicy = getField('Degree_Policy', 'DegreePolicy') || '';
+
   // Smart salutation: handle explicit profile emails (info@clinic, contact@...) vs individual person
   const genericPrefixes = ['info', 'contact', 'hello', 'admin', 'office', 'support', 'sales', 'frontdesk', 'reception', 'help', 'team', 'dental', 'clinic'];
-  const rawFirst = (lead.first_name || '').trim();
+  let rawFirst = (lead.first_name || '').trim();
   const rawLast = (lead.last_name || '').trim();
+
+  // If first_name is empty, check if Founder_Names exists in custom fields
+  if (!rawFirst) {
+    const rawFounders = getField('Founder_Names', 'FounderNames', 'founders', 'founder_name');
+    if (rawFounders && !/founders|team|partners/i.test(rawFounders)) {
+      const firstPerson = rawFounders.split(/[,\&]/)[0].trim();
+      rawFirst = firstPerson.split(/\s+/)[0] || '';
+    }
+  }
+
   const emailUserPart = (targetColdEmail.split('@')[0] || '').toLowerCase();
   const isGeneric = !rawFirst || genericPrefixes.includes(rawFirst.toLowerCase()) || genericPrefixes.includes(emailUserPart);
 
@@ -227,6 +254,12 @@ export function extractLeadEnrichment(lead: Lead): ExtractedLeadProfile {
     qualificationScore,
     personalizationHook,
     leadId,
+    targetRoles,
+    techStack,
+    startupDetails,
+    outreachHook,
+    cohort,
+    degreePolicy,
   };
 }
 
@@ -345,8 +378,58 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
   const { lead, campaign, senderName = 'The Team', maxWords = 100 } = params;
   const profile = extractLeadEnrichment(lead);
 
+  const isJobOutreach = Boolean(
+    /intern|internship|job|hiring|candidate|resume/i.test(campaign.offer) ||
+    /intern|internship|job application|engineering role|founder outreach|job inquiry/i.test(campaign.name) ||
+    (profile.techStack && profile.outreachHook && !profile.currentBookingSetup) ||
+    (profile.targetRoles && (profile.techStack || profile.outreachHook))
+  );
+
   // Use rich tailored response if no AI key or in mock mode
   if (!hasAiKeyConfigured() || env.MOCK_MODE) {
+    if (isJobOutreach) {
+      const tech = profile.techStack || '';
+      const stackLower = tech.toLowerCase();
+      const hookLower = (profile.outreachHook || '').toLowerCase();
+      const companyLower = profile.businessName.toLowerCase();
+      const combined = `${stackLower} ${hookLower} ${companyLower}`;
+
+      let relevantProject = '';
+      if (/rust|distributed|database|crdt|concurrency|queue|temporal|workflow|transaction|clock|hatchet|inngest/i.test(combined)) {
+        relevantProject = 'building Conflict-Free OLTP (a distributed database engine in Rust using CRDTs and Hybrid Logical Clocks)';
+      } else if (/serving|inference|vllm|ollama|slm|runtime|quantiz|gpu|cuda|modal|llama\.cpp|baseten|together/i.test(combined)) {
+        relevantProject = 'building Compact SLM (a local LLM serving platform in FastAPI and Qwen3 with modular backend architecture and automated testing)';
+      } else if (/search|rag|retrieval|collaboration|git|dev\s*tool|editor|code|langchain|llama|vector|semantic/i.test(combined)) {
+        relevantProject = 'building ResearchGit (a collaboration platform with semantic vector search) and practical tool-calling pipelines';
+      } else {
+        relevantProject = 'shipping production features with an early-stage AI team (AetherLabs) and building practical agentic workflows in Python & FastAPI';
+      }
+
+      const openingSentence = profile.outreachHook
+        ? profile.outreachHook
+        : `Saw what you and the team are building at ${profile.businessName}.`;
+
+      const subject = profile.businessName !== 'your team'
+        ? `${profile.businessName} - Engineering Internship / Om Nigam`
+        : `Engineering Contribution / Om Nigam`;
+
+      const resumePlaceholder = campaign.resume_url || '{{resume_url}}';
+
+      const body = `Hi ${profile.recipientSalutation},\n\n${openingSentence}\n\nI'm a CS student at BITS Pilani (Bengaluru) focused on practical AI systems, backend reliability, and developer infrastructure. Recently, my work has centered around ${relevantProject}.\n\nI'd love to contribute to ${profile.businessName} as an engineering intern. You can review my resume here: ${resumePlaceholder} (and GitHub: https://github.com/avicdr).\n\nWould you be open to a brief 5-minute chat next week to see if I could be helpful to the team?\n\nBest,\nOm`;
+
+      return {
+        subject,
+        body,
+        personalization_basis: [
+          profile.outreachHook ? `Outreach hook: ${profile.outreachHook}` : `Company focus: ${profile.businessName}`,
+          `Relevant proof-of-work project: ${relevantProject}`,
+          'BITS Pilani CS background & hands-on systems/AI contribution',
+        ],
+        unsupported_claims: [],
+        needs_review: false,
+      };
+    }
+
     const openingSentence = profile.personalizationHook
       ? profile.personalizationHook
       : profile.googleReviewCount
@@ -375,7 +458,53 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
     };
   }
 
-  const systemInstruction = `You are a world-class B2B cold email copywriter specializing in high-converting outreach to local clinics, practices, and service businesses (Dental, Med Spa, Chiropractic, Dermatology, Veterinary, Eye Care, Auto Repair, Home Maintenance/HVAC, etc.).
+  const systemInstruction = isJobOutreach
+    ? `You are an elite engineering talent copywriter writing authentic, ultra-personalized cold emails on behalf of Om Nigam to tech startup founders and CTOs for engineering/AI internships.
+
+CANDIDATE DOSSIER — OM NIGAM:
+- Identity: Om Nigam, B.Sc. Computer Science student at BITS Pilani, Bengaluru (2025–2029).
+- Core Focus: Agentic AI, autonomous AI systems, LLM-powered applications, practical backend architecture, system reliability, and AI infrastructure.
+- Technical Toolkit: Python, FastAPI, Node.js, PostgreSQL, MongoDB, Docker, React, Next.js, TypeScript, Rust, local LLMs, llama.cpp.
+- Proven Projects (Select the SINGLE most relevant project matching this founder's tech stack and domain):
+  1. For AI Infra / Inference / Serving / Runtimes / Local LLMs / GPU: "Compact SLM" (built a local LLM serving platform using FastAPI and Qwen3, with modular backend and automated tests; experience with llama.cpp and local model serving).
+  2. For Distributed Systems / Databases / Workflow Orchestration / Concurrency / Queues: "Conflict-Free OLTP" (built a distributed database engine in Rust using CRDTs and Hybrid Logical Clocks for concurrency correctness).
+  3. For Dev Tools / Code / Search / RAG / Collaboration: "ResearchGit" (built a research collaboration platform with semantic search, vector embeddings, and real-time collaboration).
+  4. For General AI Apps / Workflow Automation: shipped production features with an early-stage founding team at AetherLabs (AI insurtech), focused on practical AI tool use and system reliability.
+- Verified Links:
+  * GitHub: https://github.com/avicdr
+  * LinkedIn: https://linkedin.com/in/webavi
+  * Resume: {{resume_url}} (Always use {{resume_url}} literally, or the configured campaign resume URL).
+
+CRITICAL RULES:
+1. LENGTH: Strict 60–90 words. Zero fluff, high density of engineering signal.
+2. SALUTATION: Use "Hi ${profile.recipientSalutation},".
+3. OPENING (THE HOOK):
+   ${profile.outreachHook
+     ? `MANDATORY: You MUST open or lead with this exact verified outreach hook: "${profile.outreachHook}". Adapt it naturally as your very first sentence.`
+     : `Open with a crisp, authentic technical observation about ${profile.businessName} and what they are building.`}
+4. TECHNICAL ALIGNMENT & PROOF OF WORK:
+   - Connect Om's background (BITS Pilani CS) and his SINGLE most relevant project (Compact SLM, Conflict-Free OLTP in Rust, ResearchGit, or AetherLabs production experience) directly to ${profile.businessName}'s stack (${profile.techStack || 'AI & systems'}).
+   - Position Om as a hands-on builder who wants to contribute directly to the founders, ship meaningful features, and solve real engineering problems.
+   - TRANSPARENCY: Never claim production experience with unverified frameworks. Only cite his actual projects and AetherLabs experience.
+5. RESUME & LINKS:
+   - Explicitly include: "Resume: {{resume_url}} (GitHub: https://github.com/avicdr)"
+6. CALL TO ACTION (CTA):
+   - Low-friction, conversational, zero-pressure:
+     e.g., "Would you be open to a brief 5-minute chat next week to see if I could be helpful to the team?"
+7. SIGN-OFF:
+   - Use "Best,\nOm"
+8. SUBJECT LINE:
+   - 2–4 words, natural lowercase or title case:
+     e.g., "${profile.businessName.toLowerCase()} - Engineering Internship / Om Nigam", "${profile.businessName.toLowerCase()} / om nigam", "quick note - ${profile.businessName.toLowerCase()}".
+9. Return valid JSON strictly adhering to schema:
+   {
+     "subject": "string",
+     "body": "string",
+     "personalization_basis": ["Specific verified facts used from lead and Om's project fit"],
+     "unsupported_claims": [],
+     "needs_review": boolean
+   }`
+    : `You are a world-class B2B cold email copywriter specializing in high-converting outreach to local clinics, practices, and service businesses (Dental, Med Spa, Chiropractic, Dermatology, Veterinary, Eye Care, Auto Repair, Home Maintenance/HVAC, etc.).
 
 CRITICAL COPYWRITING RULES (MAKE THE EMAIL UP TO THE MARK):
 1. LENGTH: Strict 60–95 words. Punchy, executive, crisp. Busy practice managers and doctors delete long pitches.
@@ -410,7 +539,29 @@ CRITICAL COPYWRITING RULES (MAKE THE EMAIL UP TO THE MARK):
      "needs_review": boolean
    }`;
 
-  const prompt = `Lead Context & Verified Fields:
+  const prompt = isJobOutreach
+    ? `Lead Context (Startup & Founder):
+- Startup / Business Name: ${sanitizePromptInput(profile.businessName)}
+- Founder / Contact: ${sanitizePromptInput(profile.recipientSalutation)}
+- Target Email: ${sanitizePromptInput(profile.targetColdEmail)}
+- Website: ${sanitizePromptInput(profile.websiteUrl)}
+- Startup Details & Mission: ${sanitizePromptInput(profile.startupDetails || profile.categoryNiche)}
+- Tech Stack: ${sanitizePromptInput(profile.techStack || 'Python, TypeScript, AI APIs')}
+- Target Roles: ${sanitizePromptInput(profile.targetRoles || 'Applied AI / Software Engineer')}
+- Outreach Hook / Reference: ${sanitizePromptInput(profile.outreachHook || profile.personalizationHook || 'None')}
+- Cohort: ${sanitizePromptInput(profile.cohort || 'Tech')}
+- Degree Policy: ${sanitizePromptInput(profile.degreePolicy || 'No degree required')}
+
+Campaign Context:
+- Goal / Offer: ${campaign.offer}
+- Tone: ${campaign.tone}
+- Target Audience: ${campaign.ideal_customer_profile}
+- Call to Action: ${campaign.call_to_action}
+- Candidate / Sender Name: ${senderName}
+- Instructions: ${campaign.initial_email_instructions}
+
+Write an exceptional, highly personalized cold email to the founder for a job/internship inquiry following all rules.`
+    : `Lead Context & Verified Fields:
 - Business Name: ${sanitizePromptInput(profile.businessName)}
 - Category / Niche: ${sanitizePromptInput(profile.categoryNiche)}
 - City / Area: ${sanitizePromptInput(profile.cityArea)}
@@ -445,7 +596,8 @@ Write an exceptional, personalized cold email for this lead following all rules.
     const validated = GeneratedEmailSchema.parse(parsed);
 
     // Complement with code-level checks
-    const placeholders = detectUnresolvedPlaceholders(validated.body);
+    const allowed = isJobOutreach ? ['{{resume_url}}'] : [];
+    const placeholders = detectUnresolvedPlaceholders(validated.body, allowed);
     const suspicious = detectSuspiciousClaims(validated.body);
     if (placeholders.length > 0 || suspicious.length > 0) {
       validated.unsupported_claims = Array.from(new Set([...validated.unsupported_claims, ...suspicious, ...placeholders]));
@@ -466,14 +618,30 @@ export async function generateFollowupEmail(params: GenerateFollowupEmailParams)
   const { lead, campaign, stepNumber, stepInstructions, previousSubject, previousBody, senderName = 'The Team' } = params;
   const profile = extractLeadEnrichment(lead);
 
+  const isJobOutreach = Boolean(
+    /intern|internship|job|hiring|candidate|resume/i.test(campaign.offer) ||
+    /intern|internship|job application|engineering role|founder outreach|job inquiry/i.test(campaign.name) ||
+    (profile.techStack && profile.outreachHook && !profile.currentBookingSetup) ||
+    (profile.targetRoles && (profile.techStack || profile.outreachHook))
+  );
+
   if (!hasAiKeyConfigured() || env.MOCK_MODE) {
     const isThreaded = previousSubject.toLowerCase().startsWith('re:') ? previousSubject : `Re: ${previousSubject}`;
     
     let body = '';
-    if (stepNumber === 1) {
-      body = `Hi ${profile.recipientSalutation},\n\nFollowing up briefly on my previous note. Most ${profile.categoryNiche || 'practices'} in ${profile.cityArea || 'your area'} lose 20-30% of their new appointment inquiries simply because patients search in the evenings when the front desk is closed.\n\nOur AI intake agent bridges that gap automatically.\n\nWould you have 5 minutes this Thursday or Friday for a quick look?\n\nBest,\n${senderName}`;
+    if (isJobOutreach) {
+      if (stepNumber === 1) {
+        const resumeUrl = (campaign as any).resume_url || '{{resume_url}}';
+        body = `Hi ${profile.recipientSalutation},\n\nFollowing up briefly on my note regarding an engineering internship at ${profile.businessName}.\n\nI've been working on practical AI and systems implementations (including local LLM serving with Compact SLM and distributed storage in Rust), and would love to share a short code walkthrough or project demo.\n\nYou can review my resume here: ${resumeUrl} (and GitHub: https://github.com/avicdr).\n\nWould you have 5 minutes this Thursday or Friday?\n\nBest,\nOm`;
+      } else {
+        body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here—I know you're super busy building ${profile.businessName}.\n\nIf you aren't currently bringing on interns or junior engineers, no problem at all. Feel free to keep my details and GitHub (https://github.com/avicdr) on file for future opportunities. Keep building!\n\nBest,\nOm`;
+      }
     } else {
-      body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here—I know you're busy running ${profile.businessName}.\n\nIf capturing after-hours inquiries isn't a priority right now, no problem at all. Should things change down the road, feel free to reach back out.\n\nBest regards,\n${senderName}`;
+      if (stepNumber === 1) {
+        body = `Hi ${profile.recipientSalutation},\n\nFollowing up briefly on my previous note. Most ${profile.categoryNiche || 'practices'} in ${profile.cityArea || 'your area'} lose 20-30% of their new appointment inquiries simply because patients search in the evenings when the front desk is closed.\n\nOur AI intake agent bridges that gap automatically.\n\nWould you have 5 minutes this Thursday or Friday for a quick look?\n\nBest,\n${senderName}`;
+      } else {
+        body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here—I know you're busy running ${profile.businessName}.\n\nIf capturing after-hours inquiries isn't a priority right now, no problem at all. Should things change down the road, feel free to reach back out.\n\nBest regards,\n${senderName}`;
+      }
     }
 
     return {
@@ -485,7 +653,24 @@ export async function generateFollowupEmail(params: GenerateFollowupEmailParams)
     };
   }
 
-  const systemInstruction = `You are an expert B2B follow-up email copywriter.
+  const systemInstruction = isJobOutreach
+    ? `You are an expert follow-up copywriter for career and job inquiries to startup founders.
+CRITICAL RULES:
+1. Write a polite, concise follow-up email (under 60 words for Step 1, under 40 words for Step 2).
+2. The subject MUST start with "Re: " followed by the original subject (or reuse it).
+3. Do not guilt-trip the recipient (never say "I haven't heard back from you").
+4. Salutation: Use "Hi ${profile.recipientSalutation},".
+5. Step 1 (First Follow-up): Add a gentle new project insight or code benchmark relevant to ${profile.techStack || 'their engineering stack'}.
+6. Step 2 (Final Follow-up): Clean, polite breakup email closing the loop and offering to keep resume on file.
+7. Return valid JSON strictly adhering to schema:
+   {
+     "subject": "Re: original subject",
+     "body": "Email body",
+     "personalization_basis": ["Reasoning"],
+     "unsupported_claims": [],
+     "needs_review": boolean
+   }`
+    : `You are an expert B2B follow-up email copywriter.
 CRITICAL RULES:
 1. Write a polite, concise follow-up email (under 60 words for Step 1, under 40 words for Step 2).
 2. The subject MUST start with "Re: " followed by the original subject (or reuse it).
@@ -502,7 +687,25 @@ CRITICAL RULES:
      "needs_review": boolean
    }`;
 
-  const prompt = `Context:
+  const prompt = isJobOutreach
+    ? `Context:
+Campaign Offer: ${campaign.offer}
+Tone: ${campaign.tone}
+Follow-up Step Number: ${stepNumber}
+Step Instructions: ${stepInstructions}
+Previous Subject: ${previousSubject}
+Previous Body: ${previousBody}
+Sender Name: ${senderName}
+
+Lead Details (Startup & Founder):
+Business / Startup: ${sanitizePromptInput(profile.businessName)}
+Founder: ${sanitizePromptInput(profile.recipientSalutation)}
+Tech Stack: ${sanitizePromptInput(profile.techStack || '')}
+Target Roles: ${sanitizePromptInput(profile.targetRoles || '')}
+Outreach Hook: ${sanitizePromptInput(profile.outreachHook || profile.personalizationHook || '')}
+
+Write follow-up email #${stepNumber}.`
+    : `Context:
 Campaign Offer: ${campaign.offer}
 Tone: ${campaign.tone}
 Follow-up Step Number: ${stepNumber}
@@ -537,8 +740,8 @@ Write follow-up email #${stepNumber}.`;
 /**
  * Validates an email draft for unsupported claims, placeholders, and length.
  */
-export function validateDraft(body: string, subject: string): DraftValidation {
-  const placeholders = detectUnresolvedPlaceholders(`${subject} ${body}`);
+export function validateDraft(body: string, subject: string, allowedPlaceholders: string[] = []): DraftValidation {
+  const placeholders = detectUnresolvedPlaceholders(`${subject} ${body}`, allowedPlaceholders);
   const suspicious = detectSuspiciousClaims(body);
   const words = body.trim().split(/\s+/).filter(Boolean);
   const wordCount = words.length;

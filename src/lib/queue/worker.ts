@@ -143,7 +143,14 @@ export async function handleGenerateEmailJob(payload: { campaignLeadId: string; 
 
     // Enqueue sending job if campaign is active
     if (campaign.status === 'active') {
-      const emailAccounts = await dbService.getEmailAccounts(campaign.user_id, { status: 'active' });
+      let emailAccounts = await dbService.getEmailAccounts(campaign.user_id, { status: 'active' });
+      if (campaign.email_account_id) {
+        const filtered = emailAccounts.filter((a) => a.id === campaign.email_account_id);
+        if (filtered.length > 0) emailAccounts = filtered;
+      } else if (campaign.account_group_id) {
+        const filtered = emailAccounts.filter((a) => a.group_id === campaign.account_group_id);
+        if (filtered.length > 0) emailAccounts = filtered;
+      }
       const lastScheduled = await dbService.getLatestScheduledDateForCampaign(campaign.id);
       const scheduledDate = getNextScheduledSlot(
         campaign,
@@ -549,6 +556,41 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         : `<${inReplyToMessageId}>`)
     : undefined;
 
+  // Check for resume or configured email attachment
+  let attachments: { filename: string; contentType: string; contentBase64: string }[] | undefined = undefined;
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const candidateResumePaths = [
+      (campaign as any).resume_path,
+      (campaign as any).resume_attachment_path,
+      'public/resume.pdf',
+      'data/resume.pdf',
+      'resume.pdf',
+    ].filter(Boolean);
+
+    for (const cPath of candidateResumePaths) {
+      if (fs.existsSync(cPath)) {
+        try {
+          const fileBuf = fs.readFileSync(cPath);
+          const baseName = path.basename(cPath);
+          attachments = [
+            {
+              filename: baseName.toLowerCase().endsWith('.pdf') ? baseName : `${baseName}.pdf`,
+              contentType: 'application/pdf',
+              contentBase64: fileBuf.toString('base64'),
+            },
+          ];
+          break;
+        } catch (readErr) {
+          console.warn(`[Send] Could not attach file from ${cPath}:`, readErr);
+        }
+      }
+    }
+  } catch (attErr) {
+    console.warn('[Send] Attachment resolution skipped:', attErr);
+  }
+
   // Execute Send (via SMTP or Gmail OAuth)
   let sendResult: { id: string; threadId: string };
 
@@ -580,6 +622,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         threadId: targetThreadId,
         inReplyToMessageId: formattedInReplyTo,
         references: formattedInReplyTo,
+        attachments,
       }
     );
   } else {
@@ -592,6 +635,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
         threadId: targetThreadId,
         inReplyToMessageId: formattedInReplyTo,
         references: formattedInReplyTo,
+        attachments,
       })
     );
   }

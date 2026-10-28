@@ -779,7 +779,11 @@ export const dbService = {
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
 
     let accounts: EmailAccount[] = [];
-    if (campaign.account_group_id) {
+    if (campaign.email_account_id) {
+      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
+      accounts = matched.length > 0 ? matched : allAccounts;
+    } else if (campaign.account_group_id) {
       const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
       const inGroup = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
       accounts = inGroup.length > 0 ? inGroup : allAccounts;
@@ -933,7 +937,11 @@ export const dbService = {
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
 
     let accounts: EmailAccount[] = [];
-    if (campaign.account_group_id) {
+    if (campaign.email_account_id) {
+      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
+      accounts = matched.length > 0 ? matched : allAccounts;
+    } else if (campaign.account_group_id) {
       const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
       const inGroup = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
       accounts = inGroup.length > 0 ? inGroup : allAccounts;
@@ -2034,9 +2042,19 @@ export const dbService = {
       };
     }
 
-    // Filter by campaign's assigned group if specified
+    // Filter by campaign's assigned single inbox or group if specified
     let candidateAccounts = accounts;
-    if (campaign.account_group_id) {
+    if (campaign.email_account_id) {
+      const specificAccount = accounts.find((a) => a.id === campaign.email_account_id);
+      if (specificAccount) {
+        candidateAccounts = [specificAccount];
+      } else {
+        return {
+          status: 'no_accounts',
+          error: `Assigned inbox (${campaign.email_account_id}) is not active or connected.`,
+        };
+      }
+    } else if (campaign.account_group_id) {
       const inGroup = accounts.filter((a) => a.group_id === campaign.account_group_id);
       if (inGroup.length > 0) {
         candidateAccounts = inGroup;

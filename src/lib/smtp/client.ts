@@ -20,6 +20,7 @@ export interface SendSmtpOptions {
   threadId?: string;
   inReplyToMessageId?: string;
   references?: string;
+  attachments?: { filename: string; contentType: string; contentBase64: string }[];
 }
 
 export interface SmtpSendResult {
@@ -123,6 +124,11 @@ export async function sendSmtpEmail(
     text: options.bodyText,
     html: options.bodyHtml,
     headers,
+    attachments: options.attachments?.map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.contentBase64, 'base64'),
+      contentType: a.contentType,
+    })),
   };
 
   const info = await transporter.sendMail(mailOptions);

@@ -12,6 +12,8 @@ const updateCampaignSchema = z.object({
   call_to_action: z.string().optional(),
   initial_email_instructions: z.string().optional(),
   account_group_id: z.string().uuid().nullable().optional(),
+  email_account_id: z.string().uuid().nullable().optional(),
+  resume_url: z.string().nullable().optional(),
   status: z.enum(['draft', 'active', 'paused', 'completed', 'cancelled']).optional(),
   sending_config: z.record(z.string(), z.any()).optional(),
   followup_config: z.record(z.string(), z.any()).optional(),

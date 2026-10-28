@@ -81,25 +81,25 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
   const lowerHeaders = headers.map((h) => ({ original: h, lower: h.toLowerCase().trim().replace(/[-_ ]/g, '') }));
 
   for (const { original, lower } of lowerHeaders) {
-    if (!mapping.email && (lower === 'email' || lower === 'targetcoldemail' || lower === 'targetemail' || lower === 'emailaddress' || lower === 'mail' || lower === 'contactemail')) {
+    if (!mapping.email && (lower === 'email' || lower === 'targetcoldemail' || lower === 'targetemail' || lower === 'emailaddress' || lower === 'mail' || lower === 'contactemail' || lower === 'founderdirectemails' || lower === 'founderdirectemail' || lower === 'founderemails' || lower === 'founderemail')) {
       mapping.email = original;
     } else if (!mapping.first_name && (lower === 'firstname' || lower === 'fname' || lower === 'givenname')) {
       mapping.first_name = original;
     } else if (!mapping.last_name && (lower === 'lastname' || lower === 'lname' || lower === 'surname' || lower === 'familyname')) {
       mapping.last_name = original;
-    } else if (!mapping.full_name && (lower === 'name' || lower === 'fullname' || lower === 'contactname')) {
+    } else if (!mapping.full_name && (lower === 'name' || lower === 'fullname' || lower === 'contactname' || lower === 'foundernames' || lower === 'foundername' || lower === 'founders')) {
       mapping.full_name = original;
-    } else if (!mapping.company && (lower === 'businessname' || lower === 'company' || lower === 'companyname' || lower === 'organization' || lower === 'org' || lower === 'business' || lower === 'practicename')) {
+    } else if (!mapping.company && (lower === 'businessname' || lower === 'company' || lower === 'companyname' || lower === 'organization' || lower === 'org' || lower === 'business' || lower === 'practicename' || lower === 'startupname' || lower === 'startup')) {
       mapping.company = original;
-    } else if (!mapping.job_title && (lower === 'jobtitle' || lower === 'title' || lower === 'role' || lower === 'position' || lower === 'occupation')) {
+    } else if (!mapping.job_title && (lower === 'jobtitle' || lower === 'title' || lower === 'role' || lower === 'position' || lower === 'occupation' || lower === 'targetremoteroles' || lower === 'targetroles')) {
       mapping.job_title = original;
     } else if (!mapping.website && (lower === 'websiteurl' || lower === 'website' || lower === 'url' || lower === 'domain' || lower === 'companywebsite' || lower === 'site')) {
       mapping.website = original;
     } else if (!mapping.phone && (lower === 'phonenumber' || lower === 'phone' || lower === 'telephone' || lower === 'tel' || lower === 'mobile')) {
       mapping.phone = original;
-    } else if (!mapping.category && (lower === 'categoryniche' || lower === 'category' || lower === 'niche' || lower === 'industry')) {
+    } else if (!mapping.category && (lower === 'categoryniche' || lower === 'category' || lower === 'niche' || lower === 'industry' || lower === 'cohort')) {
       mapping.category = original;
-    } else if (!mapping.city && (lower === 'cityarea' || lower === 'city' || lower === 'area' || lower === 'location')) {
+    } else if (!mapping.city && (lower === 'cityarea' || lower === 'city' || lower === 'area' || lower === 'location' || lower === 'remotescope')) {
       mapping.city = original;
     } else if (!mapping.country && (lower === 'country')) {
       mapping.country = original;
@@ -109,12 +109,22 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
       mapping.review_count = original;
     } else if (!mapping.qualification_score && (lower === 'leadqualificationscore' || lower === 'qualificationscore' || lower === 'score' || lower === 'leadscore')) {
       mapping.qualification_score = original;
-    } else if (!mapping.personalization_hook && (lower === 'coldemailpersonalizationhook' || lower === 'personalizationhook' || lower === 'hook' || lower === 'suggestedopening' || lower === 'salesangle')) {
+    } else if (!mapping.personalization_hook && (lower === 'coldemailpersonalizationhook' || lower === 'personalizationhook' || lower === 'hook' || lower === 'suggestedopening' || lower === 'salesangle' || lower === 'outreachhook')) {
       mapping.personalization_hook = original;
     } else if (!mapping.group && (lower === 'group' || lower === 'leadgroup' || lower === 'groupname' || lower === 'segment' || lower === 'tag' || lower === 'categorygroup')) {
       mapping.group = original;
-    } else if (!mapping.notes && (lower === 'notes' || lower === 'note' || lower === 'bio' || lower === 'summary' || lower === 'context')) {
+    } else if (!mapping.notes && (lower === 'notes' || lower === 'note' || lower === 'bio' || lower === 'summary' || lower === 'context' || lower === 'startupdetails')) {
       mapping.notes = original;
+    }
+  }
+
+  // Fallback: If no direct founder email header was found, check for business/careers email
+  if (!mapping.email) {
+    for (const { original, lower } of lowerHeaders) {
+      if (lower === 'businesscareersemail' || lower === 'careersemail' || lower === 'jobsemail') {
+        mapping.email = original;
+        break;
+      }
     }
   }
 
@@ -173,7 +183,31 @@ export function processImportRows(
 
   rows.forEach((row, idx) => {
     const rowNumber = idx + 2; // 1-indexed, accounting for header
-    const rawEmail = String(row[mapping.email] ?? '').trim();
+    let rawEmail = String(row[mapping.email] ?? '').trim();
+
+    // Handle semicolon or comma-separated emails (e.g. founder direct emails list)
+    if (rawEmail.includes(';') || rawEmail.includes(',')) {
+      const candidates = rawEmail.split(/[;,]/).map((e) => e.trim()).filter(Boolean);
+      const validCandidate = candidates.find((e) => isValidEmailSyntax(normalizeEmail(e)));
+      if (validCandidate) {
+        rawEmail = validCandidate;
+      }
+    }
+
+    // Fallback: If empty or still invalid, check if row has a careers/business email column
+    if (!rawEmail || !isValidEmailSyntax(normalizeEmail(rawEmail))) {
+      for (const [k, v] of Object.entries(row)) {
+        const lowerK = k.toLowerCase().replace(/[-_ ]/g, '');
+        if ((lowerK === 'businesscareersemail' || lowerK === 'careersemail' || lowerK === 'contactemail') && v) {
+          const valStr = String(v).trim();
+          const cand = valStr.split(/[;,]/)[0].trim();
+          if (isValidEmailSyntax(normalizeEmail(cand))) {
+            rawEmail = cand;
+            break;
+          }
+        }
+      }
+    }
 
     if (!rawEmail) {
       invalidRows.push({ rowNumber, raw: row, reason: 'Missing email address' });
@@ -209,11 +243,24 @@ export function processImportRows(
     let lastName = mapping.last_name ? String(row[mapping.last_name] ?? '').trim() : '';
 
     if (!firstName && mapping.full_name) {
-      const fullName = String(row[mapping.full_name] ?? '').trim();
+      let fullName = String(row[mapping.full_name] ?? '').trim();
       if (fullName) {
-        const parts = fullName.split(/\s+/);
-        firstName = parts[0] || '';
-        lastName = parts.slice(1).join(' ') || '';
+        // If multiple founders listed (e.g. "Harrison Chase, Ankush Gola"), pick primary founder
+        if (fullName.includes(',')) {
+          fullName = fullName.split(',')[0].trim();
+        }
+        if (fullName.includes('&')) {
+          fullName = fullName.split('&')[0].trim();
+        }
+        // If generic team label like "TraceRoot Founders" or "Greywatch Team"
+        if (/founders|team|partners/i.test(fullName)) {
+          firstName = '';
+          lastName = '';
+        } else {
+          const parts = fullName.split(/\s+/);
+          firstName = parts[0] || '';
+          lastName = parts.slice(1).join(' ') || '';
+        }
       }
     }
 

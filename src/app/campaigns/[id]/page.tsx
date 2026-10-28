@@ -22,6 +22,10 @@ import {
   Plus,
   Zap,
   Sliders,
+  Link as LinkIcon,
+  ExternalLink,
+  FileText,
+  Check,
 } from 'lucide-react';
 import { Suspense } from 'react';
 
@@ -53,6 +57,9 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [modalSearch, setModalSearch] = useState('');
   const [leadGroups, setLeadGroups] = useState<any[]>([]);
   const [modalGroupFilter, setModalGroupFilter] = useState('');
+  const [resumeUrlInput, setResumeUrlInput] = useState('');
+  const [savingResumeUrl, setSavingResumeUrl] = useState(false);
+  const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
 
   const isWindowActive = (() => {
     if (!campaign?.sending_config) return false;
@@ -84,6 +91,9 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
       const data = await res.json();
       if (res.ok) {
         setCampaign(data.campaign);
+        if (data.campaign?.resume_url) {
+          setResumeUrlInput(data.campaign.resume_url);
+        }
         setLeads(data.leads || []);
         setMessages(data.messages || []);
       }
@@ -221,6 +231,31 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
       console.error(err);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleSaveResumeUrl = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!resumeUrlInput.trim()) return;
+    setSavingResumeUrl(true);
+    setResumeSuccessMessage(null);
+    try {
+      const res = await fetch(`/api/campaigns/${id}/resume-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resume_url: resumeUrlInput.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResumeSuccessMessage(`Saved! Updated resume link across ${data.updated_drafts_count} drafts.`);
+        fetchCampaignData();
+      } else {
+        setMessageNotice(`Error saving resume URL: ${data.error}`);
+      }
+    } catch {
+      setMessageNotice('Failed to update resume URL');
+    } finally {
+      setSavingResumeUrl(false);
     }
   };
 
@@ -419,6 +454,78 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Resume & Portfolio URL Configuration Card */}
+          <div className="p-5 rounded-xl border border-indigo-500/30 bg-gradient-to-br from-indigo-950/40 via-slate-900/60 to-slate-950/80 shadow-lg shadow-indigo-950/20 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-semibold text-white">Resume & Portfolio Link</h3>
+                    {messages.some((m) => m.body_text?.includes('{{resume_url}}')) ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        {messages.filter((m) => m.body_text?.includes('{{resume_url}}')).length} drafts awaiting resume link
+                      </span>
+                    ) : campaign.resume_url ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Live link active across all drafts
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Enter your live resume link (Google Drive, Notion, ReadCV, or GitHub). Applying it will instantly replace the <code className="text-indigo-300 font-mono text-[11px] bg-indigo-950/60 px-1 py-0.5 rounded">{"{{resume_url}}"}</code> placeholder across all {leads.length} drafted emails.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveResumeUrl} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <div className="relative flex-1">
+                <LinkIcon className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="url"
+                  required
+                  value={resumeUrlInput}
+                  onChange={(e) => setResumeUrlInput(e.target.value)}
+                  placeholder="https://drive.google.com/file/d/... or https://readcv.com/your-profile"
+                  className="w-full bg-slate-900/90 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="submit"
+                  disabled={savingResumeUrl || !resumeUrlInput.trim()}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 transition-colors disabled:opacity-50 shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{savingResumeUrl ? 'Updating Drafts...' : 'Apply to All Drafts'}</span>
+                </button>
+
+                {campaign.resume_url && (
+                  <a
+                    href={campaign.resume_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors shrink-0"
+                    title="Open currently configured resume link"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Preview Link</span>
+                  </a>
+                )}
+              </div>
+            </form>
+
+            {resumeSuccessMessage && (
+              <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>{resumeSuccessMessage}</span>
+              </div>
+            )}
           </div>
 
           {/* Enrolled Leads & Generated Drafts List */}

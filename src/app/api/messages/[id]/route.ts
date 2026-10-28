@@ -31,7 +31,14 @@ export async function GET(
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
-    const validation = validateDraft(message.body_text, message.subject);
+    const isJob = Boolean(
+      campaign && (
+        /intern|internship|job|hiring|candidate|resume|engineering/i.test(campaign.name) ||
+        /intern|internship|job|hiring|candidate|resume/i.test(campaign.offer)
+      )
+    );
+    const allowed = isJob ? ['{{resume_url}}'] : [];
+    const validation = validateDraft(message.body_text, message.subject, allowed);
 
     return NextResponse.json({
       message,
@@ -72,7 +79,14 @@ export async function PATCH(
     const body = await request.json();
     const validated = updateDraftSchema.parse(body);
 
-    const draftCheck = validateDraft(validated.body_text, validated.subject);
+    const isJob = Boolean(
+      campaign && (
+        /intern|internship|job|hiring|candidate|resume|engineering/i.test(campaign.name) ||
+        /intern|internship|job|hiring|candidate|resume/i.test(campaign.offer)
+      )
+    );
+    const allowed = isJob ? ['{{resume_url}}'] : [];
+    const draftCheck = validateDraft(validated.body_text, validated.subject, allowed);
 
     const updated = await dbService.createOrUpdateMessage({
       ...message,

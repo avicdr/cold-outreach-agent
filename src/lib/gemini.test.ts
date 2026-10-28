@@ -181,5 +181,66 @@ describe('Gemini AI Writing Engine & Safety', () => {
     expect(draft.body).toContain('Scottsdale');
     expect(draft.body).toContain('24/7');
   });
+
+  it('generates personalized founder cold email for job/internship inquiry with resume mention', async () => {
+    const founderLead: Lead = {
+      id: 'lead-founder-1',
+      user_id: 'user-1',
+      email: 'harrison@langchain.dev',
+      normalized_email: 'harrison@langchain.dev',
+      first_name: 'Harrison',
+      last_name: 'Chase',
+      company: 'LangChain',
+      job_title: 'Applied AI Engineer, Python Systems Engineer',
+      website: 'https://langchain.com',
+      notes: 'Open-source framework and enterprise platform (LangGraph, LangSmith).',
+      custom_fields: {
+        'Cohort': 'AI Infrastructure & Orchestration',
+        'Tech_Stack': 'Python, TypeScript, LangGraph, FastAPI, Redis, PostgreSQL',
+        'Target_Remote_Roles': 'Applied AI Engineer, Python Systems Engineer',
+        'Outreach_Hook': 'Reference custom stateful agent loops built on LangGraph 1.0 or trace debugging via LangSmith.',
+      },
+      status: 'active',
+      source_import: 'founders_200.csv',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const founderCampaign = {
+      name: 'AI Founder Outreach - Applied AI Engineering Internship / Roles',
+      business_context: 'Full-stack AI developer experienced in LangGraph, TypeScript, Python, and agentic workflows.',
+      ideal_customer_profile: 'Founders and CTOs of high-growth AI infrastructure and developer tool companies.',
+      offer: 'Applied AI Engineer or Systems Developer internship/role',
+      tone: 'Humble, direct, high-signal, peer-to-peer technical',
+      call_to_action: 'Brief 5-minute chat, resume attached',
+      initial_email_instructions: 'Lead with technical proof-of-work on LangGraph and LangSmith, mention attached resume.',
+    };
+
+    const draft = await generateInitialEmail({
+      lead: founderLead,
+      campaign: founderCampaign,
+      senderName: 'Om',
+    });
+
+    expect(draft.subject).toContain('LangChain');
+    expect(draft.body).toContain('Harrison');
+    expect(draft.body).toContain('BITS Pilani');
+    expect(draft.body).toContain('ResearchGit');
+    expect(draft.body).toContain('resume');
+    expect(draft.body).toContain('{{resume_url}}');
+    expect(draft.body).toContain('github.com/avicdr');
+    expect(draft.body).toContain('Om');
+    expect(draft.body).not.toContain('dental');
+    expect(draft.body).not.toContain('after-hours intake');
+
+    // Also verify when custom resume_url is provided in campaign
+    const customResumeDraft = await generateInitialEmail({
+      lead: founderLead,
+      campaign: { ...founderCampaign, resume_url: 'https://readcv.com/om-nigam' },
+      senderName: 'Om',
+    });
+    expect(customResumeDraft.body).toContain('https://readcv.com/om-nigam');
+    expect(customResumeDraft.body).not.toContain('{{resume_url}}');
+  });
 });
 

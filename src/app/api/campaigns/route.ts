@@ -13,6 +13,8 @@ const campaignSchema = z.object({
   call_to_action: z.string().optional().default('15-minute quick discovery call'),
   initial_email_instructions: z.string().optional().default(''),
   account_group_id: z.string().uuid().nullable().optional(),
+  email_account_id: z.string().uuid().nullable().optional(),
+  resume_url: z.string().nullable().optional(),
   sending_config: z
     .object({
       days: z.array(z.number()).default([1, 2, 3, 4, 5]),
@@ -64,15 +66,18 @@ export async function GET(request?: NextRequest) {
   }
 
   try {
-    const [campaigns, groups] = await Promise.all([
+    const [campaigns, groups, accounts] = await Promise.all([
       dbService.getCampaigns(user.id),
       dbService.getAccountGroups(user.id),
+      dbService.getEmailAccounts(user.id),
     ]);
     const groupMap = new Map(groups.map((g) => [g.id, g]));
+    const accountMap = new Map(accounts.map((a) => [a.id, a]));
 
     const enrichedCampaigns = campaigns.map((c) => ({
       ...c,
       account_group: c.account_group_id ? groupMap.get(c.account_group_id) || null : null,
+      email_account: c.email_account_id ? accountMap.get(c.email_account_id) || null : null,
     }));
 
     return NextResponse.json(enrichedCampaigns, {
