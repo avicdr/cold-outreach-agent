@@ -47,6 +47,7 @@ export interface AccountGroup {
   warmup_reply_rate?: number; // Target reply % (default 70)
   // Computed / joined fields
   accounts_count?: number;
+  account_count?: number;
   daily_capacity?: number;
 }
 

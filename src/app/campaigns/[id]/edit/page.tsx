@@ -373,11 +373,14 @@ function EditCampaignInner({ params }: { params: Promise<{ id: string }> }) {
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">-- All Connected Inboxes (Default Pool) --</option>
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name} ({g.account_count || 0} inboxes, cap: {g.daily_capacity || 0}/day)
-                      </option>
-                    ))}
+                    {groups.map((g) => {
+                      const count = g.accounts_count ?? (g as any).account_count ?? 0;
+                      return (
+                        <option key={g.id} value={g.id}>
+                          {g.name} ({count} {count === 1 ? 'inbox' : 'inboxes'}, cap: {g.daily_capacity || 0}/day)
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 

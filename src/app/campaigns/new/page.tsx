@@ -296,11 +296,14 @@ export default function NewCampaignPage() {
                     <option value="">
                       All Active Inboxes ({accountStats?.activeAccounts || 0} inboxes • {accountStats?.dailyCapacity || 18} sends/day max)
                     </option>
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name} ({g.accounts_count || 0} inboxes • {g.daily_capacity || 0} sends/day max)
-                      </option>
-                    ))}
+                    {groups.map((g) => {
+                      const count = g.accounts_count ?? (g as any).account_count ?? 0;
+                      return (
+                        <option key={g.id} value={g.id}>
+                          {g.name} ({count} {count === 1 ? 'inbox' : 'inboxes'} • {g.daily_capacity || 0} sends/day max)
+                        </option>
+                      );
+                    })}
                   </select>
 
                   <div className="flex items-center gap-2 text-[11px] text-slate-400">

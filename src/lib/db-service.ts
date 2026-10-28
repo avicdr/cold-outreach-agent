@@ -1307,6 +1307,7 @@ export const dbService = {
         return {
           ...g,
           accounts_count: groupAccounts.length,
+          account_count: groupAccounts.length,
           daily_capacity: dailyCapacity,
         };
       });
@@ -1382,12 +1383,13 @@ export const dbService = {
     return {
       ...data,
       accounts_count: 0,
+      account_count: 0,
       daily_capacity: 0,
     };
   },
 
   async updateAccountGroup(id: string, updates: Partial<AccountGroup>): Promise<AccountGroup> {
-    const { accounts_count, daily_capacity, ...cleanUpdates } = updates;
+    const { accounts_count, account_count, daily_capacity, ...cleanUpdates } = updates;
 
     if (!isLiveSupabase()) {
       const existing = mockDb.accountGroups.get(id);
@@ -1407,7 +1409,8 @@ export const dbService = {
     if (error) throw new Error(error.message);
     return {
       ...data,
-      accounts_count: accounts_count ?? 0,
+      accounts_count: accounts_count ?? account_count ?? 0,
+      account_count: accounts_count ?? account_count ?? 0,
       daily_capacity: daily_capacity ?? 0,
     };
   },
