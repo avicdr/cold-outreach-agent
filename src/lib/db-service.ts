@@ -575,25 +575,15 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
-    let query = supabase.from('email_messages').select('*, campaign_lead:campaign_leads(*, lead:leads(*))', { count: 'exact' });
+    let query = supabase.from('email_messages').select(
+      '*, campaign_lead:campaign_leads!inner(*, campaign:campaigns!inner(user_id), lead:leads(*))',
+      { count: 'exact' }
+    );
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.campaignId) {
-      const { data: cls, error: clErr } = await supabase
-        .from('campaign_leads')
-        .select('id')
-        .eq('campaign_id', filters.campaignId);
-      if (clErr) throw new Error(clErr.message);
-      const clIds = (cls || []).map((c) => c.id);
-      if (clIds.length === 0) return { messages: [], total: 0 };
-      query = query.in('campaign_lead_id', clIds);
+      query = query.eq('campaign_lead.campaign_id', filters.campaignId);
     } else if (filters?.userId) {
-      const { data: userCamps } = await supabase.from('campaigns').select('id').eq('user_id', filters.userId);
-      const campIds = (userCamps || []).map((c) => c.id);
-      if (campIds.length === 0) return { messages: [], total: 0 };
-      const { data: cls } = await supabase.from('campaign_leads').select('id').in('campaign_id', campIds);
-      const clIds = (cls || []).map((c) => c.id);
-      if (clIds.length === 0) return { messages: [], total: 0 };
-      query = query.in('campaign_lead_id', clIds);
+      query = query.eq('campaign_lead.campaign.user_id', filters.userId);
     }
     const offset = filters?.offset || 0;
     const limit = filters?.limit ?? 50;

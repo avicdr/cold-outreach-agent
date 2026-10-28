@@ -3,7 +3,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthenticatedUser();
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       totalPages: Math.max(1, Math.ceil(result.total / limit)),
     });
   } catch (err: unknown) {
+    console.error('Error in GET /api/messages:', err);
     const errorMsg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
