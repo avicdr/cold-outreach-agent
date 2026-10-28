@@ -69,7 +69,7 @@ async function run() {
       business_context: 'Om Nigam is a Computer Science student at BITS Pilani, Bengaluru (2025-2029) building practical Agentic AI, Arenova (AI automation and digital workflows), local LLM serving (Compact SLM in FastAPI/Qwen3), distributed systems in Rust (Conflict-Free OLTP with CRDTs), and backend architecture.',
       tone: 'conversational, technical, humble, high-signal, peer-to-peer',
       call_to_action: 'Brief 5-minute chat to discuss internship opportunities',
-      initial_email_instructions: 'Personalize based on the founder product and actual engineering stack. Connect Om most relevant project (Compact SLM for infra/LLMs, Conflict-Free OLTP in Rust for distributed systems/databases, ResearchGit for search/dev-tools, Arenova/AetherLabs for applied AI and agentic workflows). Use [Resume]({{resume_url}}) and [GitHub](https://github.com/avicdr). Strict 100 to 160 words. Paragraphs 1 to 3 sentences. Never use em dashes or en dashes. Sign off as Om.',
+      initial_email_instructions: 'Personalize based on the founder product and actual engineering stack. Subject line MUST be: "Engineering Internship at [Company] — Om Nigam". Connect Om most relevant project (Compact SLM for infra/LLMs, Conflict-Free OLTP in Rust for distributed systems/databases, ResearchGit for search/dev-tools, Arenova/AetherLabs for applied AI and agentic workflows). Use [Resume]({{resume_url}}) and [GitHub](https://github.com/avicdr). Strict 100 to 160 words. Paragraphs 1 to 3 sentences. Never use em dashes or en dashes in the email body. Sign off as Om.',
       updated_at: new Date().toISOString(),
     })
     .eq('id', CAMPAIGN_ID)

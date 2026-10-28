@@ -461,9 +461,9 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
 
       const openingSentence = naturalizeOutreachHook(profile.outreachHook, profile.businessName);
 
-      const subject = profile.businessName !== 'your team'
-        ? `${profile.businessName}: engineering internship inquiry`
-        : `Engineering internship inquiry: Om Nigam`;
+      const subject = profile.businessName && profile.businessName !== 'your team'
+        ? `Engineering Internship at ${profile.businessName} — Om Nigam`
+        : `Engineering Internship — Om Nigam`;
 
       const resumeLink = campaign.resume_url
         ? `[Resume](${campaign.resume_url})`
@@ -576,8 +576,7 @@ CRITICAL COPYWRITING RULES:
 9. SIGN-OFF:
    - Use "Best,\nOm"
 10. SUBJECT LINE:
-   - 2 to 4 words, natural:
-     e.g., "${profile.businessName}: engineering internship inquiry", "${profile.businessName.toLowerCase()} / om nigam".
+   - Must be EXACTLY: "Engineering Internship at ${profile.businessName} — Om Nigam" (or "Engineering Internship — Om Nigam" if company is unknown).
 11. Return valid JSON strictly adhering to schema:
    {
      "subject": "string",
@@ -683,6 +682,12 @@ Write an exceptional, personalized cold email for this lead following all rules.
 
     const parsed = JSON.parse(responseText || '{}');
     const validated = GeneratedEmailSchema.parse(parsed);
+
+    if (isJobOutreach) {
+      validated.subject = profile.businessName && profile.businessName !== 'your team'
+        ? `Engineering Internship at ${profile.businessName} — Om Nigam`
+        : `Engineering Internship — Om Nigam`;
+    }
 
     // Complement with code-level checks
     const allowed = isJobOutreach ? ['{{resume_url}}'] : [];
