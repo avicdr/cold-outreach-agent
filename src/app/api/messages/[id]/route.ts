@@ -2,12 +2,49 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
 import { validateDraft } from '@/lib/gemini';
+import { sanitizeAccountForClient } from '@/lib/security';
+import { EmailAccount } from '@/types/database';
 import { z } from 'zod';
 
 const updateDraftSchema = z.object({
   subject: z.string().min(1, 'Subject cannot be empty'),
   body_text: z.string().min(1, 'Body cannot be empty'),
+  email_account_id: z.string().uuid().nullable().optional(),
 });
+
+async function resolveSenderDetails(userId: string, campaign: any, message: any) {
+  let availableAccounts: EmailAccount[] = [];
+  let group = null;
+
+  if (campaign.account_group_id) {
+    const allAccounts = await dbService.getEmailAccounts(userId, { status: 'active' });
+    availableAccounts = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
+    if (availableAccounts.length === 0) availableAccounts = allAccounts;
+    group = await dbService.getAccountGroup(campaign.account_group_id);
+  } else if (campaign.email_account_id) {
+    const specific = await dbService.getEmailAccount(campaign.email_account_id);
+    if (specific) availableAccounts = [specific];
+  } else {
+    availableAccounts = await dbService.getEmailAccounts(userId, { status: 'active' });
+  }
+
+  let senderAccount: EmailAccount | null = null;
+  if (message.email_account_id) {
+    senderAccount = await dbService.getEmailAccount(message.email_account_id);
+  }
+  if (!senderAccount && availableAccounts.length > 0) {
+    senderAccount = availableAccounts[0];
+  }
+  if (!senderAccount) {
+    senderAccount = await dbService.getConnectedEmailAccount(userId);
+  }
+
+  return {
+    sender_account: senderAccount ? sanitizeAccountForClient(senderAccount) : null,
+    available_accounts: availableAccounts.map((a) => sanitizeAccountForClient(a)),
+    campaign_group: group ? { id: group.id, name: group.name } : null,
+  };
+}
 
 export async function GET(
   request: NextRequest,
@@ -40,9 +77,12 @@ export async function GET(
     const allowed = isJob ? ['{{resume_url}}'] : [];
     const validation = validateDraft(message.body_text, message.subject, allowed);
 
+    const senderDetails = await resolveSenderDetails(user.id, campaign, message);
+
     return NextResponse.json({
       message,
       validation,
+      ...senderDetails,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -93,11 +133,15 @@ export async function PATCH(
       subject: validated.subject,
       body_text: validated.body_text,
       unsupported_claims: draftCheck.unsupported_claims,
+      ...(validated.email_account_id !== undefined ? { email_account_id: validated.email_account_id } : {}),
     });
+
+    const senderDetails = await resolveSenderDetails(user.id, campaign, updated);
 
     return NextResponse.json({
       message: updated,
       validation: draftCheck,
+      ...senderDetails,
     });
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {

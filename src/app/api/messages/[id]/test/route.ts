@@ -57,11 +57,17 @@ export async function POST(
     const subject = bodySubject || message?.subject || 'Test Outreach Email';
     const bodyText = bodyContent || message?.body_text || 'This is a test email from your AI Cold Outreach Agent.';
 
-    // 2. Verify Inbox is connected
-    const emailAccount = await dbService.getConnectedEmailAccount(user.id);
+    // 2. Resolve sender account: use designated draft inbox or fall back to connected inbox
+    let emailAccount: any = null;
+    if (message?.email_account_id) {
+      emailAccount = await dbService.getEmailAccount(message.email_account_id);
+    }
+    if (!emailAccount || emailAccount.status !== 'active') {
+      emailAccount = await dbService.getConnectedEmailAccount(user.id);
+    }
     if (!emailAccount) {
       return NextResponse.json(
-        { error: 'No email inbox connected. Please connect an inbox in Accounts first.' },
+        { error: 'No active email inbox connected. Please connect an inbox in Accounts first.' },
         { status: 400 }
       );
     }

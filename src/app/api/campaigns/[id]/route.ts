@@ -75,7 +75,11 @@ export async function PATCH(
 
     const body = await request.json();
     const validated = updateCampaignSchema.parse(body);
-    const updated = await dbService.updateCampaign(id, validated as any);
+    const updatePayload: any = { ...validated };
+    if (validated.account_group_id && validated.email_account_id === undefined) {
+      updatePayload.email_account_id = null;
+    }
+    const updated = await dbService.updateCampaign(id, updatePayload);
 
     await dbService.logActivity(user.id, 'campaign_updated', 'campaign', id, {
       name: updated.name,

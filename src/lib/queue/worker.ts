@@ -518,7 +518,42 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     emailAccount = origAccount;
   } else {
     // Step 0 Initial Outreach: Pre-flight check: Account availability, rotation & daily/interval rate limit guards
-    const accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+    let targetAccount: EmailAccount | null = null;
+    if (message.email_account_id) {
+      targetAccount = await dbService.getEmailAccount(message.email_account_id);
+    }
+
+    let accountResult:
+      | { status: 'available'; account: EmailAccount }
+      | { status: 'no_accounts'; error: string }
+      | { status: 'daily_limit_reached'; rescheduleAt: Date }
+      | { status: 'cooldown'; rescheduleAt: Date; accountEmail: string };
+
+    if (targetAccount && targetAccount.status === 'active') {
+      const limit = targetAccount.daily_limit || 18;
+      const sentToday = targetAccount.sent_today || 0;
+      if (sentToday >= limit) {
+        const tomorrowInTz = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const nextWindow = getNextSendingWindowDate(campaign.sending_config, tomorrowInTz);
+        accountResult = { status: 'daily_limit_reached', rescheduleAt: nextWindow };
+      } else {
+        const intervalMs = (targetAccount.min_interval_minutes || 15) * 60 * 1000;
+        const lastSentTime = targetAccount.last_sent_at ? new Date(targetAccount.last_sent_at).getTime() : 0;
+        const timeSinceLastSend = Date.now() - lastSentTime;
+        if (lastSentTime > 0 && timeSinceLastSend < intervalMs) {
+          const rescheduleAt = new Date(Date.now() + (intervalMs - timeSinceLastSend) + 2000);
+          accountResult = {
+            status: 'cooldown',
+            rescheduleAt,
+            accountEmail: targetAccount.email_address,
+          };
+        } else {
+          accountResult = { status: 'available', account: targetAccount };
+        }
+      }
+    } else {
+      accountResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+    }
 
     if (accountResult.status === 'no_accounts') {
       throw new Error(accountResult.error);

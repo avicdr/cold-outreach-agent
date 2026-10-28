@@ -769,14 +769,14 @@ export const dbService = {
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
 
     let accounts: EmailAccount[] = [];
-    if (campaign.email_account_id) {
-      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
-      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
-      accounts = matched.length > 0 ? matched : allAccounts;
-    } else if (campaign.account_group_id) {
+    if (campaign.account_group_id) {
       const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
       const inGroup = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
       accounts = inGroup.length > 0 ? inGroup : allAccounts;
+    } else if (campaign.email_account_id) {
+      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
+      accounts = matched.length > 0 ? matched : allAccounts;
     } else {
       accounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
     }
@@ -927,14 +927,14 @@ export const dbService = {
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
 
     let accounts: EmailAccount[] = [];
-    if (campaign.email_account_id) {
-      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
-      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
-      accounts = matched.length > 0 ? matched : allAccounts;
-    } else if (campaign.account_group_id) {
+    if (campaign.account_group_id) {
       const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
       const inGroup = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
       accounts = inGroup.length > 0 ? inGroup : allAccounts;
+    } else if (campaign.email_account_id) {
+      const allAccounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
+      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
+      accounts = matched.length > 0 ? matched : allAccounts;
     } else {
       accounts = await this.getEmailAccounts(campaign.user_id, { status: 'active' });
     }
@@ -1025,26 +1025,46 @@ export const dbService = {
 
     const schedule = calculateStaggeredSchedule(campaign, accounts, messages.length, new Date());
 
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      const newDate = schedule[i] || new Date();
-      const newIso = newDate.toISOString();
-
-      await supabase
-        .from('email_messages')
-        .update({
-          status: 'scheduled',
-          scheduled_at: newIso,
-          updated_at: new Date().toISOString(),
+    // Update email messages in parallel batches of 25
+    const BATCH_SIZE = 25;
+    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+      const batch = messages.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map((msg, bIdx) => {
+          const globalIdx = i + bIdx;
+          const newDate = schedule[globalIdx] || new Date();
+          return supabase
+            .from('email_messages')
+            .update({
+              status: 'scheduled',
+              scheduled_at: newDate.toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', msg.id);
         })
-        .eq('id', msg.id);
-
-      await this.enqueueJob(
-        'send_email',
-        { emailMessageId: msg.id },
-        `resume_send_${msg.id}_${newDate.getTime()}`,
-        newDate
       );
+    }
+
+    // Bulk insert new queued jobs into job_queue
+    const newJobs = messages.map((msg, idx) => {
+      const newDate = schedule[idx] || new Date();
+      return {
+        job_type: 'send_email',
+        payload: { emailMessageId: msg.id },
+        idempotency_key: `resume_send_${msg.id}_${newDate.getTime()}`,
+        run_at: newDate.toISOString(),
+        status: 'queued',
+        attempts: 0,
+        max_attempts: 3,
+      };
+    });
+
+    for (let i = 0; i < newJobs.length; i += 50) {
+      const chunk = newJobs.slice(i, i + 50);
+      const { error: insErr } = await supabase.from('job_queue').insert(chunk);
+      if (insErr) {
+        console.warn('Warning inserting resume send_email jobs in bulk:', insErr.message);
+      }
     }
 
     return { rescheduledCount: messages.length };
@@ -2035,9 +2055,16 @@ export const dbService = {
       };
     }
 
-    // Filter by campaign's assigned single inbox or group if specified
+    // Filter by campaign's assigned group or single inbox if specified
     let candidateAccounts = accounts;
-    if (campaign.email_account_id) {
+    if (campaign.account_group_id) {
+      const inGroup = accounts.filter((a) => a.group_id === campaign.account_group_id);
+      if (inGroup.length > 0) {
+        candidateAccounts = inGroup;
+      } else {
+        candidateAccounts = accounts;
+      }
+    } else if (campaign.email_account_id) {
       const specificAccount = accounts.find((a) => a.id === campaign.email_account_id);
       if (specificAccount) {
         candidateAccounts = [specificAccount];
@@ -2046,13 +2073,6 @@ export const dbService = {
           status: 'no_accounts',
           error: `Assigned inbox (${campaign.email_account_id}) is not active or connected.`,
         };
-      }
-    } else if (campaign.account_group_id) {
-      const inGroup = accounts.filter((a) => a.group_id === campaign.account_group_id);
-      if (inGroup.length > 0) {
-        candidateAccounts = inGroup;
-      } else {
-        candidateAccounts = accounts;
       }
     }
 
