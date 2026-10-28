@@ -353,6 +353,14 @@ export interface ReplyEvent {
   classification: ReplyClassification;
   classification_summary: string;
   created_at: string;
+  // Enriched lead and campaign details
+  lead_name?: string;
+  lead_company?: string;
+  lead_email?: string;
+  campaign_name?: string;
+  campaign_id?: string;
+  receiving_account?: string;
+  email_subject?: string;
 }
 
 export interface ActivityLog {

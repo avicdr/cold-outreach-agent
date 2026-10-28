@@ -659,6 +659,9 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
   const emailAccounts = await dbService.getEmailAccounts(userId, { status: 'active' });
   if (emailAccounts.length === 0) return;
 
+  const ownEmails = emailAccounts.map((a) => a.email_address.toLowerCase().trim());
+  const ownEmailSet = new Set(ownEmails);
+
   const messages = await dbService.getMessages();
   const sentThreads = messages
     .filter((m) => m.status === 'sent' && m.gmail_thread_id)
@@ -674,7 +677,7 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
     let inboundReplies = [];
     try {
       inboundReplies = await executeWithGmailAuth(emailAccount, (token) =>
-        pollGmailReplies(token, sentThreads)
+        pollGmailReplies(token, sentThreads, ownEmails)
       );
     } catch (syncErr) {
       console.warn(`[SyncReplies] Could not poll replies for ${emailAccount.email_address}:`, syncErr);
@@ -685,6 +688,18 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
       const senderLower = (reply.senderEmail || '').toLowerCase();
       const bodyLower = (reply.bodyText || '').toLowerCase();
       const subjectLower = (reply.subject || '').toLowerCase();
+
+      // Guard 1: Never accept self-sent emails from our own outreach accounts
+      if (ownEmailSet.has(senderLower)) {
+        console.log(`[SyncReplies] Skipping outbound/self message from ${senderLower}`);
+        continue;
+      }
+
+      // Guard 2: Skip message if its gmail_message_id matches any of our own sent outbound messages
+      if (messages.some((m) => m.gmail_message_id === reply.id)) {
+        console.log(`[SyncReplies] Skipping message ${reply.id} which matches an existing sent message`);
+        continue;
+      }
 
       // Check if this is a bounce / delivery failure notice from mailer-daemon, postmaster, etc.
       const isBounce =
@@ -731,7 +746,7 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
       const classification = await classifyReply(reply.bodyText);
       const summaryLower = (classification.summary || '').toLowerCase();
 
-      // Guard: If Gemini classification identifies delivery failure / bounce, do not record as reply
+      // Guard 3: If Gemini classification identifies delivery failure / bounce, do not record as reply
       if (
         summaryLower.includes('delivery failure') ||
         summaryLower.includes('domain could not be found') ||
@@ -744,6 +759,17 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
           await dbService.updateLead(matchedMessage.lead.id, { status: 'bounced' });
           await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'bounce', 'ai_detected_bounce');
         }
+        continue;
+      }
+
+      // Guard 4: If classification summary identifies an outbound pitch or draft, skip
+      if (
+        summaryLower.includes('outbound sales pitch') ||
+        summaryLower.includes('draft rather than a reply') ||
+        summaryLower.includes('outbound pitch') ||
+        summaryLower.includes('outbound email')
+      ) {
+        console.log(`[SyncReplies] Skipping message identified as outbound pitch/draft: ${classification.summary}`);
         continue;
       }
 

@@ -18,6 +18,10 @@ import {
   Trash2,
   CheckCircle2,
   ShieldCheck,
+  Building2,
+  Target,
+  ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 
 export default function RepliesPage() {
@@ -48,7 +52,9 @@ export default function RepliesPage() {
       sum.includes('address not found') ||
       sum.includes('undeliverable') ||
       sum.includes('undelivered mail') ||
-      sum.includes('mailer daemon')
+      sum.includes('mailer daemon') ||
+      sum.includes('outbound sales pitch') ||
+      sum.includes('draft rather than a reply')
     );
   };
 
@@ -176,11 +182,11 @@ export default function RepliesPage() {
           <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/30 text-xs text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-              <span>All incoming prospect replies automatically pause follow-up sequences. Mailer-daemon & delivery bounces are automatically filtered out.</span>
+              <span>All incoming prospect replies automatically pause follow-up sequences. Outbound follow-ups, drafts, and mailer-daemons are automatically filtered out.</span>
             </div>
             <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Daemon Filter Active</span>
+              <span>Prospect Verification Active</span>
             </div>
           </div>
 
@@ -192,48 +198,87 @@ export default function RepliesPage() {
               <MessageSquareQuote className="w-10 h-10 text-slate-600 mx-auto mb-3" />
               <h3 className="text-base font-semibold text-slate-300">No prospect replies found</h3>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                Once prospects reply to your cold emails, they will be captured, categorized, and displayed here. Delivery bounces and mailer daemons are kept out of your inbox.
+                Once prospects reply to your cold emails, they will be captured, categorized, and displayed here. Outbound follow-ups and bounces are automatically excluded.
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {replies.map((reply) => (
-                <div
-                  key={reply.id}
-                  onClick={() => setSelectedReply(reply)}
-                  className="p-5 rounded-xl border border-slate-800 bg-slate-900/40 glass-card-hover cursor-pointer space-y-3"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-                        <User className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-white">{reply.sender_email}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">
-                          Received: {new Date(reply.received_at).toLocaleString()}
+              {replies.map((reply) => {
+                const displayName = reply.lead_company || reply.lead_name || reply.sender_email;
+                const showContact = reply.lead_name && reply.lead_name !== 'Unknown' && reply.lead_name !== reply.lead_company;
+
+                return (
+                  <div
+                    key={reply.id}
+                    onClick={() => setSelectedReply(reply)}
+                    className="p-5 rounded-2xl border border-slate-800 bg-slate-900/40 hover:bg-slate-900/70 hover:border-slate-700/80 transition-all cursor-pointer space-y-3.5 group shadow-sm"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 mt-0.5">
+                          {reply.lead_company ? <Building2 className="w-5 h-5" /> : <User className="w-5 h-5" />}
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-white truncate">{displayName}</span>
+                            {showContact && (
+                              <span className="text-xs text-slate-400 font-medium">({reply.lead_name})</span>
+                            )}
+                            {reply.campaign_name && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-800/80 text-cyan-300 border border-cyan-500/20">
+                                <Target className="w-3 h-3 text-cyan-400" />
+                                <span className="truncate max-w-[200px]">{reply.campaign_name}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                            <span className="flex items-center gap-1.5 font-mono text-slate-300">
+                              <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <span>{reply.lead_email || reply.sender_email}</span>
+                            </span>
+                            {reply.receiving_account && (
+                              <span className="text-slate-500 text-[11px]">
+                                via {reply.receiving_account}
+                              </span>
+                            )}
+                            <span className="text-slate-500 text-[11px]">
+                              Received: {new Date(reply.received_at).toLocaleString()}
+                            </span>
+                          </div>
+
+                          {reply.email_subject && (
+                            <div className="text-xs text-slate-300 pt-0.5">
+                              <span className="text-slate-500">Subject: </span>
+                              <span className="font-medium text-slate-200">{reply.email_subject}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getClassificationBadge(reply.classification)}
-                      <button
-                        onClick={(e) => handleDeleteReply(reply.id, e)}
-                        disabled={deletingId === reply.id}
-                        title="Delete reply"
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="text-xs text-slate-300 bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
-                    <span className="font-semibold text-slate-400">AI Summary: </span>
-                    {reply.classification_summary || 'No summary available.'}
+                      <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                        {getClassificationBadge(reply.classification)}
+                        <button
+                          onClick={(e) => handleDeleteReply(reply.id, e)}
+                          disabled={deletingId === reply.id}
+                          title="Delete reply"
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-80 group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-300 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 flex items-start gap-2.5">
+                      <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                      <div className="leading-relaxed">
+                        <span className="font-semibold text-purple-300">AI Summary: </span>
+                        {reply.classification_summary || 'No summary available.'}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -260,36 +305,89 @@ export default function RepliesPage() {
 
         {/* Selected Reply Dialog */}
         {selectedReply && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-semibold text-white">{selectedReply.sender_email}</h3>
-                  <div className="text-xs text-slate-400">{new Date(selectedReply.received_at).toLocaleString()}</div>
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                      {selectedReply.lead_company ? <Building2 className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                    </div>
+                    <h3 className="text-base font-semibold text-white">
+                      {selectedReply.lead_company || selectedReply.lead_name || selectedReply.sender_email}
+                    </h3>
+                  </div>
+                  {selectedReply.lead_name && selectedReply.lead_name !== 'Unknown' && selectedReply.lead_name !== selectedReply.lead_company && (
+                    <div className="text-xs text-slate-400 pl-9 font-medium">Contact: {selectedReply.lead_name}</div>
+                  )}
+                  <div className="text-xs text-slate-400 pl-9 font-mono flex items-center gap-1.5">
+                    <Mail className="w-3 h-3 text-slate-500" />
+                    <span>{selectedReply.lead_email || selectedReply.sender_email}</span>
+                  </div>
                 </div>
-                <button onClick={() => setSelectedReply(null)} className="text-slate-400 hover:text-white">✕</button>
+                <button
+                  onClick={() => setSelectedReply(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                >
+                  ✕
+                </button>
               </div>
 
-              <div className="pt-2">
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800/80">
                 {getClassificationBadge(selectedReply.classification)}
+                {selectedReply.campaign_name && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-cyan-300 border border-cyan-500/20">
+                    <Target className="w-3 h-3 text-cyan-400" />
+                    <span>{selectedReply.campaign_name}</span>
+                  </span>
+                )}
+                <span className="text-[11px] text-slate-500 ml-auto font-mono">
+                  {new Date(selectedReply.received_at).toLocaleString()}
+                </span>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
-                {selectedReply.classification_summary}
+              {selectedReply.email_subject && (
+                <div className="text-xs p-3 rounded-lg bg-slate-950/50 border border-slate-800/60">
+                  <span className="text-slate-500 font-medium">Subject: </span>
+                  <span className="text-slate-200">{selectedReply.email_subject}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  <span>AI Classification & Summary</span>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
+                  {selectedReply.classification_summary}
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-2">
-                <button
-                  onClick={() => handleDeleteReply(selectedReply.id)}
-                  disabled={deletingId === selectedReply.id}
-                  className="px-3 py-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg flex items-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete Reply</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDeleteReply(selectedReply.id)}
+                    disabled={deletingId === selectedReply.id}
+                    className="px-3 py-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg flex items-center gap-1.5 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Reply</span>
+                  </button>
+                  {selectedReply.gmail_thread_id && (
+                    <a
+                      href={`https://mail.google.com/mail/u/0/#all/${selectedReply.gmail_thread_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg flex items-center gap-1.5 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open in Gmail</span>
+                    </a>
+                  )}
+                </div>
                 <button
                   onClick={() => setSelectedReply(null)}
-                  className="px-4 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg"
+                  className="px-4 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors"
                 >
                   Close
                 </button>

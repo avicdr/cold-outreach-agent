@@ -55,7 +55,10 @@ export function isMailerDaemonOrBounce(senderEmail: string, summary?: string | n
     sum.includes('address not found') ||
     sum.includes('undeliverable') ||
     sum.includes('undelivered mail') ||
-    sum.includes('mailer daemon')
+    sum.includes('mailer daemon') ||
+    sum.includes('outbound sales pitch') ||
+    sum.includes('draft rather than a reply') ||
+    sum.includes('outbound pitch')
   );
 }
 
@@ -2107,31 +2110,97 @@ export const dbService = {
 
   // Replies
   async getReplies(userId: string): Promise<ReplyEvent[]> {
+    const accounts = await this.getEmailAccounts(userId).catch(() => []);
+    const ownEmails = new Set(accounts.map((a) => a.email_address.toLowerCase().trim()));
+
     if (!isLiveSupabase()) {
-      return Array.from(mockDb.replyEvents.values()).filter(
-        (r) => r.user_id === userId && !isMailerDaemonOrBounce(r.sender_email, r.classification_summary)
-      );
+      return Array.from(mockDb.replyEvents.values())
+        .filter(
+          (r) =>
+            r.user_id === userId &&
+            !isMailerDaemonOrBounce(r.sender_email, r.classification_summary) &&
+            !ownEmails.has(r.sender_email.toLowerCase())
+        )
+        .map((r) => {
+          const msg = r.email_message_id ? mockDb.emailMessages.get(r.email_message_id) : undefined;
+          const cl = msg?.campaign_lead_id ? mockDb.campaignLeads.get(msg.campaign_lead_id) : undefined;
+          const lead = cl?.lead_id ? mockDb.leads.get(cl.lead_id) : undefined;
+          const campaign = cl?.campaign_id ? mockDb.campaigns.get(cl.campaign_id) : undefined;
+          const account = msg?.email_account_id ? mockDb.emailAccounts.get(msg.email_account_id) : undefined;
+          const leadName = [lead?.first_name, lead?.last_name].filter(Boolean).join(' ').trim();
+
+          return {
+            ...r,
+            lead_name: leadName || undefined,
+            lead_company: lead?.company || undefined,
+            lead_email: lead?.email || undefined,
+            campaign_name: campaign?.name || undefined,
+            campaign_id: campaign?.id || undefined,
+            receiving_account: account?.email_address || undefined,
+            email_subject: msg?.subject || undefined,
+          };
+        });
     }
+
     const supabase = createAdminClient();
     const { data, error } = await supabase
       .from('reply_events')
-      .select('*')
+      .select(`
+        *,
+        email_messages (
+          id,
+          subject,
+          email_accounts (id, email_address),
+          campaign_leads (
+            leads (id, company, first_name, last_name, email, job_title),
+            campaigns (id, name)
+          )
+        )
+      `)
       .eq('user_id', userId)
       .not('sender_email', 'ilike', '%mailer-daemon%')
       .not('sender_email', 'ilike', '%mail-daemon%')
       .not('sender_email', 'ilike', '%postmaster%')
       .order('received_at', { ascending: false });
+
     if (error) throw new Error(error.message);
-    return (data || []).filter((r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary));
+
+    return (data || [])
+      .filter((r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary) && !ownEmails.has(r.sender_email.toLowerCase()))
+      .map((r: any) => {
+        const msg = r.email_messages;
+        const lead = msg?.campaign_leads?.leads;
+        const campaign = msg?.campaign_leads?.campaigns;
+        const account = msg?.email_accounts;
+        const leadName = [lead?.first_name, lead?.last_name].filter(Boolean).join(' ').trim();
+        const { email_messages, ...rest } = r;
+
+        return {
+          ...rest,
+          lead_name: leadName || undefined,
+          lead_company: lead?.company || undefined,
+          lead_email: lead?.email || undefined,
+          campaign_name: campaign?.name || undefined,
+          campaign_id: campaign?.id || undefined,
+          receiving_account: account?.email_address || undefined,
+          email_subject: msg?.subject || undefined,
+        };
+      });
   },
 
   async getPaginatedReplies(
     userId: string,
     options?: { limit?: number; offset?: number; classification?: string }
   ): Promise<{ replies: ReplyEvent[]; total: number }> {
+    const accounts = await this.getEmailAccounts(userId).catch(() => []);
+    const ownEmails = new Set(accounts.map((a) => a.email_address.toLowerCase().trim()));
+
     if (!isLiveSupabase()) {
       let all = Array.from(mockDb.replyEvents.values()).filter(
-        (r) => r.user_id === userId && !isMailerDaemonOrBounce(r.sender_email, r.classification_summary)
+        (r) =>
+          r.user_id === userId &&
+          !isMailerDaemonOrBounce(r.sender_email, r.classification_summary) &&
+          !ownEmails.has(r.sender_email.toLowerCase())
       );
       if (options?.classification) {
         all = all.filter((r) => r.classification === options.classification);
@@ -2140,13 +2209,43 @@ export const dbService = {
       all.sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime());
       const offset = options?.offset || 0;
       const limit = options?.limit ?? 50;
-      return { replies: all.slice(offset, offset + limit), total };
+      const sliced = all.slice(offset, offset + limit).map((r) => {
+        const msg = r.email_message_id ? mockDb.emailMessages.get(r.email_message_id) : undefined;
+        const cl = msg?.campaign_lead_id ? mockDb.campaignLeads.get(msg.campaign_lead_id) : undefined;
+        const lead = cl?.lead_id ? mockDb.leads.get(cl.lead_id) : undefined;
+        const campaign = cl?.campaign_id ? mockDb.campaigns.get(cl.campaign_id) : undefined;
+        const account = msg?.email_account_id ? mockDb.emailAccounts.get(msg.email_account_id) : undefined;
+        const leadName = [lead?.first_name, lead?.last_name].filter(Boolean).join(' ').trim();
+
+        return {
+          ...r,
+          lead_name: leadName || undefined,
+          lead_company: lead?.company || undefined,
+          lead_email: lead?.email || undefined,
+          campaign_name: campaign?.name || undefined,
+          campaign_id: campaign?.id || undefined,
+          receiving_account: account?.email_address || undefined,
+          email_subject: msg?.subject || undefined,
+        };
+      });
+      return { replies: sliced, total };
     }
 
     const supabase = createAdminClient();
     let query = supabase
       .from('reply_events')
-      .select('*', { count: 'exact' })
+      .select(`
+        *,
+        email_messages (
+          id,
+          subject,
+          email_accounts (id, email_address),
+          campaign_leads (
+            leads (id, company, first_name, last_name, email, job_title),
+            campaigns (id, name)
+          )
+        )
+      `, { count: 'exact' })
       .eq('user_id', userId)
       .not('sender_email', 'ilike', '%mailer-daemon%')
       .not('sender_email', 'ilike', '%mail-daemon%')
@@ -2154,7 +2253,10 @@ export const dbService = {
       .not('sender_email', 'ilike', '%noreply%')
       .not('classification_summary', 'ilike', '%delivery failure%')
       .not('classification_summary', 'ilike', '%domain could not be found%')
-      .not('classification_summary', 'ilike', '%undeliverable%');
+      .not('classification_summary', 'ilike', '%undeliverable%')
+      .not('classification_summary', 'ilike', '%outbound sales pitch%')
+      .not('classification_summary', 'ilike', '%draft rather than a reply%');
+
     if (options?.classification) {
       query = query.eq('classification', options.classification);
     }
@@ -2162,9 +2264,33 @@ export const dbService = {
     const limit = options?.limit ?? 50;
     const { data, count, error } = await query.order('received_at', { ascending: false }).range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
-    const filtered = (data || []).filter((r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary));
+
+    const filtered = (data || []).filter(
+      (r) => !isMailerDaemonOrBounce(r.sender_email, r.classification_summary) && !ownEmails.has(r.sender_email.toLowerCase())
+    );
     const effectiveTotal = Math.max(0, (count ?? 0) - ((data?.length ?? 0) - filtered.length));
-    return { replies: filtered, total: effectiveTotal };
+
+    const mapped: ReplyEvent[] = filtered.map((r: any) => {
+      const msg = r.email_messages;
+      const lead = msg?.campaign_leads?.leads;
+      const campaign = msg?.campaign_leads?.campaigns;
+      const account = msg?.email_accounts;
+      const leadName = [lead?.first_name, lead?.last_name].filter(Boolean).join(' ').trim();
+      const { email_messages, ...rest } = r;
+
+      return {
+        ...rest,
+        lead_name: leadName || undefined,
+        lead_company: lead?.company || undefined,
+        lead_email: lead?.email || undefined,
+        campaign_name: campaign?.name || undefined,
+        campaign_id: campaign?.id || undefined,
+        receiving_account: account?.email_address || undefined,
+        email_subject: msg?.subject || undefined,
+      };
+    });
+
+    return { replies: mapped, total: effectiveTotal };
   },
 
   async recordReply(event: Omit<ReplyEvent, 'id' | 'created_at'>): Promise<ReplyEvent> {
@@ -2212,9 +2338,16 @@ export const dbService = {
 
   async purgeInvalidReplies(userId: string): Promise<number> {
     let purged = 0;
+    const accounts = await this.getEmailAccounts(userId).catch(() => []);
+    const ownEmails = accounts.map((a) => a.email_address.toLowerCase().trim());
+    const ownEmailSet = new Set(ownEmails);
+
     if (!isLiveSupabase()) {
       for (const [id, r] of Array.from(mockDb.replyEvents.entries())) {
-        if (r.user_id === userId && isMailerDaemonOrBounce(r.sender_email, r.classification_summary)) {
+        if (
+          r.user_id === userId &&
+          (isMailerDaemonOrBounce(r.sender_email, r.classification_summary) || ownEmailSet.has(r.sender_email.toLowerCase()))
+        ) {
           mockDb.replyEvents.delete(id);
           purged++;
         }
@@ -2224,13 +2357,48 @@ export const dbService = {
 
     try {
       const supabase = createAdminClient();
-      const { error } = await supabase
+      // 1. Delete mailer-daemon, bounces, and outbound pitch replies
+      await supabase
         .from('reply_events')
         .delete()
         .eq('user_id', userId)
-        .or('sender_email.ilike.%mailer-daemon%,sender_email.ilike.%mail-daemon%,sender_email.ilike.%postmaster%,classification_summary.ilike.%delivery failure%,classification_summary.ilike.%domain could not be found%');
-      if (error) {
-        console.warn('purgeInvalidReplies error:', error.message);
+        .or('sender_email.ilike.%mailer-daemon%,sender_email.ilike.%mail-daemon%,sender_email.ilike.%postmaster%,classification_summary.ilike.%delivery failure%,classification_summary.ilike.%domain could not be found%,classification_summary.ilike.%outbound sales pitch%,classification_summary.ilike.%draft rather than a reply%');
+
+      // 2. Delete any self-replies from user's own email accounts
+      if (ownEmails.length > 0) {
+        const { data: selfReplies } = await supabase
+          .from('reply_events')
+          .select('id, email_message_id, sender_email')
+          .eq('user_id', userId)
+          .in('sender_email', ownEmails);
+
+        if (selfReplies && selfReplies.length > 0) {
+          const selfReplyIds = selfReplies.map((r) => r.id);
+          const messageIds = selfReplies.map((r) => r.email_message_id).filter(Boolean) as string[];
+
+          await supabase.from('reply_events').delete().in('id', selfReplyIds);
+          purged += selfReplies.length;
+
+          // Revert any falsely marked leads back to contacted
+          if (messageIds.length > 0) {
+            const { data: messages } = await supabase
+              .from('email_messages')
+              .select('id, campaign_leads (lead_id)')
+              .in('id', messageIds);
+
+            const leadIds = (messages || [])
+              .map((m: any) => m.campaign_leads?.lead_id)
+              .filter(Boolean);
+
+            if (leadIds.length > 0) {
+              await supabase
+                .from('leads')
+                .update({ status: 'contacted' })
+                .in('id', leadIds)
+                .eq('status', 'replied');
+            }
+          }
+        }
       }
     } catch (err) {
       console.warn('purgeInvalidReplies caught:', err);

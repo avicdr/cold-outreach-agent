@@ -155,7 +155,8 @@ export async function sendGmailMessage(
  */
 export async function pollGmailReplies(
   accessToken: string,
-  sentGmailThreadIds: string[]
+  sentGmailThreadIds: string[],
+  ownEmailAddresses: string[] = []
 ): Promise<InboundEmailMessage[]> {
   if (sentGmailThreadIds.length === 0) return [];
 
@@ -164,6 +165,7 @@ export async function pollGmailReplies(
     return [];
   }
 
+  const ownSet = new Set(ownEmailAddresses.map((e) => e.toLowerCase().trim()));
   const replies: InboundEmailMessage[] = [];
 
   for (const threadId of sentGmailThreadIds.slice(0, 20)) {
@@ -177,11 +179,14 @@ export async function pollGmailReplies(
       const thread = await response.json();
       const messages = thread.messages || [];
 
-      // Check if thread contains more than 1 message (i.e. has received reply)
-      if (messages.length > 1) {
-        // Last message
-        const lastMsg = messages[messages.length - 1];
-        const headers = lastMsg.payload?.headers || [];
+      // Threads with only 1 message haven't received any reply
+      if (messages.length < 2) continue;
+
+      // Search backwards for the latest message that is NOT from one of our own accounts
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        const labels: string[] = msg.labelIds || [];
+        const headers = msg.payload?.headers || [];
         const fromHeader = headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === 'from')?.value || '';
         const subjectHeader = headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === 'subject')?.value || '';
         const inReplyTo = headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === 'in-reply-to')?.value || '';
@@ -190,15 +195,24 @@ export async function pollGmailReplies(
         const senderMatch = fromHeader.match(/<([^>]+)>/) || [null, fromHeader];
         const senderEmail = (senderMatch[1] || fromHeader).trim().toLowerCase();
 
+        // Skip outbound messages sent from our own sending accounts or marked as SENT
+        if (labels.includes('SENT') || ownSet.has(senderEmail)) {
+          continue;
+        }
+
+        // Found authentic inbound message from external recipient
         replies.push({
-          id: lastMsg.id,
+          id: msg.id,
           threadId,
           senderEmail,
           subject: subjectHeader,
-          bodyText: lastMsg.snippet || '',
-          receivedAt: new Date(parseInt(lastMsg.internalDate, 10)).toISOString(),
+          bodyText: msg.snippet || '',
+          receivedAt: new Date(parseInt(msg.internalDate, 10)).toISOString(),
           inReplyTo,
         });
+
+        // Only capture the latest prospect reply per thread
+        break;
       }
     } catch (err) {
       console.error(`Failed to fetch thread ${threadId}:`, err);
