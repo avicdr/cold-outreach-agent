@@ -1,8 +1,29 @@
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+import fs from 'fs';
+
+function loadEnvFile(file: string) {
+  const p = path.resolve(process.cwd(), file);
+  if (!fs.existsSync(p)) return;
+  const content = fs.readFileSync(p, 'utf8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx !== -1) {
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  }
+}
+loadEnvFile('.env.local');
+loadEnvFile('.env');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://nkiizjcwrrdggdqneuhv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -26,18 +47,40 @@ async function check() {
   console.log('Total Enrolled Leads:', clIds.length);
   console.log('Total Draft Messages in DB:', msgs?.length);
 
-  const placeholderCount = (msgs || []).filter((m: any) => m.body_text?.includes('{{resume_url}}')).length;
-  console.log('Drafts containing {{resume_url}} placeholder:', placeholderCount);
+  let minWords = 9999;
+  let maxWords = 0;
+  let emDashCount = 0;
+  let enDashCount = 0;
+  let hasResumePlaceholder = 0;
+  let hasValidLinks = 0;
+
+  for (const m of (msgs || [])) {
+    const text = m.body_text || '';
+    const words = text.trim().split(/\s+/).length;
+    if (words < minWords) minWords = words;
+    if (words > maxWords) maxWords = words;
+    if (text.includes('—') || (m.subject || '').includes('—')) emDashCount++;
+    if (text.includes('–') || (m.subject || '').includes('–')) enDashCount++;
+    if (text.includes('{{resume_url}}')) hasResumePlaceholder++;
+    if (text.includes('[Resume]') && text.includes('[GitHub]')) hasValidLinks++;
+  }
+
+  console.log('Word count range:', `${minWords} to ${maxWords} words`);
+  console.log('Em dashes found in any draft:', emDashCount);
+  console.log('En dashes found in any draft:', enDashCount);
+  console.log('Drafts containing [Resume] and [GitHub] markdown links:', hasValidLinks);
+  console.log('Drafts containing {{resume_url}} placeholder:', hasResumePlaceholder);
 
   const clMap = new Map((cls || []).map((c: any) => [c.id, c.lead]));
   for (const m of (msgs || [])) {
     const lead: any = clMap.get(m.campaign_lead_id);
-    if (['LangChain', 'Modal', 'Hatchet'].includes(lead?.company)) {
+    if (['LangChain', 'Modal Labs', 'Hatchet (YC W24)'].includes(lead?.company)) {
       console.log('\n========================================');
       console.log('Company:', lead?.company, '| To:', lead?.first_name, '<' + lead?.email + '>');
       console.log('Subject:', m.subject);
-      console.log('Status:', m.status);
-      console.log('Body:\n' + m.body_text);
+      console.log('Word Count:', m.body_text.trim().split(/\s+/).length);
+      console.log('----------------------------------------');
+      console.log(m.body_text);
     }
   }
 }

@@ -43,7 +43,7 @@ export type DraftValidation = z.infer<typeof DraftValidationSchema>;
  * Detects common unresolved placeholders like {{name}}, [Company], <title>, etc.
  */
 export function detectUnresolvedPlaceholders(text: string, allowedPlaceholders: string[] = []): string[] {
-  const matches = text.match(/(\{\{[^}]+\}\}|\[[A-Za-z\s]+\]|<[A-Za-z\s]+>)/g) || [];
+  const matches = text.match(/(\{\{[^}]+\}\}|\[[A-Za-z\s]+\](?!\()|<[A-Za-z\s]+>)/g) || [];
   return Array.from(new Set(matches)).filter((p) => !allowedPlaceholders.includes(p));
 }
 
@@ -372,6 +372,60 @@ export async function callAiWithFallback({
 }
 
 /**
+ * Naturalizes raw CSV outreach notes or research hooks into conversational sentences
+ * written from a real student/builder perspective.
+ */
+export function naturalizeOutreachHook(rawHook?: string, companyName?: string): string {
+  const company = companyName && companyName !== 'your team' ? companyName : 'your company';
+  if (!rawHook || !rawHook.trim()) {
+    return `I've been following what you and the team are building at ${company}, especially your engineering focus.`;
+  }
+
+  let text = rawHook.trim().replace(/\.+$/, '');
+
+  // Specific community and bespoke patterns
+  if (/email.*directly mentioning hn/i.test(text) || /hacker news/i.test(text)) {
+    return `I've been following ${company} on Hacker News and really admire your work around distributed execution and task queues.`;
+  }
+  if (/who's hiring|whos hiring/i.test(text)) {
+    return `I came across your journey on Hacker News and have been closely following what you're building at ${company}.`;
+  }
+  if (/founded by self-directed builders/i.test(text)) {
+    return `I've been following what you're building at ${company}, particularly your serverless infrastructure and developer tooling.`;
+  }
+
+  // Action verbs converted to natural conversational interest
+  const verbPatterns: Array<[RegExp, string]> = [
+    [/^(?:reference|referencing)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:highlight|highlighting)\s+/i, `I've been following what you're building at ${company}, especially `],
+    [/^(?:share|sharing)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:showcase|showcasing)\s+/i, `I've been following what you're building at ${company}, especially `],
+    [/^(?:point\s+to|pointing\s+to)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:emphasize|emphasizing)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:send|sending)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:submit|submitting)\s+/i, `I've been following your open-source work at ${company}, particularly `],
+    [/^(?:build\s+and\s+package|package)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:demonstrate|demonstrating)\s+/i, `I've been following what you're building at ${company}, particularly `],
+    [/^(?:discuss|discussing)\s+/i, `I've been following what you're building at ${company}, especially `],
+    [/^(?:mention|mentioning)\s+/i, `I've been following what you're building at ${company}, particularly `],
+  ];
+
+  for (const [regex, replacement] of verbPatterns) {
+    if (regex.test(text)) {
+      const rest = text.replace(regex, '').trim();
+      const lowerFirst = rest.charAt(0).toLowerCase() + rest.slice(1);
+      return `${replacement}${lowerFirst}.`;
+    }
+  }
+
+  if (/^i (?:noticed|saw|read|admire|have|love)/i.test(text)) {
+    return text.endsWith('.') ? text : `${text}.`;
+  }
+
+  return `I've been following what you're building at ${company}, particularly ${text.charAt(0).toLowerCase() + text.slice(1)}.`;
+}
+
+/**
  * Generates an initial cold email using Google Gemini or Mock mode fallback.
  */
 export async function generateInitialEmail(params: GenerateInitialEmailParams): Promise<GeneratedEmail> {
@@ -386,7 +440,7 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
   );
 
   // Use rich tailored response if no AI key or in mock mode
-  if (!hasAiKeyConfigured() || env.MOCK_MODE) {
+  if (!hasAiKeyConfigured() || env.MOCK_MODE || process.env.MOCK_MODE === 'true') {
     if (isJobOutreach) {
       const tech = profile.techStack || '';
       const stackLower = tech.toLowerCase();
@@ -396,26 +450,40 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
 
       let relevantProject = '';
       if (/rust|distributed|database|crdt|concurrency|queue|temporal|workflow|transaction|clock|hatchet|inngest/i.test(combined)) {
-        relevantProject = 'building Conflict-Free OLTP (a distributed database engine in Rust using CRDTs and Hybrid Logical Clocks)';
-      } else if (/serving|inference|vllm|ollama|slm|runtime|quantiz|gpu|cuda|modal|llama\.cpp|baseten|together/i.test(combined)) {
-        relevantProject = 'building Compact SLM (a local LLM serving platform in FastAPI and Qwen3 with modular backend architecture and automated testing)';
+        relevantProject = 'Conflict-Free OLTP, a distributed database engine in Rust using CRDTs and Hybrid Logical Clocks for concurrency correctness';
+      } else if (/serving|inference|vllm|ollama|slm|runtime|quantiz|gpu|cuda|modal|llama\.cpp|baseten|together|fireworks|runpod/i.test(combined)) {
+        relevantProject = 'Compact SLM, a local LLM serving platform in FastAPI and Qwen3 with modular backend architecture and automated testing';
       } else if (/search|rag|retrieval|collaboration|git|dev\s*tool|editor|code|langchain|llama|vector|semantic/i.test(combined)) {
-        relevantProject = 'building ResearchGit (a collaboration platform with semantic vector search) and practical tool-calling pipelines';
+        relevantProject = 'ResearchGit, a collaborative platform with semantic vector search and real-time synchronization';
       } else {
-        relevantProject = 'shipping production features with an early-stage AI team (AetherLabs) and building practical agentic workflows in Python & FastAPI';
+        relevantProject = 'practical agentic workflows and tool-calling backend pipelines in Python and FastAPI';
       }
 
-      const openingSentence = profile.outreachHook
-        ? profile.outreachHook
-        : `Saw what you and the team are building at ${profile.businessName}.`;
+      const openingSentence = naturalizeOutreachHook(profile.outreachHook, profile.businessName);
 
       const subject = profile.businessName !== 'your team'
-        ? `${profile.businessName} - Engineering Internship / Om Nigam`
-        : `Engineering Contribution / Om Nigam`;
+        ? `${profile.businessName}: engineering internship inquiry`
+        : `Engineering internship inquiry: Om Nigam`;
 
-      const resumePlaceholder = campaign.resume_url || '{{resume_url}}';
+      const resumeLink = campaign.resume_url
+        ? `[Resume](${campaign.resume_url})`
+        : `[Resume]({{resume_url}})`;
+      const githubLink = `[GitHub](https://github.com/avicdr)`;
 
-      const body = `Hi ${profile.recipientSalutation},\n\n${openingSentence}\n\nI'm a CS student at BITS Pilani (Bengaluru) focused on practical AI systems, backend reliability, and developer infrastructure. Recently, my work has centered around ${relevantProject}.\n\nI'd love to contribute to ${profile.businessName} as an engineering intern. You can review my resume here: ${resumePlaceholder} (and GitHub: https://github.com/avicdr).\n\nWould you be open to a brief 5-minute chat next week to see if I could be helpful to the team?\n\nBest,\nOm`;
+      const body = `Hi ${profile.recipientSalutation},
+
+${openingSentence}
+
+My name is Om Nigam, and I am a CS student at BITS Pilani, Bengaluru. I focus on practical AI systems, backend reliability, and developer infrastructure. Recently, I built ${relevantProject}.
+
+Alongside my studies, I build Arenova, an AI automation agency developing custom agents and workflow integrations. I also shipped production features with an early-stage team at AetherLabs using Python, TypeScript, and FastAPI.
+
+I would love to contribute to ${profile.businessName} as an engineering intern. You can review my ${resumeLink} and ${githubLink} to see my code and past work.
+
+Would you be open to a brief five-minute chat next week to see if I could be helpful to the team?
+
+Best,
+Om`;
 
       return {
         subject,
@@ -423,7 +491,7 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
         personalization_basis: [
           profile.outreachHook ? `Outreach hook: ${profile.outreachHook}` : `Company focus: ${profile.businessName}`,
           `Relevant proof-of-work project: ${relevantProject}`,
-          'BITS Pilani CS background & hands-on systems/AI contribution',
+          'BITS Pilani CS background, Arenova agentic AI, and systems engineering',
         ],
         unsupported_claims: [],
         needs_review: false,
@@ -433,18 +501,29 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
     const openingSentence = profile.personalizationHook
       ? profile.personalizationHook
       : profile.googleReviewCount
-      ? `Noticed ${profile.businessName}'s stellar ${profile.googleRating || '5.0'} rating across ${profile.googleReviewCount}+ reviews in ${profile.cityArea || 'your area'}.`
-      : `Noticed ${profile.businessName}'s reputation in ${profile.cityArea || 'your area'}.`;
+      ? `I noticed ${profile.businessName}'s stellar ${profile.googleRating || '5.0'} rating across ${profile.googleReviewCount}+ reviews in ${profile.cityArea || 'your area'}.`
+      : `I noticed ${profile.businessName}'s strong local reputation in ${profile.cityArea || 'your area'}.`;
 
     const frictionSentence = profile.currentBookingSetup
-      ? `Looking at your intake flow, after-hours prospective clients are currently directed to ${profile.currentBookingSetup.toLowerCase()}—meaning patients searching in the evenings or weekends often drop off before booking.`
-      : `Looking at your site, prospective clients after hours lack an instant 24/7 self-service scheduling assistant to capture them on the spot.`;
+      ? `Looking at your intake flow, after-hours prospective clients are currently directed to ${profile.currentBookingSetup.toLowerCase()}, which means customers searching in the evenings or weekends often drop off before booking.`
+      : `Looking at your online presence, prospective clients browsing after hours lack a direct 24/7 self-service scheduling assistant to capture them on the spot.`;
 
     const subject = profile.businessName !== 'your team'
       ? `${profile.businessName} after-hours intake`
       : `Quick question regarding after-hours intake`;
 
-    const body = `Hi ${profile.recipientSalutation},\n\n${openingSentence}\n\n${frictionSentence}\n\nWe deployed a lightweight AI intake agent that automatically books appointments and qualifies inquiries directly into your calendar 24/7, without adding phone tag for your front desk.\n\nOpen to a quick 3-minute video showing how this works for ${profile.categoryNiche || 'practices'} like yours?\n\nBest,\n${senderName}`;
+    const body = `Hi ${profile.recipientSalutation},
+
+${openingSentence}
+
+${frictionSentence}
+
+At Arenova, we build AI WhatsApp receptionists and automated booking systems that answer customer enquiries, qualify leads, and schedule appointments directly into your calendar 24/7 without adding repetitive work for your front desk.
+
+Would you be open to a quick 3-minute video showing how this works for ${profile.categoryNiche || 'businesses'} like yours?
+
+Best,
+${senderName}`;
 
     return {
       subject,
@@ -459,44 +538,47 @@ export async function generateInitialEmail(params: GenerateInitialEmailParams): 
   }
 
   const systemInstruction = isJobOutreach
-    ? `You are an elite engineering talent copywriter writing authentic, ultra-personalized cold emails on behalf of Om Nigam to tech startup founders and CTOs for engineering/AI internships.
+    ? `You are an elite engineering talent copywriter writing authentic, ultra-personalized cold emails on behalf of Om Nigam to tech startup founders and CTOs for engineering and AI internships.
 
-CANDIDATE DOSSIER — OM NIGAM:
-- Identity: Om Nigam, B.Sc. Computer Science student at BITS Pilani, Bengaluru (2025–2029).
+CANDIDATE DOSSIER: OM NIGAM
+- Identity: Om Nigam, B.Sc. Computer Science student at BITS Pilani, Bengaluru (2025-2029).
 - Core Focus: Agentic AI, autonomous AI systems, LLM-powered applications, practical backend architecture, system reliability, and AI infrastructure.
 - Technical Toolkit: Python, FastAPI, Node.js, PostgreSQL, MongoDB, Docker, React, Next.js, TypeScript, Rust, local LLMs, llama.cpp.
-- Proven Projects (Select the SINGLE most relevant project matching this founder's tech stack and domain):
-  1. For AI Infra / Inference / Serving / Runtimes / Local LLMs / GPU: "Compact SLM" (built a local LLM serving platform using FastAPI and Qwen3, with modular backend and automated tests; experience with llama.cpp and local model serving).
-  2. For Distributed Systems / Databases / Workflow Orchestration / Concurrency / Queues: "Conflict-Free OLTP" (built a distributed database engine in Rust using CRDTs and Hybrid Logical Clocks for concurrency correctness).
-  3. For Dev Tools / Code / Search / RAG / Collaboration: "ResearchGit" (built a research collaboration platform with semantic search, vector embeddings, and real-time collaboration).
-  4. For General AI Apps / Workflow Automation: shipped production features with an early-stage founding team at AetherLabs (AI insurtech), focused on practical AI tool use and system reliability.
+- Proven Experience and Projects:
+  1. Arenova: Building an AI automation and digital growth agency, developing custom AI agents, intelligent integrations, and automated customer assistants.
+  2. AetherLabs: Shipped production features with an early-stage founding team in AI insurtech, focusing on practical AI tool use and system reliability.
+  3. Compact SLM: Local LLM serving platform in FastAPI and Qwen3 with modular backend architecture and automated testing.
+  4. Conflict-Free OLTP: Distributed database engine in Rust using CRDTs and Hybrid Logical Clocks for concurrency correctness.
+  5. ResearchGit: Collaborative platform with semantic vector search and real-time synchronization.
 - Verified Links:
   * GitHub: https://github.com/avicdr
-  * LinkedIn: https://linkedin.com/in/webavi
-  * Resume: {{resume_url}} (Always use {{resume_url}} literally, or the configured campaign resume URL).
+  * Resume: {{resume_url}} (Always use [Resume]({{resume_url}}), or [Resume](${campaign.resume_url || '{{resume_url}}'})).
 
-CRITICAL RULES:
-1. LENGTH: Strict 60–90 words. Zero fluff, high density of engineering signal.
-2. SALUTATION: Use "Hi ${profile.recipientSalutation},".
-3. OPENING (THE HOOK):
+CRITICAL COPYWRITING RULES:
+1. EMAIL LENGTH: Strict 100 to 160 words. Zero fluff, high density of engineering signal.
+2. PARAGRAPHS: Each paragraph must be 1 to 3 sentences.
+3. PUNCTUATION: NEVER use em dashes or en dashes. Use commas, colons, or parentheses instead.
+4. SALUTATION: Use "Hi ${profile.recipientSalutation},".
+5. OPENING (THE HOOK):
    ${profile.outreachHook
-     ? `MANDATORY: You MUST open or lead with this exact verified outreach hook: "${profile.outreachHook}". Adapt it naturally as your very first sentence.`
+     ? `MANDATORY: You MUST open or lead with this verified outreach hook: "${profile.outreachHook}". Adapt it naturally as your very first sentence.`
      : `Open with a crisp, authentic technical observation about ${profile.businessName} and what they are building.`}
-4. TECHNICAL ALIGNMENT & PROOF OF WORK:
-   - Connect Om's background (BITS Pilani CS) and his SINGLE most relevant project (Compact SLM, Conflict-Free OLTP in Rust, ResearchGit, or AetherLabs production experience) directly to ${profile.businessName}'s stack (${profile.techStack || 'AI & systems'}).
+6. TECHNICAL ALIGNMENT & PROOF OF WORK:
+   - Introduce Om as a CS student at BITS Pilani, Bengaluru.
+   - Connect Om's background and his most relevant project (Compact SLM, Conflict-Free OLTP in Rust, ResearchGit, Arenova, or AetherLabs) directly to ${profile.businessName}'s stack (${profile.techStack || 'AI and systems'}).
+   - Mention his practical experience building Arenova or shipping at AetherLabs.
    - Position Om as a hands-on builder who wants to contribute directly to the founders, ship meaningful features, and solve real engineering problems.
-   - TRANSPARENCY: Never claim production experience with unverified frameworks. Only cite his actual projects and AetherLabs experience.
-5. RESUME & LINKS:
-   - Explicitly include: "Resume: {{resume_url}} (GitHub: https://github.com/avicdr)"
-6. CALL TO ACTION (CTA):
+7. RESUME & LINKS:
+   - Include valid Markdown links: [Resume]({{resume_url}}) and [GitHub](https://github.com/avicdr).
+8. CALL TO ACTION (CTA):
    - Low-friction, conversational, zero-pressure:
-     e.g., "Would you be open to a brief 5-minute chat next week to see if I could be helpful to the team?"
-7. SIGN-OFF:
+     e.g., "Would you be open to a brief five-minute chat next week to see if I could be helpful to the team?"
+9. SIGN-OFF:
    - Use "Best,\nOm"
-8. SUBJECT LINE:
-   - 2–4 words, natural lowercase or title case:
-     e.g., "${profile.businessName.toLowerCase()} - Engineering Internship / Om Nigam", "${profile.businessName.toLowerCase()} / om nigam", "quick note - ${profile.businessName.toLowerCase()}".
-9. Return valid JSON strictly adhering to schema:
+10. SUBJECT LINE:
+   - 2 to 4 words, natural:
+     e.g., "${profile.businessName}: engineering internship inquiry", "${profile.businessName.toLowerCase()} / om nigam".
+11. Return valid JSON strictly adhering to schema:
    {
      "subject": "string",
      "body": "string",
@@ -504,33 +586,40 @@ CRITICAL RULES:
      "unsupported_claims": [],
      "needs_review": boolean
    }`
-    : `You are a world-class B2B cold email copywriter specializing in high-converting outreach to local clinics, practices, and service businesses (Dental, Med Spa, Chiropractic, Dermatology, Veterinary, Eye Care, Auto Repair, Home Maintenance/HVAC, etc.).
+    : `You are Arenova's business development and outreach assistant. Arenova is an AI automation and digital growth agency that helps businesses attract more customers, improve their online presence, and automate repetitive workflows.
 
-CRITICAL COPYWRITING RULES (MAKE THE EMAIL UP TO THE MARK):
-1. LENGTH: Strict 60–95 words. Punchy, executive, crisp. Busy practice managers and doctors delete long pitches.
-2. SALUTATION: Use "${profile.recipientSalutation}". Never say "Hi info," or "Dear Sir/Madam".
-3. OPENING (THE HOOK):
+CORE SERVICES:
+- Website Development: Modern, premium, mobile-friendly websites that establish credibility and generate leads. (When a business has an outdated website, offer to share a sample website created for them).
+- AI WhatsApp Receptionists: AI-powered WhatsApp assistants that answer customer enquiries, handle FAQs, qualify leads, and automate appointment bookings 24/7.
+- AI Automation: Automating repetitive business workflows with AI agents and intelligent integrations.
+- Digital Marketing and Google Ads: Improving online visibility and attracting high-intent local customers.
+
+TARGET CUSTOMERS:
+Salons and beauty businesses, dental clinics and healthcare providers, restaurants and cafes, gyms and fitness studios, real estate, and local service businesses.
+
+CRITICAL OUTREACH RULES:
+1. EMAIL LENGTH: Strict 100 to 160 words. Short, natural, respectful, and conversational.
+2. PARAGRAPHS: Each paragraph must be 1 to 3 sentences.
+3. PUNCTUATION: NEVER use em dashes or en dashes. Use commas, colons, or parentheses instead.
+4. SALUTATION: Use "Hi ${profile.recipientSalutation},". Never use generic "Dear Sir/Madam" or "Hi info".
+5. OPENING (THE HOOK):
    ${profile.personalizationHook
-     ? `MANDATORY: You MUST open or lead with this exact verified personalization hook: "${profile.personalizationHook}". Adapt it naturally as your very first sentence.`
-     : `Open by directly acknowledging their reputation in ${profile.cityArea || 'their market'}${profile.googleReviewCount ? ` and their ${profile.googleRating || '5.0'} rating across ${profile.googleReviewCount}+ reviews` : ''}.`}
-4. THE GAP / INTAKE BOTTLENECK:
+     ? `Lead with a genuine observation based on: "${profile.personalizationHook}".`
+     : `Open by acknowledging their reputation in ${profile.cityArea || 'their market'}${profile.googleReviewCount ? ` and their rating across ${profile.googleReviewCount}+ reviews` : ''}.`}
+6. GENUINE OPPORTUNITY & BUSINESS OUTCOME:
    - Zero in on their booking bottleneck:
-     * Current Booking Setup: ${profile.currentBookingSetup || 'Manual receptionist intake / phone-only / static contact form'}
-     * AI Chat Status: ${profile.aiChatWidgetStatus || 'None / Missing after-hours intake'}
-     * Automated Booking: ${profile.automatedBookingStatus || 'Manual intake, no 24/7 self-service scheduling'}
-   - Point out that high-intent local searchers browsing after hours or over the weekend bounce if they cannot instantly get answers or book on the spot.
-5. THE PROPOSITION & VALUE:
-   - Connect directly to the offer: "${campaign.offer}".
-   - Explain that an automated 24/7 AI intake assistant captures these bookings and answers pricing/procedure questions without adding phone tag to their staff.
-6. CALL TO ACTION (CTA):
-   - Low-friction, conversational, zero-pressure CTA (e.g. "Open to a 3-minute video preview showing how this works for ${profile.categoryNiche}?" or "Would you be against seeing a 60-second walkthrough?").
-7. BANNED PHRASES & AI TROPES (NEVER USE):
-   - Never say: "I hope this email finds you well", "In today's fast-paced digital world", "Allow me to introduce", "Guaranteed 10x ROI", "Synergies", "revolutionary", "game-changing".
-   - Keep tone peer-to-peer, confident, helpful, and localized.
-8. SUBJECT LINE:
-   - 2–4 words maximum. Lower-case or title case. Natural, never clickbait:
-     e.g., "${profile.businessName} after-hours intake", "${profile.businessName} booking gap", "quick question - ${profile.businessName}".
-9. Return valid JSON strictly adhering to schema:
+     * Current Booking Setup: ${profile.currentBookingSetup || 'Manual intake / phone-only / contact form'}
+     * After-hours inquiry loss: local customers browsing in the evenings or weekends drop off if they cannot get instant answers or book on the spot.
+   - Explain how Arenova helps in terms of real business outcomes: capturing more enquiries, responding faster, improving credibility, or saving front-desk staff hours of repetitive phone calls.
+   - Never guarantee results or invent research, customer numbers, case studies, or achievements.
+7. CALL TO ACTION (CTA):
+   - Low-pressure question that makes replying easy (e.g., "Open to a quick 3-minute video showing how this works for practices like yours?" or "Would you be interested in taking a look at a sample website preview?").
+8. COMMUNICATION STYLE:
+   - Sound like a real person, not a corporate sales bot. Friendly and professional. No AI clichés (never say "I hope this email finds you well", "In today's fast-paced digital world", "revolutionary", "game-changing").
+9. SUBJECT LINE:
+   - Concise, 2 to 4 words, natural:
+     e.g., "${profile.businessName} after-hours intake", "${profile.businessName} website inquiry".
+10. Return valid JSON strictly adhering to schema:
    {
      "subject": "string",
      "body": "string",
@@ -625,7 +714,7 @@ export async function generateFollowupEmail(params: GenerateFollowupEmailParams)
     (profile.targetRoles && (profile.techStack || profile.outreachHook))
   );
 
-  if (!hasAiKeyConfigured() || env.MOCK_MODE) {
+  if (!hasAiKeyConfigured() || env.MOCK_MODE || process.env.MOCK_MODE === 'true') {
     const isThreaded = previousSubject.toLowerCase().startsWith('re:') ? previousSubject : `Re: ${previousSubject}`;
     
     let body = '';
@@ -634,13 +723,13 @@ export async function generateFollowupEmail(params: GenerateFollowupEmailParams)
         const resumeUrl = (campaign as any).resume_url || '{{resume_url}}';
         body = `Hi ${profile.recipientSalutation},\n\nFollowing up briefly on my note regarding an engineering internship at ${profile.businessName}.\n\nI've been working on practical AI and systems implementations (including local LLM serving with Compact SLM and distributed storage in Rust), and would love to share a short code walkthrough or project demo.\n\nYou can review my resume here: ${resumeUrl} (and GitHub: https://github.com/avicdr).\n\nWould you have 5 minutes this Thursday or Friday?\n\nBest,\nOm`;
       } else {
-        body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here—I know you're super busy building ${profile.businessName}.\n\nIf you aren't currently bringing on interns or junior engineers, no problem at all. Feel free to keep my details and GitHub (https://github.com/avicdr) on file for future opportunities. Keep building!\n\nBest,\nOm`;
+        body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here, as I know you're busy building ${profile.businessName}.\n\nIf you aren't currently bringing on interns or junior engineers, no problem at all. Feel free to keep my details and [GitHub](https://github.com/avicdr) on file for future opportunities. Keep building!\n\nBest,\nOm`;
       }
     } else {
       if (stepNumber === 1) {
         body = `Hi ${profile.recipientSalutation},\n\nFollowing up briefly on my previous note. Most ${profile.categoryNiche || 'practices'} in ${profile.cityArea || 'your area'} lose 20-30% of their new appointment inquiries simply because patients search in the evenings when the front desk is closed.\n\nOur AI intake agent bridges that gap automatically.\n\nWould you have 5 minutes this Thursday or Friday for a quick look?\n\nBest,\n${senderName}`;
       } else {
-        body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here—I know you're busy running ${profile.businessName}.\n\nIf capturing after-hours inquiries isn't a priority right now, no problem at all. Should things change down the road, feel free to reach back out.\n\nBest regards,\n${senderName}`;
+        body = `Hi ${profile.recipientSalutation},\n\nClosing the loop here, as I know you're busy running ${profile.businessName}.\n\nIf capturing after-hours inquiries isn't a priority right now, no problem at all. Should things change down the road, feel free to reach back out.\n\nBest regards,\n${senderName}`;
       }
     }
 

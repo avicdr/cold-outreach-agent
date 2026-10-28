@@ -2,10 +2,32 @@ import { createClient } from '@supabase/supabase-js';
 import { generateInitialEmail } from '../src/lib/gemini';
 import { Lead, Campaign } from '../src/types/database';
 
+import fs from 'fs';
 import path from 'path';
-import dotenv from 'dotenv';
-dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+
+function loadEnvFile(file: string) {
+  const p = path.resolve(process.cwd(), file);
+  if (!fs.existsSync(p)) return;
+  const content = fs.readFileSync(p, 'utf8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx !== -1) {
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  }
+}
+loadEnvFile('.env.local');
+loadEnvFile('.env');
+process.env.MOCK_MODE = 'true';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://nkiizjcwrrdggdqneuhv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -24,7 +46,7 @@ async function run() {
     .update({
       sender_name: 'Om Nigam',
       business_name: 'Om Nigam (Applied AI & Systems Engineer)',
-      business_description: 'Computer Science student at BITS Pilani, Bengaluru building practical Agentic AI, local LLM serving, and distributed systems in Rust.',
+      business_description: 'Computer Science student at BITS Pilani, Bengaluru building Arenova (AI automation and digital workflows), local LLM serving, and distributed systems in Rust.',
       value_proposition: 'Hands-on AI & Systems Engineer contributor across AI application development, backend systems, and infrastructure.',
       updated_at: new Date().toISOString(),
     })
@@ -44,10 +66,10 @@ async function run() {
     .update({
       name: 'Founder Outreach - Om Nigam (Applied AI & Systems Engineering Internship)',
       offer: 'Applied AI & Systems Engineering Internship (Om Nigam, BITS Pilani CS)',
-      business_context: 'Om Nigam is a Computer Science student at BITS Pilani, Bengaluru (2025–2029) building practical Agentic AI, local LLM serving (Compact SLM in FastAPI/Qwen3), distributed systems in Rust (Conflict-Free OLTP with CRDTs), and backend architecture.',
-      tone: 'concise, technical, humble, high-signal, peer-to-peer',
+      business_context: 'Om Nigam is a Computer Science student at BITS Pilani, Bengaluru (2025-2029) building practical Agentic AI, Arenova (AI automation and digital workflows), local LLM serving (Compact SLM in FastAPI/Qwen3), distributed systems in Rust (Conflict-Free OLTP with CRDTs), and backend architecture.',
+      tone: 'conversational, technical, humble, high-signal, peer-to-peer',
       call_to_action: 'Brief 5-minute chat to discuss internship opportunities',
-      initial_email_instructions: 'Personalize based on the founder product and actual engineering stack. Connect Om most relevant project (Compact SLM for infra/LLMs, Conflict-Free OLTP in Rust for distributed systems/databases, ResearchGit for search/dev-tools, AetherLabs for product AI). Use {{resume_url}} and GitHub (https://github.com/avicdr). Sign off as Om.',
+      initial_email_instructions: 'Personalize based on the founder product and actual engineering stack. Connect Om most relevant project (Compact SLM for infra/LLMs, Conflict-Free OLTP in Rust for distributed systems/databases, ResearchGit for search/dev-tools, Arenova/AetherLabs for applied AI and agentic workflows). Use [Resume]({{resume_url}}) and [GitHub](https://github.com/avicdr). Strict 100 to 160 words. Paragraphs 1 to 3 sentences. Never use em dashes or en dashes. Sign off as Om.',
       updated_at: new Date().toISOString(),
     })
     .eq('id', CAMPAIGN_ID)
