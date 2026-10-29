@@ -629,6 +629,10 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
   // Execute Send (via SMTP or Gmail OAuth)
   let sendResult: { id: string; threadId: string };
 
+  const senderDisplay = emailAccount.sender_name?.trim()
+    ? `"${emailAccount.sender_name.trim()}" <${emailAccount.email_address}>`
+    : emailAccount.email_address;
+
   if (emailAccount.provider === 'smtp') {
     let smtpPassword = '';
     try {
@@ -636,10 +640,6 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     } catch {
       smtpPassword = emailAccount.encrypted_smtp_password || emailAccount.encrypted_access_token;
     }
-
-    const senderDisplay = emailAccount.sender_name?.trim()
-      ? `"${emailAccount.sender_name.trim()}" <${emailAccount.email_address}>`
-      : emailAccount.email_address;
 
     sendResult = await sendSmtpEmail(
       {
@@ -663,7 +663,7 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
   } else {
     sendResult = await executeWithGmailAuth(emailAccount, (token) =>
       sendGmailMessage(token, {
-        from: emailAccount.email_address,
+        from: senderDisplay,
         to: lead.email,
         subject: message.subject,
         bodyText: message.body_text,

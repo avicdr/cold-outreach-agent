@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateOAuthState, validateOAuthState } from './oauth';
-import { buildMimeEmail, encodeBase64Url, sendGmailMessage } from './client';
+import { buildMimeEmail, encodeBase64Url, formatSenderDisplay, sendGmailMessage } from './client';
 
 describe('Gmail & OAuth Integrations', () => {
   it('generates and validates OAuth state correctly', () => {
@@ -28,6 +28,26 @@ describe('Gmail & OAuth Integrations', () => {
     expect(encoded).not.toContain('+');
     expect(encoded).not.toContain('/');
     expect(encoded).not.toContain('=');
+  });
+
+  it('formats sender display name and handles Message-ID correctly', () => {
+    expect(formatSenderDisplay('user@example.com', 'Om Nigam')).toBe('"Om Nigam" <user@example.com>');
+    expect(formatSenderDisplay('user@example.com', '"Om Nigam"')).toBe('"Om Nigam" <user@example.com>');
+    expect(formatSenderDisplay('user@example.com', '')).toBe('user@example.com');
+    expect(formatSenderDisplay('user@example.com', null)).toBe('user@example.com');
+
+    const mime = buildMimeEmail({
+      from: formatSenderDisplay('om.25bcs10397@sst.scaler.com', 'Om'),
+      to: '2025eb01582@online.bits-pilani.ac.in',
+      subject: 'Test display name',
+      bodyText: 'Hello world',
+    });
+
+    expect(mime).toContain('From: "Om" <om.25bcs10397@sst.scaler.com>');
+    expect(mime).toContain('To: 2025eb01582@online.bits-pilani.ac.in');
+    // Verify Message-ID has clean domain without double brackets
+    const messageIdLine = mime.split('\n').find((line) => line.startsWith('Message-ID:'))?.trim();
+    expect(messageIdLine).toMatch(/^Message-ID: <[a-f0-9-]+@sst\.scaler\.com>$/);
   });
 
   it('builds RFC 2822 compliant MIME message with unsubscribe headers', () => {

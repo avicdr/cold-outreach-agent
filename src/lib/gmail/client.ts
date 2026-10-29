@@ -46,6 +46,18 @@ export function encodeBase64Url(input: string | Buffer): string {
 }
 
 /**
+ * Formats a display name and email address into RFC 5322 "Display Name" <email@domain.com> format.
+ */
+export function formatSenderDisplay(email: string, senderName?: string | null): string {
+  const cleanName = senderName?.trim();
+  if (!cleanName) {
+    return email;
+  }
+  const unquoted = cleanName.replace(/^["']|["']$/g, '').trim();
+  return `"${unquoted}" <${email}>`;
+}
+
+/**
  * Builds an RFC 2822 MIME formatted email string.
  */
 export function buildMimeEmail(options: SendEmailOptions): string {
@@ -62,7 +74,11 @@ export function buildMimeEmail(options: SendEmailOptions): string {
   } = options;
 
   const date = new Date().toUTCString();
-  const domain = from.includes('@') ? from.split('@')[1] : 'coldoutreach.app';
+  const emailMatch = from.match(/<([^>]+)>/);
+  const cleanEmail = emailMatch ? emailMatch[1].trim() : from.trim();
+  const domain = cleanEmail.includes('@')
+    ? cleanEmail.split('@')[1].replace(/>/g, '').trim()
+    : 'coldoutreach.app';
   const messageId = `<${crypto.randomUUID()}@${domain}>`;
 
   const headers: string[] = [

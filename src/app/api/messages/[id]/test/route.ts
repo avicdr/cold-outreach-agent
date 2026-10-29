@@ -74,6 +74,10 @@ export async function POST(
 
     let sendResult: { id: string; threadId: string };
 
+    const senderDisplay = emailAccount.sender_name?.trim()
+      ? `"${emailAccount.sender_name.trim()}" <${emailAccount.email_address}>`
+      : emailAccount.email_address;
+
     if (emailAccount.provider === 'smtp') {
       let smtpPassword = '';
       try {
@@ -81,10 +85,6 @@ export async function POST(
       } catch {
         smtpPassword = emailAccount.encrypted_smtp_password || emailAccount.encrypted_access_token;
       }
-
-      const senderDisplay = emailAccount.sender_name?.trim()
-        ? `"${emailAccount.sender_name.trim()}" <${emailAccount.email_address}>`
-        : emailAccount.email_address;
 
       sendResult = await sendSmtpEmail(
         {
@@ -105,7 +105,7 @@ export async function POST(
       sendResult = await executeWithGmailAuth(emailAccount, (token) =>
         sendGmailMessage(token, {
           to: recipient_email,
-          from: emailAccount.email_address,
+          from: senderDisplay,
           subject: `[TEST] ${subject}`,
           bodyText: `${bodyText}\n\n---\n[Test Email sent from ${emailAccount.email_address} via AI Cold Outreach Agent]`,
         })

@@ -91,6 +91,10 @@ export async function executeWarmupSend(
 
     let sendResult: { id: string; threadId: string };
 
+    const fromDisplay = fromAccount.sender_name?.trim()
+      ? `"${fromAccount.sender_name.trim()}" <${fromAccount.email_address}>`
+      : fromAccount.email_address;
+
     if (fromAccount.provider === 'smtp') {
       let smtpPassword = '';
       try {
@@ -107,7 +111,7 @@ export async function executeWarmupSend(
           pass: smtpPassword,
         },
         {
-          from: fromAccount.sender_name ? `"${fromAccount.sender_name}" <${fromAccount.email_address}>` : fromAccount.email_address,
+          from: fromDisplay,
           to: toAccount.email_address,
           subject,
           bodyText,
@@ -116,7 +120,7 @@ export async function executeWarmupSend(
     } else {
       sendResult = await executeWithGmailAuth(fromAccount, (token) =>
         sendGmailMessage(token, {
-          from: fromAccount.email_address,
+          from: fromDisplay,
           to: toAccount.email_address,
           subject,
           bodyText,
@@ -196,10 +200,13 @@ export async function executeWarmupSend(
     if (shouldReply) {
       try {
         const replyText = template.reply(senderName);
+        const toDisplay = toAccount.sender_name?.trim()
+          ? `"${toAccount.sender_name.trim()}" <${toAccount.email_address}>`
+          : toAccount.email_address;
 
         const replyResult = await executeWithGmailAuth(toAccount, (token) =>
           sendGmailMessage(token, {
-            from: toAccount.email_address,
+            from: toDisplay,
             to: fromAccount.email_address,
             subject: `Re: ${subject}`,
             bodyText: replyText,
