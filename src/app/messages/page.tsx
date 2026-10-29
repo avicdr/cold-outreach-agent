@@ -305,6 +305,11 @@ function MessagesContent() {
                               <Send className="w-2.5 h-2.5 text-indigo-400" />
                               <span className="truncate max-w-[150px]">{msg.email_account.email_address}</span>
                             </span>
+                          ) : msg.step_number > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono text-[10px]">
+                              <Send className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Step 0 Inbox</span>
+                            </span>
                           ) : (
                             <span className="text-slate-500 text-[11px]">Auto-rotating pool</span>
                           )}

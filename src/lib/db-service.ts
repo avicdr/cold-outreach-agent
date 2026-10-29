@@ -602,8 +602,15 @@ export const dbService = {
       const paged = msgs.slice(offset, offset + limit).map((m) => {
         const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
         const lead = cl ? mockDb.leads.get(cl.lead_id) : undefined;
-        const acc = m.email_account_id ? mockDb.emailAccounts.get(m.email_account_id) || null : null;
-        return { ...m, lead, campaign_id: cl?.campaign_id, email_account: acc };
+        let accId = m.email_account_id;
+        if (!accId && m.step_number > 0) {
+          const step0 = Array.from(mockDb.emailMessages.values()).find(
+            (other) => other.campaign_lead_id === m.campaign_lead_id && other.step_number === 0
+          );
+          accId = step0?.email_account_id || null;
+        }
+        const acc = accId ? mockDb.emailAccounts.get(accId) || null : null;
+        return { ...m, email_account_id: accId || m.email_account_id, lead, campaign_id: cl?.campaign_id, email_account: acc };
       });
       return { messages: paged, total };
     }
@@ -652,6 +659,22 @@ export const dbService = {
     const { data, count, error } = await query.range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
 
+    // Resolve step 0 email_account_id for any follow-up messages missing email_account_id
+    const rawList = data || [];
+    const followupsNeedingStep0 = rawList.filter((m: any) => m.step_number > 0 && !m.email_account_id);
+    const step0Map = new Map<string, string>();
+    if (followupsNeedingStep0.length > 0) {
+      const neededClIds = Array.from(new Set(followupsNeedingStep0.map((m: any) => m.campaign_lead_id)));
+      const { data: step0List } = await supabase
+        .from('email_messages')
+        .select('campaign_lead_id, email_account_id')
+        .eq('step_number', 0)
+        .in('campaign_lead_id', neededClIds);
+      (step0List || []).forEach((s0: any) => {
+        if (s0.email_account_id) step0Map.set(s0.campaign_lead_id, s0.email_account_id);
+      });
+    }
+
     let accountMap = new Map<string, EmailAccount>();
     if (filters?.userId) {
       try {
@@ -660,12 +683,16 @@ export const dbService = {
       } catch {}
     }
 
-    const messages = (data || []).map((m: any) => ({
-      ...m,
-      lead: m.campaign_lead?.lead || undefined,
-      campaign_id: m.campaign_lead?.campaign_id || undefined,
-      email_account: m.email_account_id ? accountMap.get(m.email_account_id) || null : null,
-    }));
+    const messages = rawList.map((m: any) => {
+      const resolvedAccountId = m.email_account_id || (m.step_number > 0 ? step0Map.get(m.campaign_lead_id) : null);
+      return {
+        ...m,
+        email_account_id: resolvedAccountId || m.email_account_id,
+        lead: m.campaign_lead?.lead || undefined,
+        campaign_id: m.campaign_lead?.campaign_id || undefined,
+        email_account: resolvedAccountId ? accountMap.get(resolvedAccountId) || null : null,
+      };
+    });
     return { messages, total: count ?? messages.length };
   },
 
@@ -717,6 +744,29 @@ export const dbService = {
   },
 
   async createOrUpdateMessage(message: Partial<EmailMessage> & { campaign_lead_id: string; step_number: number }): Promise<EmailMessage> {
+    // Strictly enforce that follow-up messages (step_number > 0) inherit the same email account as Step 0
+    if (message.step_number > 0 && !message.email_account_id) {
+      if (!isLiveSupabase()) {
+        const step0 = Array.from(mockDb.emailMessages.values()).find(
+          (m) => m.campaign_lead_id === message.campaign_lead_id && m.step_number === 0
+        );
+        if (step0?.email_account_id) {
+          message.email_account_id = step0.email_account_id;
+        }
+      } else {
+        const supabase = createAdminClient();
+        const { data: step0 } = await supabase
+          .from('email_messages')
+          .select('email_account_id')
+          .eq('campaign_lead_id', message.campaign_lead_id)
+          .eq('step_number', 0)
+          .maybeSingle();
+        if (step0?.email_account_id) {
+          message.email_account_id = step0.email_account_id;
+        }
+      }
+    }
+
     if (!isLiveSupabase()) {
       // Find existing message for step
       let existing = Array.from(mockDb.emailMessages.values()).find(
@@ -868,7 +918,16 @@ export const dbService = {
         const slot = scheduleSlots[i] || scheduleSlots[scheduleSlots.length - 1];
         const newDate = slot ? slot.date : new Date();
         msg.scheduled_at = newDate.toISOString();
-        if (slot?.accountId) msg.email_account_id = slot.accountId;
+        if (msg.step_number > 0) {
+          const step0 = Array.from(mockDb.emailMessages.values()).find(
+            (other) => other.campaign_lead_id === msg.campaign_lead_id && other.step_number === 0
+          );
+          if (step0?.email_account_id) {
+            msg.email_account_id = step0.email_account_id;
+          }
+        } else if (slot?.accountId) {
+          msg.email_account_id = slot.accountId;
+        }
         for (const job of mockDb.jobQueue.values()) {
           if (job.job_type === 'send_email' && (job.payload as any)?.emailMessageId === msg.id && job.status === 'queued') {
             job.run_at = newDate.toISOString();
@@ -886,7 +945,7 @@ export const dbService = {
 
     const { data: messages, error: msgErr } = await supabase
       .from('email_messages')
-      .select('id, step_number, created_at, scheduled_at')
+      .select('id, campaign_lead_id, step_number, created_at, scheduled_at, email_account_id')
       .in('campaign_lead_id', clIds)
       .eq('status', 'scheduled')
       .order('step_number', { ascending: true })
@@ -894,6 +953,14 @@ export const dbService = {
 
     if (msgErr) throw new Error(msgErr.message);
     if (!messages || messages.length === 0) return { rescheduledCount: 0 };
+
+    // Resolve Step 0 email accounts for follow-ups
+    const { data: step0List } = await supabase
+      .from('email_messages')
+      .select('campaign_lead_id, email_account_id')
+      .eq('step_number', 0)
+      .in('campaign_lead_id', clIds);
+    const step0Map = new Map((step0List || []).map((s: any) => [s.campaign_lead_id, s.email_account_id]));
 
     const scheduleSlots = calculateStaggeredScheduleWithAccounts(campaign, accounts, messages.length, new Date());
 
@@ -905,12 +972,15 @@ export const dbService = {
           const globalIdx = i + bIdx;
           const slot = scheduleSlots[globalIdx];
           const newIso = (slot?.date || new Date()).toISOString();
+          const targetAccountId = msg.step_number > 0
+            ? (msg.email_account_id || step0Map.get(msg.campaign_lead_id) || slot?.accountId)
+            : slot?.accountId;
 
           await supabase
             .from('email_messages')
             .update({
               scheduled_at: newIso,
-              ...(slot?.accountId ? { email_account_id: slot.accountId } : {}),
+              ...(targetAccountId ? { email_account_id: targetAccountId } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq('id', msg.id);
@@ -1048,7 +1118,16 @@ export const dbService = {
         const newIso = newDate.toISOString();
         msg.status = 'scheduled';
         msg.scheduled_at = newIso;
-        if (slot?.accountId) msg.email_account_id = slot.accountId;
+        if (msg.step_number > 0) {
+          const step0 = Array.from(mockDb.emailMessages.values()).find(
+            (other) => other.campaign_lead_id === msg.campaign_lead_id && other.step_number === 0
+          );
+          if (step0?.email_account_id) {
+            msg.email_account_id = step0.email_account_id;
+          }
+        } else if (slot?.accountId) {
+          msg.email_account_id = slot.accountId;
+        }
         msg.updated_at = new Date().toISOString();
 
         // Remove old queued job if any
@@ -1086,7 +1165,7 @@ export const dbService = {
     // Fetch paused (or scheduled) messages for these leads to reschedule cleanly
     const { data: messages, error: msgErr } = await supabase
       .from('email_messages')
-      .select('id, step_number, created_at, scheduled_at, status')
+      .select('id, campaign_lead_id, step_number, created_at, scheduled_at, email_account_id, status')
       .in('campaign_lead_id', clIds)
       .in('status', ['paused', 'scheduled'])
       .order('step_number', { ascending: true })
@@ -1094,6 +1173,14 @@ export const dbService = {
 
     if (msgErr) throw new Error(msgErr.message);
     if (!messages || messages.length === 0) return { rescheduledCount: 0 };
+
+    // Resolve Step 0 accounts for follow-ups
+    const { data: step0List } = await supabase
+      .from('email_messages')
+      .select('campaign_lead_id, email_account_id')
+      .eq('step_number', 0)
+      .in('campaign_lead_id', clIds);
+    const step0Map = new Map((step0List || []).map((s: any) => [s.campaign_lead_id, s.email_account_id]));
 
     const msgIds = messages.map((m) => m.id);
 
@@ -1120,12 +1207,16 @@ export const dbService = {
           const globalIdx = i + bIdx;
           const slot = scheduleSlots[globalIdx];
           const newDate = slot ? slot.date : new Date();
+          const targetAccountId = msg.step_number > 0
+            ? (msg.email_account_id || step0Map.get(msg.campaign_lead_id) || slot?.accountId)
+            : slot?.accountId;
+
           return supabase
             .from('email_messages')
             .update({
               status: 'scheduled',
               scheduled_at: newDate.toISOString(),
-              ...(slot?.accountId ? { email_account_id: slot.accountId } : {}),
+              ...(targetAccountId ? { email_account_id: targetAccountId } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq('id', msg.id);
