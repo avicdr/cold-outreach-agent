@@ -828,7 +828,7 @@ export const dbService = {
       return newMsg;
     }
 
-    const { lead, campaign_id, campaign_lead, ...fieldsToSave } = message as any;
+    const { lead, campaign_id, campaign_name, campaign_lead, email_account, ...fieldsToSave } = message as any;
 
     const supabase = createAdminClient();
     const { data: existing } = await supabase

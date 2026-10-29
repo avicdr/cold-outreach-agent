@@ -675,14 +675,16 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     );
   }
 
-  // Confirmed success: update records
+  // 1. Immediately record account send so the cooldown timestamp and counter are secured
+  await dbService.recordAccountSend(emailAccount.id);
+
+  // 2. Confirmed success: update records
   message.status = 'sent';
   message.email_account_id = emailAccount.id;
   message.gmail_message_id = sendResult.id;
   message.gmail_thread_id = sendResult.threadId || targetThreadId || null;
   message.sent_at = new Date().toISOString();
   await dbService.createOrUpdateMessage(message);
-  await dbService.recordAccountSend(emailAccount.id);
 
   lead.status = 'contacted';
   await dbService.updateLead(lead.id, { status: 'contacted' });
