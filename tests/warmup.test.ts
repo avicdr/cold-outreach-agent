@@ -169,5 +169,44 @@ describe('Warmup Pool & Multi-Account OAuth', () => {
       process.env.GOOGLE_REDIRECT_URI = originalRedirectUri;
     }
   });
+
+  it('runs peer warmup for active inboxes even if their group is_warmup_enabled was not explicitly set', async () => {
+    // Group with is_warmup_enabled: false (e.g. personal / standard outreach group)
+    const group = await dbService.createAccountGroup(userId, {
+      name: 'Standard Group',
+      is_warmup_enabled: false,
+    });
+
+    // 2 inboxes with warmup_enabled: true in this group
+    await dbService.upsertEmailAccount({
+      user_id: userId,
+      email_address: 'inboxA@domain.com',
+      group_id: group.id,
+      warmup_enabled: true,
+      warmup_status: 'warming',
+      warmup_day_count: 1,
+      encrypted_access_token: 'mock-token-A',
+      encrypted_refresh_token: 'mock-refresh-A',
+    });
+
+    await dbService.upsertEmailAccount({
+      user_id: userId,
+      email_address: 'inboxB@domain.com',
+      group_id: group.id,
+      warmup_enabled: true,
+      warmup_status: 'warming',
+      warmup_day_count: 1,
+      encrypted_access_token: 'mock-token-B',
+      encrypted_refresh_token: 'mock-refresh-B',
+    });
+
+    const cycleResult = await runWarmupCycle(userId);
+    expect(cycleResult.groupsProcessed).toBeGreaterThanOrEqual(1);
+    expect(cycleResult.emailsSent).toBeGreaterThanOrEqual(1);
+
+    const stats = await getWarmupStats(userId);
+    expect(stats.activeAccounts).toBe(2);
+    expect(stats.totalWarmupSent).toBeGreaterThanOrEqual(1);
+  });
 });
 

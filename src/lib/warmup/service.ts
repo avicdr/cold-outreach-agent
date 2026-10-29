@@ -253,30 +253,41 @@ export async function runWarmupCycle(userId: string): Promise<{
   errors: string[];
 }> {
   const groups = await dbService.getAccountGroups(userId);
-  const warmupGroups = groups.filter((g) => g.is_warmup_enabled);
   const allAccounts = await dbService.getEmailAccounts(userId, { status: 'active' });
+  const activeWarmingAccounts = allAccounts.filter((a) => a.warmup_enabled !== false && a.status === 'active');
 
   let inboxesWarmed = 0;
   let emailsSent = 0;
   const errors: string[] = [];
 
-  // 1. Explicit warmup groups
-  const poolsToProcess: Array<{ name: string; group?: AccountGroup; pool: EmailAccount[] }> = warmupGroups.map((group) => ({
-    name: group.name,
-    group,
-    pool: allAccounts.filter(
-      (a) => a.group_id === group.id && a.warmup_enabled !== false && a.status === 'active'
-    ),
-  }));
+  const poolsToProcess: Array<{ name: string; group?: AccountGroup; pool: EmailAccount[] }> = [];
+  const processedAccountIds = new Set<string>();
 
-  // 2. Also form a peer pool for active warmup inboxes that are unassigned
-  const unassignedAccounts = allAccounts.filter(
-    (a) => !a.group_id && a.warmup_enabled !== false && a.status === 'active'
-  );
-  if (unassignedAccounts.length >= 2) {
+  // 1. Process group pools: any group explicitly enabled OR any group that has 2+ active warming inboxes
+  for (const group of groups) {
+    const groupWarmingAccounts = activeWarmingAccounts.filter((a) => a.group_id === group.id);
+    if ((group.is_warmup_enabled || groupWarmingAccounts.length >= 2) && groupWarmingAccounts.length >= 2) {
+      poolsToProcess.push({
+        name: group.name,
+        group,
+        pool: groupWarmingAccounts,
+      });
+      groupWarmingAccounts.forEach((a) => processedAccountIds.add(a.id));
+    }
+  }
+
+  // 2. Cross-group / unassigned peer pool for any active warming accounts not covered by a 2+ group pool
+  const remainingAccounts = activeWarmingAccounts.filter((a) => !processedAccountIds.has(a.id));
+  if (remainingAccounts.length >= 2) {
     poolsToProcess.push({
-      name: 'Unassigned Warmup Pool',
-      pool: unassignedAccounts,
+      name: 'General Peer Warmup Pool',
+      pool: remainingAccounts,
+    });
+  } else if (remainingAccounts.length === 1 && activeWarmingAccounts.length >= 2) {
+    // If there's 1 lone remaining account, allow it to peer across all active warming accounts
+    poolsToProcess.push({
+      name: 'Combined Peer Warmup Pool',
+      pool: activeWarmingAccounts,
     });
   }
 
@@ -314,7 +325,7 @@ export async function runWarmupCycle(userId: string): Promise<{
   }
 
   return {
-    groupsProcessed: warmupGroups.length > 0 ? warmupGroups.length : (poolsToProcess.length > 0 ? 1 : 0),
+    groupsProcessed: poolsToProcess.length,
     inboxesWarmed,
     emailsSent,
     errors,
@@ -329,7 +340,9 @@ export async function getWarmupStats(userId: string) {
   const groups = await dbService.getAccountGroups(userId);
 
   const warmupAccounts = accounts.filter((a) => a.warmup_enabled && a.status === 'active');
-  const warmupGroups = groups.filter((g) => g.is_warmup_enabled);
+  const warmupGroups = groups.filter(
+    (g) => g.is_warmup_enabled || accounts.filter((a) => a.group_id === g.id && a.warmup_enabled && a.status === 'active').length >= 2
+  );
 
   const sentToday = warmupAccounts.reduce((sum, a) => sum + (a.warmup_sent_today || 0), 0);
   const receivedToday = warmupAccounts.reduce((sum, a) => sum + (a.warmup_received_today || 0), 0);
