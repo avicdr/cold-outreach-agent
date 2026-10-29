@@ -65,7 +65,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
   return (
     <header className="min-h-16 py-3 border-b border-border-subtle bg-charcoal/90 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3 select-none">
       {/* Title & Mobile Nav Toggle */}
-      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 shrink">
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 mr-2 sm:mr-4">
         <button
           type="button"
           onClick={toggleMobileNav}
@@ -94,7 +94,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
       </div>
 
       {/* Action Buttons & Status Indicators */}
-      <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 justify-end">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 justify-end">
         {children}
 
         {/* Gmail Status Pill */}
@@ -110,12 +110,12 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
             {gmailStatus.connected ? (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span className="max-w-[100px] xl:max-w-[140px] truncate">{gmailStatus.email || 'OAuth Active'}</span>
+                <span className="hidden xl:inline max-w-[120px] 2xl:max-w-[150px] truncate">{gmailStatus.email || 'OAuth Active'}</span>
               </>
             ) : (
               <>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden xl:inline">Gmail </span>Offline
+                <span className="hidden xl:inline">Gmail Offline</span>
               </>
             )}
           </div>
@@ -124,7 +124,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
         {/* Auto Worker Status Pill */}
         <div
           title="Background worker running autonomous dispatch loop"
-          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono font-medium bg-[#63C7A2]/10 border border-[#63C7A2]/30 text-[#63C7A2] shrink-0 whitespace-nowrap"
+          className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono font-medium bg-[#63C7A2]/10 border border-[#63C7A2]/30 text-[#63C7A2] shrink-0 whitespace-nowrap"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[#63C7A2] animate-pulse shrink-0 shadow-[0_0_8px_#63C7A2]" />
           <span>Worker: Active</span>
@@ -134,15 +134,15 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
         <button
           onClick={handleTriggerWorker}
           disabled={isRunningWorker}
-          title="Trigger background worker execution"
-          className="btn-secondary px-2.5 sm:px-3 py-1.5 text-xs shrink-0 whitespace-nowrap gap-1.5"
+          title="Trigger background worker execution (heartbeat)"
+          className="btn-secondary px-2 sm:px-2.5 py-1.5 text-xs shrink-0 whitespace-nowrap gap-1.5"
         >
           <RefreshCw
             className={`w-3.5 h-3.5 shrink-0 ${
               isRunningWorker ? 'animate-spin text-[#E84B2C]' : 'text-text-muted'
             }`}
           />
-          <span className="hidden sm:inline">{isRunningWorker ? 'Dispatching...' : 'Run Worker'}</span>
+          <span className="hidden 2xl:inline">{isRunningWorker ? 'Dispatching...' : 'Run Worker'}</span>
         </button>
 
         {/* Theme Toggle Button */}
@@ -150,7 +150,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
           type="button"
           onClick={toggleTheme}
           title={`Switch to ${theme === 'dark' ? 'Warm Ivory Light' : 'Obsidian Dark'} mode`}
-          className="p-2 rounded-[10px] bg-surface-elevated border border-border-standard text-text-secondary hover:text-text-primary hover:border-border-hover transition-colors"
+          className="p-2 rounded-[10px] bg-surface-elevated border border-border-standard text-text-secondary hover:text-text-primary hover:border-border-hover transition-colors shrink-0"
           aria-label="Toggle theme"
         >
           {theme === 'dark' ? (

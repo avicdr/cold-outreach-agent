@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useRef, use } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
@@ -22,6 +22,7 @@ import {
   Plus,
   Zap,
   Sliders,
+  ChevronDown,
   Link as LinkIcon,
   ExternalLink,
   FileText,
@@ -60,6 +61,22 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [resumeUrlInput, setResumeUrlInput] = useState('');
   const [savingResumeUrl, setSavingResumeUrl] = useState(false);
   const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target as Node)) {
+        setShowActionsMenu(false);
+      }
+    };
+    if (showActionsMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showActionsMenu]);
 
   const isWindowActive = (() => {
     if (!campaign?.sending_config) return false;
@@ -287,14 +304,6 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
           category="Campaign Details"
         >
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <Link
-              href={`/campaigns/${campaign.id}/edit`}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 text-slate-100 transition-colors shadow-sm shrink-0 whitespace-nowrap"
-            >
-              <Sliders className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <span className="hidden sm:inline">Edit Configuration</span>
-              <span className="sm:hidden">Edit</span>
-            </Link>
             {campaign.status === 'draft' && (
               <button
                 onClick={() => setShowActivateConfirm(true)}
@@ -311,7 +320,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               <button
                 onClick={handlePauseResume}
                 disabled={actionLoading}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors shrink-0 whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-colors shrink-0 whitespace-nowrap"
               >
                 {campaign.status === 'active' ? (
                   <>
@@ -329,35 +338,6 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               </button>
             )}
 
-            {campaign.status === 'active' && (
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => handleProcessQueueNow(false)}
-                  disabled={actionLoading || dispatching}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-600/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
-                  title="Process next batch of queued email sends due now"
-                >
-                  <Send className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden md:inline">{dispatching ? 'Dispatching...' : 'Dispatch Queue Now'}</span>
-                  <span className="md:hidden">{dispatching ? '...' : 'Dispatch'}</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (confirm('Force dispatch the next queued email immediately, bypassing scheduled sending hours?')) {
-                      handleProcessQueueNow(true);
-                    }
-                  }}
-                  disabled={actionLoading || dispatching}
-                  className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
-                  title="Force send next queued email immediately outside business hours"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>Force Send Now</span>
-                </button>
-              </div>
-            )}
-
             <button
               onClick={handleGenerateDrafts}
               disabled={actionLoading || leads.length === 0}
@@ -367,6 +347,82 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
               <span className="hidden sm:inline">{actionLoading ? 'Generating...' : 'Generate AI Drafts'}</span>
               <span className="sm:hidden">{actionLoading ? '...' : 'Drafts'}</span>
             </button>
+
+            {/* Campaign Actions & Queue Dropdown */}
+            <div className="relative shrink-0" ref={actionsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowActionsMenu((prev) => !prev)}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-colors shrink-0 whitespace-nowrap shadow-sm"
+                aria-label="Campaign actions menu"
+                aria-expanded={showActionsMenu}
+              >
+                <Sliders className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="hidden sm:inline">Actions</span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform shrink-0 ${showActionsMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showActionsMenu && (
+                <div className="absolute right-0 mt-2 w-64 rounded-xl bg-slate-900 border border-slate-700/90 shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 backdrop-blur-md">
+                  <Link
+                    href={`/campaigns/${campaign.id}/edit`}
+                    onClick={() => setShowActionsMenu(false)}
+                    className="flex items-center gap-3 px-3.5 py-2.5 text-xs text-slate-200 hover:bg-slate-800/80 hover:text-white transition-colors"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                      <Sliders className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-medium text-slate-100">Edit Configuration</span>
+                      <span className="text-[10px] text-slate-400">Offer, schedule, limits & group</span>
+                    </div>
+                  </Link>
+
+                  {campaign.status === 'active' && (
+                    <>
+                      <div className="my-1 border-t border-slate-800" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionsMenu(false);
+                          handleProcessQueueNow(false);
+                        }}
+                        disabled={actionLoading || dispatching}
+                        className="w-full flex items-center gap-3 px-3.5 py-2.5 text-xs text-slate-200 hover:bg-slate-800/80 hover:text-white transition-colors text-left disabled:opacity-40"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                          <Send className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-medium text-slate-100">{dispatching ? 'Dispatching Queue...' : 'Dispatch Queue Now'}</span>
+                          <span className="text-[10px] text-slate-400">Process scheduled emails due now</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionsMenu(false);
+                          if (confirm('Force dispatch the next queued email immediately, bypassing scheduled sending hours?')) {
+                            handleProcessQueueNow(true);
+                          }
+                        }}
+                        disabled={actionLoading || dispatching}
+                        className="w-full flex items-center gap-3 px-3.5 py-2.5 text-xs text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 transition-colors text-left disabled:opacity-40"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                          <Zap className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-medium text-amber-300">Force Send Now</span>
+                          <span className="text-[10px] text-amber-400/70">Bypass schedule & window immediately</span>
+                        </div>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </Header>
 
@@ -443,6 +499,34 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                     {isWindowActive ? 'Active (Throttled 4/hr)' : `Tomorrow at 09:00 ${campaign.sending_config?.timezone?.split('/')[1] || 'UK'}`}
                   </span>
                 </div>
+                {campaign.status === 'active' && (
+                  <div className="pt-2.5 border-t border-slate-800/80 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleProcessQueueNow(false)}
+                      disabled={actionLoading || dispatching}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs font-medium bg-blue-600/15 hover:bg-blue-600/25 text-blue-300 border border-blue-500/30 transition-colors disabled:opacity-50"
+                      title="Process next batch of queued email sends due now"
+                    >
+                      <Send className="w-3 h-3 text-blue-400 shrink-0" />
+                      <span>{dispatching ? 'Dispatching...' : 'Dispatch Queue'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Force dispatch the next queued email immediately, bypassing scheduled sending hours?')) {
+                          handleProcessQueueNow(true);
+                        }
+                      }}
+                      disabled={actionLoading || dispatching}
+                      className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors disabled:opacity-50 shrink-0"
+                      title="Force send next queued email immediately outside business hours"
+                    >
+                      <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span>Force Send</span>
+                    </button>
+                  </div>
+                )}
                 <div className="pt-2 border-t border-slate-800/80 flex items-center justify-end">
                   <Link
                     href={`/campaigns/${campaign.id}/edit`}
