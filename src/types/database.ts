@@ -318,6 +318,7 @@ export interface EmailMessage {
   // Optional populated relations
   lead?: Lead;
   campaign_id?: string;
+  campaign_name?: string;
   email_account?: EmailAccount | null;
 }
 

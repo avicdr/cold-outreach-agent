@@ -606,6 +606,7 @@ export const dbService = {
       const paged = msgs.slice(offset, offset + limit).map((m) => {
         const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
         const lead = cl ? mockDb.leads.get(cl.lead_id) : undefined;
+        const c = cl ? mockDb.campaigns.get(cl.campaign_id) : null;
         let accId = m.email_account_id;
         if (!accId && m.step_number > 0) {
           const step0 = Array.from(mockDb.emailMessages.values()).find(
@@ -614,7 +615,14 @@ export const dbService = {
           accId = step0?.email_account_id || null;
         }
         const acc = accId ? mockDb.emailAccounts.get(accId) || null : null;
-        return { ...m, email_account_id: accId || m.email_account_id, lead, campaign_id: cl?.campaign_id, email_account: acc };
+        return {
+          ...m,
+          email_account_id: accId || m.email_account_id,
+          lead,
+          campaign_id: cl?.campaign_id,
+          campaign_name: c?.name,
+          email_account: acc,
+        };
       });
       return { messages: paged, total };
     }
@@ -622,7 +630,7 @@ export const dbService = {
     const supabase = createAdminClient();
     const leadJoin = filters?.leadGroupId ? 'lead:leads!inner(*)' : 'lead:leads(*)';
     let query = supabase.from('email_messages').select(
-      `*, campaign_lead:campaign_leads!inner(*, campaign:campaigns!inner(user_id), ${leadJoin})`,
+      `*, campaign_lead:campaign_leads!inner(*, campaign:campaigns!inner(id, name, user_id), ${leadJoin})`,
       { count: 'exact' }
     );
     if (filters?.status) {
@@ -699,7 +707,8 @@ export const dbService = {
         ...m,
         email_account_id: resolvedAccountId || m.email_account_id,
         lead: m.campaign_lead?.lead || undefined,
-        campaign_id: m.campaign_lead?.campaign_id || undefined,
+        campaign_id: m.campaign_lead?.campaign_id || m.campaign_lead?.campaign?.id || undefined,
+        campaign_name: m.campaign_lead?.campaign?.name || undefined,
         email_account: resolvedAccountId ? accountMap.get(resolvedAccountId) || null : null,
       };
     });
@@ -713,16 +722,18 @@ export const dbService = {
       if (!msg) return null;
       const cl = mockDb.campaignLeads.get(msg.campaign_lead_id);
       const lead = cl ? mockDb.leads.get(cl.lead_id) : undefined;
-      return { ...msg, lead, campaign_id: cl?.campaign_id };
+      const c = cl ? mockDb.campaigns.get(cl.campaign_id) : null;
+      return { ...msg, lead, campaign_id: cl?.campaign_id, campaign_name: c?.name };
     }
 
     const supabase = createAdminClient();
-    const { data, error } = await supabase.from('email_messages').select('*, campaign_lead:campaign_leads(*, lead:leads(*))').eq('id', id).maybeSingle();
+    const { data, error } = await supabase.from('email_messages').select('*, campaign_lead:campaign_leads(*, campaign:campaigns(id, name), lead:leads(*))').eq('id', id).maybeSingle();
     if (error || !data) return null;
     return {
       ...data,
       lead: data.campaign_lead?.lead || undefined,
-      campaign_id: data.campaign_lead?.campaign_id || undefined,
+      campaign_id: data.campaign_lead?.campaign_id || data.campaign_lead?.campaign?.id || undefined,
+      campaign_name: data.campaign_lead?.campaign?.name || undefined,
     };
   },
 

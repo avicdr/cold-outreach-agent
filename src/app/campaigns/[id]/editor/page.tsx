@@ -212,7 +212,9 @@ function EmailEditorInner({ params }: { params: Promise<{ id: string }> }) {
           title="Interactive Email Editor"
           subtitle={
             message?.lead?.first_name
-              ? `Inspecting Draft for ${message.lead.first_name} ${message.lead.last_name || ''} ${message.lead.company ? `@ ${message.lead.company}` : ''}`
+              ? `Inspecting Draft for ${message.lead.first_name} ${message.lead.last_name || ''} ${message.lead.company ? `@ ${message.lead.company}` : ''}${message.campaign_name ? ` • Campaign: ${message.campaign_name}` : ''}`
+              : message?.campaign_name
+              ? `Campaign: ${message.campaign_name}`
               : 'Campaign Lead Draft Editor'
           }
           category="Draft Studio"
@@ -223,7 +225,7 @@ function EmailEditorInner({ params }: { params: Promise<{ id: string }> }) {
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors shrink-0 whitespace-nowrap"
             >
               <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Back to Campaign</span>
+              <span className="hidden sm:inline">{message?.campaign_name ? `Back to ${message.campaign_name}` : 'Back to Campaign'}</span>
               <span className="sm:hidden">Back</span>
             </Link>
             <button

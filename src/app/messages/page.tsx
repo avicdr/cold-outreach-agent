@@ -21,6 +21,7 @@ import {
   ArrowUpDown,
   Send,
   X,
+  Layers,
 } from 'lucide-react';
 
 function MessagesContent() {
@@ -31,10 +32,12 @@ function MessagesContent() {
 
   const [messages, setMessages] = useState<EmailMessage[]>([]);
   const [leadGroups, setLeadGroups] = useState<LeadGroup[]>([]);
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters state
   const [statusFilter, setStatusFilter] = useState(initialStatus);
+  const [campaignFilter, setCampaignFilter] = useState(initialCampaignId);
   const [leadGroupFilter, setLeadGroupFilter] = useState(initialLeadGroupId);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -53,8 +56,17 @@ function MessagesContent() {
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  // Fetch lead groups on mount
+  // Fetch campaigns and lead groups on mount
   useEffect(() => {
+    fetch('/api/campaigns')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setCampaigns(data);
+        }
+      })
+      .catch((err) => console.error('Failed to load campaigns:', err));
+
     fetch('/api/lead-groups')
       .then((res) => res.json())
       .then((data) => {
@@ -69,7 +81,7 @@ function MessagesContent() {
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
-    if (initialCampaignId) params.set('campaignId', initialCampaignId);
+    if (campaignFilter) params.set('campaignId', campaignFilter);
     if (leadGroupFilter) params.set('leadGroupId', leadGroupFilter);
     if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
 
@@ -101,7 +113,7 @@ function MessagesContent() {
   useEffect(() => {
     setPage(1);
     fetchMessages(1, pageSize);
-  }, [statusFilter, leadGroupFilter, debouncedSearch, sortOption]);
+  }, [statusFilter, campaignFilter, leadGroupFilter, debouncedSearch, sortOption]);
 
   const getStatusBadge = (status: EmailMessage['status']) => {
     switch (status) {
@@ -200,6 +212,23 @@ function MessagesContent() {
 
               {/* Filters Dropdowns */}
               <div className="flex flex-wrap items-center gap-2.5">
+                {/* Campaign Filter */}
+                <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
+                  <Layers className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <select
+                    value={campaignFilter}
+                    onChange={(e) => setCampaignFilter(e.target.value)}
+                    className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer max-w-[200px] truncate"
+                  >
+                    <option value="" className="bg-slate-900 text-slate-200">All Campaigns</option>
+                    {campaigns.map((c) => (
+                      <option key={c.id} value={c.id} className="bg-slate-900 text-slate-200">
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Lead Group Filter */}
                 <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
                   <Users className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -250,9 +279,10 @@ function MessagesContent() {
                 </div>
 
                 {/* Active Filters Clear Button */}
-                {(leadGroupFilter || searchQuery) && (
+                {(campaignFilter || leadGroupFilter || searchQuery) && (
                   <button
                     onClick={() => {
+                      setCampaignFilter('');
                       setLeadGroupFilter('');
                       setSearchQuery('');
                     }}
@@ -272,6 +302,7 @@ function MessagesContent() {
                 <thead className="bg-slate-950/80 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                   <tr>
                     <th className="px-5 py-3 font-medium">Recipient / Lead</th>
+                    <th className="px-5 py-3 font-medium">Campaign</th>
                     <th className="px-5 py-3 font-medium">Subject</th>
                     <th className="px-5 py-3 font-medium">Sending Inbox</th>
                     <th className="px-5 py-3 font-medium">Step</th>
@@ -283,18 +314,18 @@ function MessagesContent() {
                 <tbody className="divide-y divide-slate-800/60">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
+                      <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
                         <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
                         Loading messages...
                       </td>
                     </tr>
                   ) : messages.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
                         <Mail className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="text-sm font-medium text-slate-300">No messages found</p>
                         <p className="text-xs text-slate-500 mt-1">
-                          {searchQuery || leadGroupFilter
+                          {searchQuery || campaignFilter || leadGroupFilter
                             ? 'No messages match your search or filter criteria.'
                             : 'Generated and sent emails will appear here.'}
                         </p>
@@ -308,6 +339,20 @@ function MessagesContent() {
                             {msg.lead?.first_name ? `${msg.lead.first_name} ${msg.lead.last_name}` : 'Lead'}
                           </div>
                           <div className="text-[11px] text-slate-400 font-mono mt-0.5">{msg.lead?.email || '—'}</div>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          {msg.campaign_id ? (
+                            <Link
+                              href={`/campaigns/${msg.campaign_id}`}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:text-indigo-200 border border-indigo-500/20 transition-colors max-w-[170px] group"
+                              title={msg.campaign_name || 'View Campaign'}
+                            >
+                              <Layers className="w-3 h-3 text-indigo-400 shrink-0 group-hover:text-indigo-300" />
+                              <span className="truncate text-xs font-medium">{msg.campaign_name || 'Campaign'}</span>
+                            </Link>
+                          ) : (
+                            <span className="text-slate-500 text-xs">—</span>
+                          )}
                         </td>
                         <td className="px-5 py-3.5 max-w-xs truncate text-slate-300 font-medium">
                           {msg.subject}
