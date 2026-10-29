@@ -148,18 +148,25 @@ export function generateDraft(lead, index) {
   const rating = lead.rating ? Number(lead.rating).toFixed(1) : '5.0';
   const reviews = lead.review_count || 100;
 
-  // Varied natural subjects (strictly 3 to 7 words, NO long hyphens)
+  // Varied natural subjects (strictly 3 to 7 words, NO long hyphens, conversational lowercase)
+  const entityNoun = cfg.practiceType === 'shop' ? 'shop' : (cfg.practiceType === 'practice' ? 'practice' : 'clinic');
+
   const subjects = [
-    `After-hours calls at ${subjComp}`,
-    `A quick idea for ${subjComp}`,
-    `After-hours inquiries at ${subjComp}`,
-    `A quick idea for your ${cfg.practiceType}`
+    `this might be useful for your ${entityNoun}`,
+    `what happens after your ${entityNoun} closes?`,
+    `i had an idea for ${subjComp}`,
+    `a thought about your front desk`,
+    `what happens to missed calls?`,
+    `this might make things easier`,
+    `who's answering calls after hours?`,
+    `a small idea for your ${entityNoun}`
   ];
   let subject = subjects[index % subjects.length];
   // Ensure subject is strictly within 3-7 words
   let sWords = countWords(subject);
-  if (sWords > 7) {
-    subject = `After-hours calls for your ${cfg.practiceType}`;
+  if (sWords > 7 && subject.startsWith('i had an idea for')) {
+    const shortComp = subjComp.split(/\s+/).slice(0, 2).join(' ');
+    subject = `i had an idea for ${shortComp}`;
   }
 
   const openings = [

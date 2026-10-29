@@ -616,8 +616,16 @@ CRITICAL OUTREACH RULES:
 8. COMMUNICATION STYLE:
    - Sound like a real person, not a corporate sales bot. Friendly and professional. No AI clichés (never say "I hope this email finds you well", "In today's fast-paced digital world", "revolutionary", "game-changing").
 9. SUBJECT LINE:
-   - Concise, 2 to 4 words, natural:
-     e.g., "${profile.businessName} after-hours intake", "${profile.businessName} website inquiry".
+   - Natural, conversational, all lowercase, 3 to 7 words. Never use corporate jargon, artificial urgency, or long hyphens.
+   - Use high-converting conversational patterns such as:
+     * "this might be useful for your clinic" (or practice)
+     * "what happens after your clinic closes?"
+     * "i had an idea for ${profile.businessName}"
+     * "a thought about your front desk"
+     * "what happens to missed calls?"
+     * "this might make things easier"
+     * "who's answering calls after hours?"
+     * "a small idea for your clinic"
 10. Return valid JSON strictly adhering to schema:
    {
      "subject": "string",
