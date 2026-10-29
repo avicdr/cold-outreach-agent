@@ -36,10 +36,11 @@ export async function GET(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    const [campaignLeads, messages, groups] = await Promise.all([
+    const [campaignLeads, messages, groups, accounts] = await Promise.all([
       dbService.getCampaignLeads(id),
       dbService.getMessages({ campaignId: id }),
       dbService.getAccountGroups(user.id),
+      dbService.getEmailAccounts(user.id),
     ]);
     const group = campaign.account_group_id ? groups.find((g) => g.id === campaign.account_group_id) || null : null;
 
@@ -49,6 +50,7 @@ export async function GET(
       leads: campaignLeads,
       messages,
       groups,
+      accounts,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);

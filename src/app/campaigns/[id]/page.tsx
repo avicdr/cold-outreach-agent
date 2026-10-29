@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, use } from 'react';
+import { useState, useEffect, useRef, use, useMemo } from 'react';
 import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { Pagination } from '@/components/Pagination';
-import { Campaign, CampaignLead, EmailMessage, Lead } from '@/types/database';
+import { Campaign, CampaignLead, EmailMessage, Lead, EmailAccount } from '@/types/database';
 import {
   Sparkles,
   Send,
@@ -27,6 +27,8 @@ import {
   ExternalLink,
   FileText,
   Check,
+  Search,
+  X,
 } from 'lucide-react';
 import { Suspense } from 'react';
 
@@ -43,6 +45,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [leads, setLeads] = useState<CampaignLead[]>([]);
   const [messages, setMessages] = useState<EmailMessage[]>([]);
+  const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [allAvailableLeads, setAllAvailableLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -53,6 +56,9 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [dispatching, setDispatching] = useState(false);
   const [leadsPage, setLeadsPage] = useState(1);
   const [leadsPageSize, setLeadsPageSize] = useState(10);
+  const [leadsSearchQuery, setLeadsSearchQuery] = useState('');
+  const [leadsStatusFilter, setLeadsStatusFilter] = useState('');
+  const [leadsInboxFilter, setLeadsInboxFilter] = useState('');
   const [modalPage, setModalPage] = useState(1);
   const [modalPageSize, setModalPageSize] = useState(10);
   const [modalSearch, setModalSearch] = useState('');
@@ -63,6 +69,54 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
+
+  const accountMap = useMemo(() => {
+    return new Map(accounts.map((a) => [a.id, a]));
+  }, [accounts]);
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter((cl) => {
+      // 1. Search Query Filter (Prospect Name, Email, or Company)
+      if (leadsSearchQuery.trim()) {
+        const q = leadsSearchQuery.toLowerCase().trim();
+        const name = `${cl.lead?.first_name || ''} ${cl.lead?.last_name || ''}`.toLowerCase();
+        const email = (cl.lead?.email || '').toLowerCase();
+        const company = (cl.lead?.company || '').toLowerCase();
+        if (!name.includes(q) && !email.includes(q) && !company.includes(q)) {
+          return false;
+        }
+      }
+
+      const msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === cl.current_step);
+      const effectiveStatus = msg?.status || cl.status;
+
+      // 2. Status Filter
+      if (leadsStatusFilter) {
+        if (effectiveStatus !== leadsStatusFilter) {
+          return false;
+        }
+      }
+
+      // 3. Inbox Filter
+      if (leadsInboxFilter) {
+        let msgAccountId = msg?.email_account_id;
+        if (!msgAccountId && msg && msg.step_number > 0) {
+          const step0 = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === 0);
+          msgAccountId = step0?.email_account_id;
+        }
+        if (msgAccountId !== leadsInboxFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [leads, messages, leadsSearchQuery, leadsStatusFilter, leadsInboxFilter]);
+
+  // Reset pagination when search or filters change
+  useEffect(() => {
+    setLeadsPage(1);
+  }, [leadsSearchQuery, leadsStatusFilter, leadsInboxFilter]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -113,6 +167,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
         }
         setLeads(data.leads || []);
         setMessages(data.messages || []);
+        setAccounts(data.accounts || []);
       }
     } catch (err) {
       console.error('Failed to fetch campaign:', err);
@@ -614,17 +669,89 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
 
           {/* Enrolled Leads & Generated Drafts List */}
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 overflow-hidden space-y-0">
-            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
+            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-white">Enrolled Prospects ({leads.length})</h3>
+                <h3 className="text-sm font-semibold text-white">
+                  Enrolled Prospects ({filteredLeads.length}{filteredLeads.length !== leads.length ? ` of ${leads.length}` : ''})
+                </h3>
                 <p className="text-xs text-slate-400">Personalized drafts and sequence progress for each prospect</p>
               </div>
               <button
                 onClick={() => setShowEnrollModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors shrink-0 self-start sm:self-auto"
               >
                 <Plus className="w-3.5 h-3.5" /> Enroll Leads
               </button>
+            </div>
+
+            {/* Filter & Search Toolbar */}
+            <div className="p-3 bg-slate-950/40 border-b border-slate-800/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+              {/* Search Box */}
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by prospect name, email, or company..."
+                  value={leadsSearchQuery}
+                  onChange={(e) => setLeadsSearchQuery(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                {leadsSearchQuery && (
+                  <button
+                    onClick={() => setLeadsSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Status Filter & Sending Inbox Filter Dropdowns */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Status Dropdown */}
+                <select
+                  value={leadsStatusFilter}
+                  onChange={(e) => setLeadsStatusFilter(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="" className="bg-slate-900 text-slate-200">All Statuses</option>
+                  <option value="sent" className="bg-slate-900 text-slate-200">Sent</option>
+                  <option value="scheduled" className="bg-slate-900 text-slate-200">Scheduled</option>
+                  <option value="paused" className="bg-slate-900 text-slate-200">Paused</option>
+                  <option value="draft" className="bg-slate-900 text-slate-200">Drafted</option>
+                  <option value="failed" className="bg-slate-900 text-slate-200">Failed</option>
+                </select>
+
+                {/* Sending Inbox Dropdown */}
+                {accounts.length > 1 && (
+                  <select
+                    value={leadsInboxFilter}
+                    onChange={(e) => setLeadsInboxFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[190px] truncate"
+                  >
+                    <option value="" className="bg-slate-900 text-slate-200">All Sending Inboxes</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id} className="bg-slate-900 text-slate-200">
+                        {acc.email_address}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Clear Filter Button */}
+                {(leadsSearchQuery || leadsStatusFilter || leadsInboxFilter) && (
+                  <button
+                    onClick={() => {
+                      setLeadsSearchQuery('');
+                      setLeadsStatusFilter('');
+                      setLeadsInboxFilter('');
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-800/60 rounded-md transition-colors"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -633,21 +760,45 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                   <tr>
                     <th className="px-5 py-3 font-medium">Prospect</th>
                     <th className="px-5 py-3 font-medium">Company</th>
+                    <th className="px-5 py-3 font-medium">Sending Inbox</th>
                     <th className="px-5 py-3 font-medium">Enrollment Status</th>
                     <th className="px-5 py-3 font-medium">Step</th>
                     <th className="px-5 py-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {leads.length === 0 ? (
+                  {filteredLeads.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-slate-500">
-                        No leads enrolled yet. Click "Enroll Leads" to add prospects to this campaign.
+                      <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
+                        {leadsSearchQuery || leadsStatusFilter || leadsInboxFilter ? (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-slate-300">No prospects match your filter criteria.</p>
+                            <button
+                              onClick={() => {
+                                setLeadsSearchQuery('');
+                                setLeadsStatusFilter('');
+                                setLeadsInboxFilter('');
+                              }}
+                              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+                            >
+                              Reset filters
+                            </button>
+                          </div>
+                        ) : (
+                          'No leads enrolled yet. Click "Enroll Leads" to add prospects to this campaign.'
+                        )}
                       </td>
                     </tr>
                   ) : (
-                    leads.slice((leadsPage - 1) * leadsPageSize, leadsPage * leadsPageSize).map((cl) => {
+                    filteredLeads.slice((leadsPage - 1) * leadsPageSize, leadsPage * leadsPageSize).map((cl) => {
                       const msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === cl.current_step);
+                      let accId = msg?.email_account_id;
+                      if (!accId && msg && msg.step_number > 0) {
+                        const step0 = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === 0);
+                        accId = step0?.email_account_id;
+                      }
+                      const sendingAcc = accId ? accountMap.get(accId) : null;
+
                       return (
                         <tr key={cl.id} className="hover:bg-slate-900/50 transition-colors">
                           <td className="px-5 py-3.5">
@@ -657,6 +808,21 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                             <div className="text-[11px] text-slate-400 font-mono mt-0.5">{cl.lead?.email}</div>
                           </td>
                           <td className="px-5 py-3.5 text-slate-300">{cl.lead?.company || '—'}</td>
+                          <td className="px-5 py-3.5 text-slate-400 text-[11px]">
+                            {sendingAcc ? (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/60 font-mono text-[10px]" title={sendingAcc.email_address}>
+                                <Send className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                                <span className="truncate max-w-[150px]">{sendingAcc.email_address}</span>
+                              </span>
+                            ) : msg && msg.step_number > 0 ? (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono text-[10px]">
+                                <Send className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                <span>Step 0 Inbox</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">Auto-rotating pool</span>
+                            )}
+                          </td>
                           <td className="px-5 py-3.5">
                             {msg?.status === 'sent' ? (
                               <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
@@ -707,11 +873,11 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
             </div>
 
             {/* Enrolled Prospects Pagination */}
-            {leads.length > 0 && (
+            {filteredLeads.length > 0 && (
               <div className="p-3 border-t border-slate-800">
                 <Pagination
                   currentPage={leadsPage}
-                  totalItems={leads.length}
+                  totalItems={filteredLeads.length}
                   pageSize={leadsPageSize}
                   pageSizeOptions={[5, 10, 25, 50]}
                   itemName="enrolled prospects"
