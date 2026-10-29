@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { Pagination } from '@/components/Pagination';
-import { EmailMessage } from '@/types/database';
+import { EmailMessage, LeadGroup } from '@/types/database';
 import {
   Mail,
   CheckCircle2,
@@ -17,22 +17,71 @@ import {
   Search,
   ExternalLink,
   RefreshCw,
+  Users,
+  ArrowUpDown,
+  Send,
+  X,
 } from 'lucide-react';
 
 function MessagesContent() {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get('status') || '';
+  const initialCampaignId = searchParams.get('campaignId') || '';
+  const initialLeadGroupId = searchParams.get('leadGroupId') || '';
+
   const [messages, setMessages] = useState<EmailMessage[]>([]);
+  const [leadGroups, setLeadGroups] = useState<LeadGroup[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filters state
   const [statusFilter, setStatusFilter] = useState(initialStatus);
+  const [leadGroupFilter, setLeadGroupFilter] = useState(initialLeadGroupId);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sortOption, setSortOption] = useState<'scheduled_at_asc' | 'scheduled_at_desc' | 'created_at_desc' | 'created_at_asc' | 'sent_at_desc'>('scheduled_at_asc');
+
+  // Pagination state
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  // Debounce search query
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  // Fetch lead groups on mount
+  useEffect(() => {
+    fetch('/api/lead-groups')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setLeadGroups(data);
+        }
+      })
+      .catch((err) => console.error('Failed to load lead groups:', err));
+  }, []);
 
   const fetchMessages = (targetPage = page, targetPageSize = pageSize) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
+    if (initialCampaignId) params.set('campaignId', initialCampaignId);
+    if (leadGroupFilter) params.set('leadGroupId', leadGroupFilter);
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+
+    // Parse sortOption
+    const [sortBy, sortOrder] = sortOption.startsWith('scheduled_at')
+      ? ['scheduled_at', sortOption.endsWith('desc') ? 'desc' : 'asc']
+      : sortOption.startsWith('sent_at')
+      ? ['sent_at', 'desc']
+      : ['created_at', sortOption.endsWith('asc') ? 'asc' : 'desc'];
+
+    params.set('sortBy', sortBy);
+    params.set('sortOrder', sortOrder);
     params.set('page', String(targetPage));
     params.set('limit', String(targetPageSize));
 
@@ -44,7 +93,7 @@ function MessagesContent() {
         setLoading(false);
       })
       .catch((err) => {
-        console.error(err);
+        console.error('Failed to fetch messages:', err);
         setLoading(false);
       });
   };
@@ -52,20 +101,40 @@ function MessagesContent() {
   useEffect(() => {
     setPage(1);
     fetchMessages(1, pageSize);
-  }, [statusFilter]);
+  }, [statusFilter, leadGroupFilter, debouncedSearch, sortOption]);
 
   const getStatusBadge = (status: EmailMessage['status']) => {
     switch (status) {
       case 'sent':
-        return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><CheckCircle2 className="w-3 h-3" /> Sent</span>;
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <CheckCircle2 className="w-3 h-3" /> Sent
+          </span>
+        );
       case 'scheduled':
-        return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20"><Clock className="w-3 h-3" /> Scheduled</span>;
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <Clock className="w-3 h-3" /> Scheduled
+          </span>
+        );
       case 'paused':
-        return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20"><Pause className="w-3 h-3" /> Paused</span>;
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <Pause className="w-3 h-3" /> Paused
+          </span>
+        );
       case 'draft':
-        return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60"><FileEdit className="w-3 h-3" /> Draft</span>;
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60">
+            <FileEdit className="w-3 h-3" /> Draft
+          </span>
+        );
       case 'failed':
-        return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20"><XCircle className="w-3 h-3" /> Failed</span>;
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <XCircle className="w-3 h-3" /> Failed
+          </span>
+        );
       default:
         return <span className="text-xs text-slate-400">{status}</span>;
     }
@@ -82,20 +151,105 @@ function MessagesContent() {
         />
 
         <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
-          {/* Status Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/40 p-2 rounded-xl border border-slate-800 w-full sm:w-fit">
-            {['', 'sent', 'scheduled', 'paused', 'draft', 'failed'].map((st) => (
-              <button
-                key={st}
-                id={`tab-${st || 'all'}`}
-                onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  statusFilter === st ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {st === '' ? 'All Messages' : st.charAt(0).toUpperCase() + st.slice(1)}
-              </button>
-            ))}
+          {/* Top Filter Bar: Status Tabs + Search & Filters */}
+          <div className="space-y-4">
+            {/* Status Tabs */}
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/40 p-2 rounded-xl border border-slate-800 w-full sm:w-fit">
+              {['', 'sent', 'scheduled', 'paused', 'draft', 'failed'].map((st) => (
+                <button
+                  key={st}
+                  id={`tab-${st || 'all'}`}
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    statusFilter === st ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {st === '' ? 'All Messages' : st.charAt(0).toUpperCase() + st.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Filter & Search Toolbar */}
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-slate-900/30 p-3 rounded-xl border border-slate-800/80">
+              {/* Search Box */}
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by lead name, email, company, or subject..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-8 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Filters Dropdowns */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Lead Group Filter */}
+                <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
+                  <Users className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <select
+                    value={leadGroupFilter}
+                    onChange={(e) => setLeadGroupFilter(e.target.value)}
+                    className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer max-w-[200px] truncate"
+                  >
+                    <option value="" className="bg-slate-900 text-slate-200">All Lead Groups</option>
+                    {leadGroups.map((lg) => (
+                      <option key={lg.id} value={lg.id} className="bg-slate-900 text-slate-200">
+                        {lg.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Sort Filter */}
+                <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <select
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value as any)}
+                    className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer"
+                  >
+                    <option value="scheduled_at_asc" className="bg-slate-900 text-slate-200">
+                      Scheduled: Earliest First
+                    </option>
+                    <option value="scheduled_at_desc" className="bg-slate-900 text-slate-200">
+                      Scheduled: Latest First
+                    </option>
+                    <option value="created_at_desc" className="bg-slate-900 text-slate-200">
+                      Created: Newest First
+                    </option>
+                    <option value="created_at_asc" className="bg-slate-900 text-slate-200">
+                      Created: Oldest First
+                    </option>
+                    <option value="sent_at_desc" className="bg-slate-900 text-slate-200">
+                      Sent: Most Recent
+                    </option>
+                  </select>
+                </div>
+
+                {/* Active Filters Clear Button */}
+                {(leadGroupFilter || searchQuery) && (
+                  <button
+                    onClick={() => {
+                      setLeadGroupFilter('');
+                      setSearchQuery('');
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1.5 hover:bg-slate-800/60 rounded-md transition-colors"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Messages Table */}
@@ -106,6 +260,7 @@ function MessagesContent() {
                   <tr>
                     <th className="px-5 py-3 font-medium">Recipient / Lead</th>
                     <th className="px-5 py-3 font-medium">Subject</th>
+                    <th className="px-5 py-3 font-medium">Sending Inbox</th>
                     <th className="px-5 py-3 font-medium">Step</th>
                     <th className="px-5 py-3 font-medium">Status</th>
                     <th className="px-5 py-3 font-medium">Date / Time</th>
@@ -115,14 +270,21 @@ function MessagesContent() {
                 <tbody className="divide-y divide-slate-800/60">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-8 text-center text-slate-500">Loading messages...</td>
+                      <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
+                        Loading messages...
+                      </td>
                     </tr>
                   ) : messages.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
+                      <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
                         <Mail className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="text-sm font-medium text-slate-300">No messages found</p>
-                        <p className="text-xs text-slate-500 mt-1">Generated and sent emails will appear here.</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {searchQuery || leadGroupFilter
+                            ? 'No messages match your search or filter criteria.'
+                            : 'Generated and sent emails will appear here.'}
+                        </p>
                       </td>
                     </tr>
                   ) : (
@@ -134,13 +296,30 @@ function MessagesContent() {
                           </div>
                           <div className="text-[11px] text-slate-400 font-mono mt-0.5">{msg.lead?.email || '—'}</div>
                         </td>
-                        <td className="px-5 py-3.5 max-w-xs truncate text-slate-300 font-medium">{msg.subject}</td>
+                        <td className="px-5 py-3.5 max-w-xs truncate text-slate-300 font-medium">
+                          {msg.subject}
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-400 text-[11px]">
+                          {msg.email_account?.email_address ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/60 font-mono text-[10px]">
+                              <Send className="w-2.5 h-2.5 text-indigo-400" />
+                              <span className="truncate max-w-[150px]">{msg.email_account.email_address}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 text-[11px]">Auto-rotating pool</span>
+                          )}
+                        </td>
                         <td className="px-5 py-3.5 text-slate-400">Step {msg.step_number}</td>
                         <td className="px-5 py-3.5">{getStatusBadge(msg.status)}</td>
                         <td className="px-5 py-3.5 text-slate-400 text-[11px]">
                           {msg.sent_at ? (
                             <span className="text-emerald-400 font-medium">
-                              {new Date(msg.sent_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {new Date(msg.sent_at).toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
                             </span>
                           ) : msg.status === 'paused' ? (
                             <span className="inline-flex flex-col text-amber-400 font-medium">
@@ -152,21 +331,33 @@ function MessagesContent() {
                               {msg.scheduled_at ? (
                                 <span className="inline-flex flex-col">
                                   <span className="text-slate-300">
-                                    {new Date(msg.scheduled_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                    {new Date(msg.scheduled_at).toLocaleDateString([], {
+                                      month: 'short',
+                                      day: 'numeric',
+                                    })}
                                   </span>
                                   <span className="text-[10px] text-blue-400 font-mono">
-                                    {new Date(msg.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {new Date(msg.scheduled_at).toLocaleTimeString([], {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
                                   </span>
                                 </span>
                               ) : (
                                 <span>Queued for Window</span>
                               )}
                             </span>
-                          ) : '—'}
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td className="px-5 py-3.5 text-right">
                           <Link
-                            href={msg.campaign_id ? `/campaigns/${msg.campaign_id}/editor?messageId=${msg.id}` : `/campaigns`}
+                            href={
+                              msg.campaign_id
+                                ? `/campaigns/${msg.campaign_id}/editor?messageId=${msg.id}`
+                                : `/campaigns`
+                            }
                             className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-medium"
                           >
                             <span>Inspect</span>

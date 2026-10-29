@@ -120,6 +120,10 @@ export async function POST(request: NextRequest) {
       group_id: account.group_id,
     });
 
+    if (account.group_id && account.status === 'active') {
+      await dbService.syncGroupCampaignsSchedule(account.group_id, user.id);
+    }
+
     return NextResponse.json({ success: true, account: sanitizeAccountForClient(account) }, { status: 201 });
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {

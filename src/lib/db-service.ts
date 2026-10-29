@@ -25,6 +25,7 @@ import {
   createDateInTimezone,
   getTimezoneParts,
   calculateStaggeredSchedule,
+  calculateStaggeredScheduleWithAccounts,
 } from './scheduler';
 
 export const isLiveSupabase = () => {
@@ -541,9 +542,16 @@ export const dbService = {
     userId?: string;
     campaignId?: string;
     status?: string;
+    leadGroupId?: string;
+    search?: string;
+    sortBy?: 'scheduled_at' | 'created_at' | 'sent_at' | 'updated_at' | 'step_number';
+    sortOrder?: 'asc' | 'desc';
     limit?: number;
     offset?: number;
   }): Promise<{ messages: EmailMessage[]; total: number }> {
+    const sortBy = filters?.sortBy || (filters?.status === 'scheduled' ? 'scheduled_at' : 'created_at');
+    const sortOrder = filters?.sortOrder || (sortBy === 'scheduled_at' ? 'asc' : 'desc');
+
     if (!isLiveSupabase()) {
       let msgs = Array.from(mockDb.emailMessages.values());
       if (filters?.userId) {
@@ -562,37 +570,101 @@ export const dbService = {
       if (filters?.status) {
         msgs = msgs.filter((m) => m.status === filters.status);
       }
+      if (filters?.leadGroupId) {
+        msgs = msgs.filter((m) => {
+          const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
+          const lead = cl ? mockDb.leads.get(cl.lead_id) : null;
+          return lead?.group_id === filters.leadGroupId;
+        });
+      }
+      if (filters?.search) {
+        const s = filters.search.toLowerCase().trim();
+        msgs = msgs.filter((m) => {
+          const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
+          const lead = cl ? mockDb.leads.get(cl.lead_id) : null;
+          return (
+            (m.subject && m.subject.toLowerCase().includes(s)) ||
+            (lead?.first_name && lead.first_name.toLowerCase().includes(s)) ||
+            (lead?.last_name && lead.last_name.toLowerCase().includes(s)) ||
+            (lead?.email && lead.email.toLowerCase().includes(s)) ||
+            (lead?.company && lead.company.toLowerCase().includes(s))
+          );
+        });
+      }
       const total = msgs.length;
-      msgs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      msgs.sort((a, b) => {
+        const valA = (a as any)[sortBy] ? new Date((a as any)[sortBy]).getTime() : 0;
+        const valB = (b as any)[sortBy] ? new Date((b as any)[sortBy]).getTime() : 0;
+        return sortOrder === 'asc' ? valA - valB : valB - valA;
+      });
       const offset = filters?.offset || 0;
       const limit = filters?.limit ?? 50;
       const paged = msgs.slice(offset, offset + limit).map((m) => {
         const cl = mockDb.campaignLeads.get(m.campaign_lead_id);
         const lead = cl ? mockDb.leads.get(cl.lead_id) : undefined;
-        return { ...m, lead, campaign_id: cl?.campaign_id };
+        const acc = m.email_account_id ? mockDb.emailAccounts.get(m.email_account_id) || null : null;
+        return { ...m, lead, campaign_id: cl?.campaign_id, email_account: acc };
       });
       return { messages: paged, total };
     }
 
     const supabase = createAdminClient();
+    const leadJoin = filters?.leadGroupId ? 'lead:leads!inner(*)' : 'lead:leads(*)';
     let query = supabase.from('email_messages').select(
-      '*, campaign_lead:campaign_leads!inner(*, campaign:campaigns!inner(user_id), lead:leads(*))',
+      `*, campaign_lead:campaign_leads!inner(*, campaign:campaigns!inner(user_id), ${leadJoin})`,
       { count: 'exact' }
     );
     if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.leadGroupId) query = query.eq('campaign_lead.lead.group_id', filters.leadGroupId);
     if (filters?.campaignId) {
       query = query.eq('campaign_lead.campaign_id', filters.campaignId);
     } else if (filters?.userId) {
       query = query.eq('campaign_lead.campaign.user_id', filters.userId);
     }
+
+    if (filters?.search && filters.search.trim()) {
+      const q = filters.search.trim();
+      const { data: matchedLeads } = await supabase
+        .from('leads')
+        .select('id')
+        .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%,company.ilike.%${q}%`)
+        .limit(100);
+      const matchedLeadIds = (matchedLeads || []).map((l: any) => l.id);
+      let matchedClIds: string[] = [];
+      if (matchedLeadIds.length > 0) {
+        const { data: matchedCls } = await supabase
+          .from('campaign_leads')
+          .select('id')
+          .in('lead_id', matchedLeadIds);
+        matchedClIds = (matchedCls || []).map((c: any) => c.id);
+      }
+      if (matchedClIds.length > 0) {
+        query = query.or(`subject.ilike.%${q}%,campaign_lead_id.in.(${matchedClIds.join(',')})`);
+      } else {
+        query = query.ilike('subject', `%${q}%`);
+      }
+    }
+
+    query = query.order(sortBy, { ascending: sortOrder === 'asc', nullsFirst: false });
+
     const offset = filters?.offset || 0;
     const limit = filters?.limit ?? 50;
-    const { data, count, error } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+    const { data, count, error } = await query.range(offset, offset + limit - 1);
     if (error) throw new Error(error.message);
+
+    let accountMap = new Map<string, EmailAccount>();
+    if (filters?.userId) {
+      try {
+        const accs = await this.getEmailAccounts(filters.userId);
+        accountMap = new Map(accs.map((a) => [a.id, a]));
+      } catch {}
+    }
+
     const messages = (data || []).map((m: any) => ({
       ...m,
       lead: m.campaign_lead?.lead || undefined,
       campaign_id: m.campaign_lead?.campaign_id || undefined,
+      email_account: m.email_account_id ? accountMap.get(m.email_account_id) || null : null,
     }));
     return { messages, total: count ?? messages.length };
   },
@@ -790,11 +862,13 @@ export const dbService = {
 
       if (scheduledMsgs.length === 0) return { rescheduledCount: 0 };
 
-      const schedule = calculateStaggeredSchedule(campaign, accounts, scheduledMsgs.length, new Date());
+      const scheduleSlots = calculateStaggeredScheduleWithAccounts(campaign, accounts, scheduledMsgs.length, new Date());
       for (let i = 0; i < scheduledMsgs.length; i++) {
         const msg = scheduledMsgs[i];
-        const newDate = schedule[i];
+        const slot = scheduleSlots[i] || scheduleSlots[scheduleSlots.length - 1];
+        const newDate = slot ? slot.date : new Date();
         msg.scheduled_at = newDate.toISOString();
+        if (slot?.accountId) msg.email_account_id = slot.accountId;
         for (const job of mockDb.jobQueue.values()) {
           if (job.job_type === 'send_email' && (job.payload as any)?.emailMessageId === msg.id && job.status === 'queued') {
             job.run_at = newDate.toISOString();
@@ -821,24 +895,34 @@ export const dbService = {
     if (msgErr) throw new Error(msgErr.message);
     if (!messages || messages.length === 0) return { rescheduledCount: 0 };
 
-    const schedule = calculateStaggeredSchedule(campaign, accounts, messages.length, new Date());
+    const scheduleSlots = calculateStaggeredScheduleWithAccounts(campaign, accounts, messages.length, new Date());
 
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      const newDate = schedule[i];
-      const newIso = newDate.toISOString();
+    const BATCH_SIZE = 25;
+    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+      const batch = messages.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (msg, bIdx) => {
+          const globalIdx = i + bIdx;
+          const slot = scheduleSlots[globalIdx];
+          const newIso = (slot?.date || new Date()).toISOString();
 
-      await supabase
-        .from('email_messages')
-        .update({ scheduled_at: newIso })
-        .eq('id', msg.id);
+          await supabase
+            .from('email_messages')
+            .update({
+              scheduled_at: newIso,
+              ...(slot?.accountId ? { email_account_id: slot.accountId } : {}),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', msg.id);
 
-      await supabase
-        .from('job_queue')
-        .update({ run_at: newIso })
-        .eq('job_type', 'send_email')
-        .eq('status', 'queued')
-        .filter('payload->>emailMessageId', 'eq', msg.id);
+          await supabase
+            .from('job_queue')
+            .update({ run_at: newIso })
+            .eq('job_type', 'send_email')
+            .eq('status', 'queued')
+            .filter('payload->>emailMessageId', 'eq', msg.id);
+        })
+      );
     }
 
     return { rescheduledCount: messages.length };
@@ -956,13 +1040,15 @@ export const dbService = {
 
       if (msgsToReschedule.length === 0) return { rescheduledCount: 0 };
 
-      const schedule = calculateStaggeredSchedule(campaign, accounts, msgsToReschedule.length, new Date());
+      const scheduleSlots = calculateStaggeredScheduleWithAccounts(campaign, accounts, msgsToReschedule.length, new Date());
       for (let i = 0; i < msgsToReschedule.length; i++) {
         const msg = msgsToReschedule[i];
-        const newDate = schedule[i] || new Date();
+        const slot = scheduleSlots[i] || scheduleSlots[scheduleSlots.length - 1];
+        const newDate = slot ? slot.date : new Date();
         const newIso = newDate.toISOString();
         msg.status = 'scheduled';
         msg.scheduled_at = newIso;
+        if (slot?.accountId) msg.email_account_id = slot.accountId;
         msg.updated_at = new Date().toISOString();
 
         // Remove old queued job if any
@@ -1023,7 +1109,7 @@ export const dbService = {
         .filter('payload->>emailMessageId', 'in', formatted);
     }
 
-    const schedule = calculateStaggeredSchedule(campaign, accounts, messages.length, new Date());
+    const scheduleSlots = calculateStaggeredScheduleWithAccounts(campaign, accounts, messages.length, new Date());
 
     // Update email messages in parallel batches of 25
     const BATCH_SIZE = 25;
@@ -1032,12 +1118,14 @@ export const dbService = {
       await Promise.all(
         batch.map((msg, bIdx) => {
           const globalIdx = i + bIdx;
-          const newDate = schedule[globalIdx] || new Date();
+          const slot = scheduleSlots[globalIdx];
+          const newDate = slot ? slot.date : new Date();
           return supabase
             .from('email_messages')
             .update({
               status: 'scheduled',
               scheduled_at: newDate.toISOString(),
+              ...(slot?.accountId ? { email_account_id: slot.accountId } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq('id', msg.id);
@@ -1047,7 +1135,8 @@ export const dbService = {
 
     // Bulk insert new queued jobs into job_queue
     const newJobs = messages.map((msg, idx) => {
-      const newDate = schedule[idx] || new Date();
+      const slot = scheduleSlots[idx];
+      const newDate = slot ? slot.date : new Date();
       return {
         job_type: 'send_email',
         payload: { emailMessageId: msg.id },
@@ -1068,6 +1157,39 @@ export const dbService = {
     }
 
     return { rescheduledCount: messages.length };
+  },
+
+  /**
+   * Syncs schedule and redistributes messages across all active inboxes whenever
+   * an email account is added, updated, or removed from an account group.
+   */
+  async syncGroupCampaignsSchedule(groupId: string, userId: string): Promise<void> {
+    if (!groupId) return;
+    try {
+      const campaigns = await this.getCampaigns(userId);
+      const activeGroupCampaigns = campaigns.filter(
+        (c) => c.account_group_id === groupId && c.status === 'active'
+      );
+      if (activeGroupCampaigns.length === 0) return;
+
+      const allAccounts = await this.getEmailAccounts(userId, { status: 'active' });
+      const inGroup = allAccounts.filter((a) => a.group_id === groupId);
+      const totalDailyCapacity = inGroup.reduce((sum, a) => sum + (a.daily_limit || 18), 0);
+
+      for (const campaign of activeGroupCampaigns) {
+        if (totalDailyCapacity > 0) {
+          await this.updateCampaign(campaign.id, {
+            sending_config: {
+              ...campaign.sending_config,
+              daily_limit: totalDailyCapacity,
+            },
+          });
+        }
+        await this.rescheduleCampaignScheduledMessages(campaign.id);
+      }
+    } catch (err) {
+      console.error(`[dbService] Error syncing group campaigns schedule for group ${groupId}:`, err);
+    }
   },
 
   // Lead Groups

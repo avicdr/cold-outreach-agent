@@ -11,6 +11,10 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status') || undefined;
   const campaignId = searchParams.get('campaignId') || undefined;
+  const leadGroupId = searchParams.get('leadGroupId') || undefined;
+  const search = searchParams.get('search') || undefined;
+  const sortBy = (searchParams.get('sortBy') as any) || undefined;
+  const sortOrder = (searchParams.get('sortOrder') as any) || undefined;
   const page = parseInt(searchParams.get('page') || '1', 10);
   const limit = parseInt(searchParams.get('limit') || searchParams.get('pageSize') || '25', 10);
   const offset = searchParams.get('offset') !== null ? parseInt(searchParams.get('offset')!, 10) : (page - 1) * limit;
@@ -33,6 +37,10 @@ export async function GET(request: NextRequest) {
       userId: user.id,
       status,
       campaignId,
+      leadGroupId,
+      search,
+      sortBy,
+      sortOrder,
       limit,
       offset,
     });

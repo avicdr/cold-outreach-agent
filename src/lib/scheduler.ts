@@ -146,51 +146,61 @@ export function getNextDayStartWindow(sendingConfig: SendingConfig, fromDate: Da
   return getNextSendingWindowDate(sendingConfig, nextDayMidnight);
 }
 
+export interface ScheduledSlotWithAccount {
+  date: Date;
+  accountId: string;
+}
+
 /**
- * Calculates a staggered schedule for a batch of initial emails.
- * Distributes sends smoothly across campaign business hours respecting:
- * - Campaign sending window (days and start/end hours)
+ * Calculates a staggered schedule for a batch of initial emails and distributes
+ * each email round-robin among active accounts, respecting:
+ * - Campaign sending window (days and start/end hours in campaign timezone)
  * - Multi-account rotation & aggregate daily capacity
  * - Minimum per-account cooldown intervals
- * - Campaign daily and hourly limits
+ * - Account individual daily limits
  */
-export function calculateStaggeredSchedule(
+export function calculateStaggeredScheduleWithAccounts(
   campaign: Campaign,
   accounts: EmailAccount[],
   count: number,
   fromDate: Date = new Date()
-): Date[] {
+): ScheduledSlotWithAccount[] {
   const sendingConfig = campaign.sending_config;
-  const scheduledDates: Date[] = [];
-  if (count <= 0) return scheduledDates;
+  const scheduledSlots: ScheduledSlotWithAccount[] = [];
+  if (count <= 0) return scheduledSlots;
 
   const activeAccounts = accounts.filter((a) => a.status === 'active');
   const effectiveAccounts = activeAccounts.length > 0 ? activeAccounts : accounts;
-  const numAccounts = Math.max(effectiveAccounts.length, 1);
+  if (effectiveAccounts.length === 0) return scheduledSlots;
 
-  // Per-account cooldown constraint: rotating across numAccounts inboxes
+  const numAccounts = effectiveAccounts.length;
   const minAccountCooldown = Math.min(
     ...effectiveAccounts.map((a) => a.min_interval_minutes ?? 15).concat(15)
   );
-  // With round-robin rotation, any individual account waits (intervalMinutes * numAccounts)
-  const minRotationCooldown = Math.max(1, Math.ceil(minAccountCooldown / numAccounts));
+  // Interval between consecutive messages across the rotation pool
+  const minRotationCooldown = numAccounts > 1
+    ? Math.max(1, Math.ceil(minAccountCooldown / numAccounts))
+    : Math.max(minAccountCooldown, 15);
 
-  // Sending window calculations
   const startHour = sendingConfig.start_hour ?? 9;
   const endHour = sendingConfig.end_hour ?? 17;
   const windowMinutes = Math.max(60, (endHour - startHour) * 60);
 
-  // Daily capacity
   const accountsDailyCapacity = effectiveAccounts.reduce((sum, a) => sum + (a.daily_limit || 18), 0);
   const dailyLimit = sendingConfig.daily_limit || (accountsDailyCapacity > 0 ? accountsDailyCapacity : 10);
 
-  // Interval pacing
   let intervalMinutes: number;
   if (numAccounts > 1) {
-    // Multi-account pacing: spread dailyLimit evenly across the sending window
-    const windowPacing = Math.floor(windowMinutes / dailyLimit);
+    // Multi-account pacing: spread evenly across the window when capacity is large,
+    // but cap pacing at 10 minutes (or minRotationCooldown) so small daily limits don't create huge gaps (like 32m).
+    const rawWindowPacing = Math.floor(windowMinutes / dailyLimit);
+    const windowPacing = rawWindowPacing > 10 ? minRotationCooldown : rawWindowPacing;
     const targetHourlyRate = Math.ceil(dailyLimit / (windowMinutes / 60));
-    const effectiveHourlyLimit = Math.max(sendingConfig.hourly_limit || 0, targetHourlyRate);
+    // When rotating across multiple inboxes, an old single-inbox default hourly limit of 3 should not bottleneck the pool
+    const poolHourlyLimit = numAccounts * Math.max(1, Math.floor(60 / minAccountCooldown));
+    const effectiveHourlyLimit = sendingConfig.hourly_limit && sendingConfig.hourly_limit > 3
+      ? sendingConfig.hourly_limit
+      : Math.max(targetHourlyRate, poolHourlyLimit);
     const hourlyInterval = Math.ceil(60 / effectiveHourlyLimit);
     intervalMinutes = Math.max(minRotationCooldown, windowPacing, hourlyInterval);
   } else if (sendingConfig.hourly_limit && sendingConfig.hourly_limit > 0) {
@@ -206,22 +216,103 @@ export function calculateStaggeredSchedule(
   intervalMinutes = Math.max(1, intervalMinutes);
 
   let currentSlot = getNextSendingWindowDate(sendingConfig, fromDate);
-  let sendsToday = 0;
+  let prevSlotTime: number | null = null;
+  const accountLastSendTime = new Map<string, number>();
+  const accountSendsToday = new Map<string, number>();
+  let totalSendsToday = 0;
+  let nextAccountIdx = 0;
 
   for (let i = 0; i < count; i++) {
-    // If daily limit reached or past end of sending window, roll over to the start of the next valid day
-    if (!isWithinSendingWindow(sendingConfig, currentSlot) || sendsToday >= dailyLimit) {
+    // 1. If campaign aggregate daily limit reached for today, advance to next business day
+    if (totalSendsToday >= dailyLimit) {
       currentSlot = getNextDayStartWindow(sendingConfig, currentSlot);
-      sendsToday = 0;
+      accountSendsToday.clear();
+      accountLastSendTime.clear();
+      prevSlotTime = null;
+      totalSendsToday = 0;
     }
 
-    scheduledDates.push(new Date(currentSlot.getTime()));
-    sendsToday++;
+    // 2. Find the next available account that has individual daily capacity left today
+    let candidateAccount: EmailAccount | null = null;
+    let attempts = 0;
+    while (attempts < numAccounts) {
+      const acc = effectiveAccounts[nextAccountIdx % numAccounts];
+      nextAccountIdx++;
+      attempts++;
+      const sends = accountSendsToday.get(acc.id) || 0;
+      const limit = acc.daily_limit || 18;
+      if (sends < limit) {
+        candidateAccount = acc;
+        break;
+      }
+    }
 
-    currentSlot = new Date(currentSlot.getTime() + intervalMinutes * 60 * 1000);
+    // If all individual accounts reached their limits, advance to next day
+    if (!candidateAccount) {
+      currentSlot = getNextDayStartWindow(sendingConfig, currentSlot);
+      accountSendsToday.clear();
+      accountLastSendTime.clear();
+      prevSlotTime = null;
+      totalSendsToday = 0;
+      candidateAccount = effectiveAccounts[nextAccountIdx % numAccounts];
+      nextAccountIdx++;
+    }
+
+    const minIntervalMs = (candidateAccount.min_interval_minutes || 15) * 60 * 1000;
+    const lastSendForAccount = accountLastSendTime.get(candidateAccount.id) || 0;
+
+    // 3. Compute earliest valid slot for this email
+    let targetTime = currentSlot.getTime();
+    if (prevSlotTime !== null) {
+      targetTime = Math.max(targetTime, prevSlotTime + intervalMinutes * 60 * 1000);
+    }
+    if (lastSendForAccount > 0) {
+      targetTime = Math.max(targetTime, lastSendForAccount + minIntervalMs);
+    }
+
+    let targetDate = new Date(targetTime);
+
+    // 4. If targetDate falls outside sending window (e.g. past endHour), advance to next day
+    if (!isWithinSendingWindow(sendingConfig, targetDate)) {
+      targetDate = getNextDayStartWindow(sendingConfig, targetDate);
+      accountSendsToday.clear();
+      accountLastSendTime.clear();
+      prevSlotTime = null;
+      totalSendsToday = 0;
+    }
+
+    // Record slot
+    scheduledSlots.push({
+      date: targetDate,
+      accountId: candidateAccount.id,
+    });
+
+    // Update tracking
+    accountSendsToday.set(candidateAccount.id, (accountSendsToday.get(candidateAccount.id) || 0) + 1);
+    accountLastSendTime.set(candidateAccount.id, targetDate.getTime());
+    prevSlotTime = targetDate.getTime();
+    totalSendsToday++;
+    currentSlot = new Date(targetDate.getTime() + intervalMinutes * 60 * 1000);
   }
 
-  return scheduledDates;
+  return scheduledSlots;
+}
+
+/**
+ * Calculates a staggered schedule for a batch of initial emails.
+ * Distributes sends smoothly across campaign business hours respecting:
+ * - Campaign sending window (days and start/end hours)
+ * - Multi-account rotation & aggregate daily capacity
+ * - Minimum per-account cooldown intervals
+ * - Campaign daily and hourly limits
+ */
+export function calculateStaggeredSchedule(
+  campaign: Campaign,
+  accounts: EmailAccount[],
+  count: number,
+  fromDate: Date = new Date()
+): Date[] {
+  return calculateStaggeredScheduleWithAccounts(campaign, accounts, count, fromDate).map((s) => s.date);
 }
 
 /**
@@ -252,9 +343,13 @@ export function getNextScheduledSlot(
 
   let intervalMinutes: number;
   if (numAccounts > 1) {
-    const windowPacing = Math.floor(windowMinutes / dailyLimit);
+    const rawWindowPacing = Math.floor(windowMinutes / dailyLimit);
+    const windowPacing = rawWindowPacing > 10 ? minRotationCooldown : rawWindowPacing;
     const targetHourlyRate = Math.ceil(dailyLimit / (windowMinutes / 60));
-    const effectiveHourlyLimit = Math.max(sendingConfig.hourly_limit || 0, targetHourlyRate);
+    const poolHourlyLimit = numAccounts * Math.max(1, Math.floor(60 / minAccountCooldown));
+    const effectiveHourlyLimit = sendingConfig.hourly_limit && sendingConfig.hourly_limit > 3
+      ? sendingConfig.hourly_limit
+      : Math.max(targetHourlyRate, poolHourlyLimit);
     const hourlyInterval = Math.ceil(60 / effectiveHourlyLimit);
     intervalMinutes = Math.max(minRotationCooldown, windowPacing, hourlyInterval);
   } else if (sendingConfig.hourly_limit && sendingConfig.hourly_limit > 0) {

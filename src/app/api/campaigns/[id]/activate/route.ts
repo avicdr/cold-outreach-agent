@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
-import { calculateStaggeredSchedule } from '@/lib/scheduler';
+import { calculateStaggeredScheduleWithAccounts } from '@/lib/scheduler';
+import { EmailAccount } from '@/types/database';
 
 export async function POST(
   request: NextRequest,
@@ -45,10 +46,25 @@ export async function POST(
       }
     }
 
-    const emailAccounts = await dbService.getEmailAccounts(user.id, { status: 'active' });
-    const staggeredDates = calculateStaggeredSchedule(
+    let activeAccounts: EmailAccount[] = [];
+    if (campaign.account_group_id) {
+      const allAccounts = await dbService.getEmailAccounts(user.id, { status: 'active' });
+      const inGroup = allAccounts.filter((a) => a.group_id === campaign.account_group_id);
+      activeAccounts = inGroup.length > 0 ? inGroup : allAccounts;
+    } else if (campaign.email_account_id) {
+      const allAccounts = await dbService.getEmailAccounts(user.id, { status: 'active' });
+      const matched = allAccounts.filter((a) => a.id === campaign.email_account_id);
+      activeAccounts = matched.length > 0 ? matched : allAccounts;
+    } else {
+      activeAccounts = await dbService.getEmailAccounts(user.id, { status: 'active' });
+    }
+    if (activeAccounts.length === 0 && emailAccount) {
+      activeAccounts = [emailAccount];
+    }
+
+    const scheduleSlots = calculateStaggeredScheduleWithAccounts(
       campaign,
-      emailAccounts.length > 0 ? emailAccounts : [emailAccount],
+      activeAccounts,
       eligibleMessages.length,
       new Date()
     );
@@ -56,12 +72,14 @@ export async function POST(
     let enqueuedCount = 0;
     for (let i = 0; i < eligibleMessages.length; i++) {
       const msg = eligibleMessages[i];
-      const scheduledDate = staggeredDates[i] || new Date();
+      const slot = scheduleSlots[i];
+      const scheduledDate = slot?.date || new Date();
 
       await dbService.createOrUpdateMessage({
         ...msg,
         status: 'scheduled',
         scheduled_at: scheduledDate.toISOString(),
+        ...(slot?.accountId ? { email_account_id: slot.accountId } : {}),
       });
       await dbService.enqueueJob(
         'send_email',

@@ -86,6 +86,15 @@ export async function PATCH(
 
     await dbService.logActivity(user.id, 'account_updated', 'email_accounts', id, validated);
 
+    // If account was assigned to a group, or status/limit changed, sync active campaigns using the group
+    const targetGroupId = updated.group_id || account.group_id;
+    if (targetGroupId) {
+      await dbService.syncGroupCampaignsSchedule(targetGroupId, user.id);
+    }
+    if (account.group_id && updated.group_id && account.group_id !== updated.group_id) {
+      await dbService.syncGroupCampaignsSchedule(account.group_id, user.id);
+    }
+
     return NextResponse.json({ success: true, account: sanitizeAccountForClient(updated) });
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {
@@ -115,6 +124,10 @@ export async function DELETE(
 
     await dbService.deleteEmailAccount(user.id, id);
     await dbService.logActivity(user.id, 'account_deleted', 'email_accounts', id, { email: account.email_address });
+
+    if (account.group_id) {
+      await dbService.syncGroupCampaignsSchedule(account.group_id, user.id);
+    }
 
     return NextResponse.json({ success: true, id });
   } catch (err: unknown) {

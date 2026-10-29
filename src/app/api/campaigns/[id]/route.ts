@@ -86,6 +86,10 @@ export async function PATCH(
       account_group_id: updated.account_group_id,
     });
 
+    if (updated.status === 'active' && updated.account_group_id) {
+      await dbService.syncGroupCampaignsSchedule(updated.account_group_id, user.id);
+    }
+
     return NextResponse.json({ success: true, campaign: updated });
   } catch (err: unknown) {
     if (err instanceof z.ZodError) {
