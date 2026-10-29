@@ -159,7 +159,14 @@ function MessagesContent() {
                 <button
                   key={st}
                   id={`tab-${st || 'all'}`}
-                  onClick={() => setStatusFilter(st)}
+                  onClick={() => {
+                    setStatusFilter(st);
+                    if (st === 'sent') {
+                      setSortOption('sent_at_desc');
+                    } else if (st === 'scheduled' || st === 'paused') {
+                      setSortOption('scheduled_at_asc');
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     statusFilter === st ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
@@ -218,21 +225,27 @@ function MessagesContent() {
                     onChange={(e) => setSortOption(e.target.value as any)}
                     className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer"
                   >
-                    <option value="scheduled_at_asc" className="bg-slate-900 text-slate-200">
-                      Scheduled: Earliest First
-                    </option>
-                    <option value="scheduled_at_desc" className="bg-slate-900 text-slate-200">
-                      Scheduled: Latest First
-                    </option>
+                    {statusFilter !== 'sent' && (
+                      <>
+                        <option value="scheduled_at_asc" className="bg-slate-900 text-slate-200">
+                          Scheduled: Earliest First
+                        </option>
+                        <option value="scheduled_at_desc" className="bg-slate-900 text-slate-200">
+                          Scheduled: Latest First
+                        </option>
+                      </>
+                    )}
                     <option value="created_at_desc" className="bg-slate-900 text-slate-200">
                       Created: Newest First
                     </option>
                     <option value="created_at_asc" className="bg-slate-900 text-slate-200">
                       Created: Oldest First
                     </option>
-                    <option value="sent_at_desc" className="bg-slate-900 text-slate-200">
-                      Sent: Most Recent
-                    </option>
+                    {statusFilter !== 'scheduled' && statusFilter !== 'paused' && (
+                      <option value="sent_at_desc" className="bg-slate-900 text-slate-200">
+                        Sent: Most Recent
+                      </option>
+                    )}
                   </select>
                 </div>
 

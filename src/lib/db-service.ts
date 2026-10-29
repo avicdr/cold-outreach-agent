@@ -569,6 +569,10 @@ export const dbService = {
       }
       if (filters?.status) {
         msgs = msgs.filter((m) => m.status === filters.status);
+      } else if (sortBy === 'scheduled_at') {
+        msgs = msgs.filter((m) => (m.status === 'scheduled' || m.status === 'paused') && Boolean(m.scheduled_at));
+      } else if (sortBy === 'sent_at') {
+        msgs = msgs.filter((m) => m.status === 'sent');
       }
       if (filters?.leadGroupId) {
         msgs = msgs.filter((m) => {
@@ -621,7 +625,13 @@ export const dbService = {
       `*, campaign_lead:campaign_leads!inner(*, campaign:campaigns!inner(user_id), ${leadJoin})`,
       { count: 'exact' }
     );
-    if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    } else if (sortBy === 'scheduled_at') {
+      query = query.in('status', ['scheduled', 'paused']).not('scheduled_at', 'is', null);
+    } else if (sortBy === 'sent_at') {
+      query = query.eq('status', 'sent');
+    }
     if (filters?.leadGroupId) query = query.eq('campaign_lead.lead.group_id', filters.leadGroupId);
     if (filters?.campaignId) {
       query = query.eq('campaign_lead.campaign_id', filters.campaignId);

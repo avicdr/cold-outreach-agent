@@ -177,6 +177,17 @@ describe('API Routes Integration Tests', () => {
     expect(typeof data.totalPages).toBe('number');
   });
 
+  it('GET /api/messages with sortBy=scheduled_at excludes sent messages when status is not specified', async () => {
+    const req = new Request('http://localhost:3000/api/messages?sortBy=scheduled_at&sortOrder=asc');
+    const res = await messagesGet(req as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data.messages)).toBe(true);
+    for (const msg of data.messages) {
+      expect(msg.status).not.toBe('sent');
+    }
+  });
+
   it('GET /api/jobs supports pagination parameters and returns metadata', async () => {
     const req = new Request('http://localhost:3000/api/jobs?page=1&limit=10');
     const res = await jobsGet(req as any);
