@@ -15,6 +15,8 @@ const PUBLIC_FILE_EXTENSIONS = [
   '.woff',
   '.woff2',
   '.ttf',
+  '.txt',
+  '.xml',
 ];
 
 const PUBLIC_PATH_PREFIXES = [
@@ -24,9 +26,14 @@ const PUBLIC_PATH_PREFIXES = [
   '/api/jobs/process',
   '/api/unsubscribe',
   '/api/integrations/google/callback',
+  '/features',
   '/privacy',
   '/tos',
   '/unsubscribe',
+  '/sitemap.xml',
+  '/robots.txt',
+  '/llms.txt',
+  '/llms-full.txt',
 ];
 
 function getPublicUrl(path: string, request: NextRequest): URL {
@@ -56,17 +63,24 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(callbackUrl);
   }
 
-  // 2. Allow explicitly public paths
+  // 2. Allow root public marketing homepage
+  if (pathname === '/') {
+    return NextResponse.next();
+  }
+
+  // 2.5 Allow explicitly public path prefixes
   if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
 
-  // 2.5 Allow CRON_SECRET authenticated calls to jobs APIs
+  // 2.6 Allow CRON_SECRET authenticated calls to jobs APIs
   if (pathname.startsWith('/api/jobs')) {
     const authHeader = request.headers.get('authorization') || '';
     const cronSecret = process.env.CRON_SECRET || 'dev-cron-secret-12345';
     if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-      return NextResponse.next();
+      const cronResponse = NextResponse.next();
+      cronResponse.headers.set('X-Robots-Tag', 'noindex, nofollow');
+      return cronResponse;
     }
   }
 
@@ -83,17 +97,21 @@ export async function proxy(request: NextRequest) {
       const redirectUrl = getPublicUrl(safeRedirect, request);
       return NextResponse.redirect(redirectUrl);
     }
-    return NextResponse.next();
+    const loginResponse = NextResponse.next();
+    loginResponse.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return loginResponse;
   }
 
   // 5. Protected application routes
   if (!isAuthenticated) {
     // If it's an API route that's not explicitly public, return 401 instead of redirecting
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
+      const res = NextResponse.json(
         { error: 'Unauthorized: Authentication required' },
         { status: 401 }
       );
+      res.headers.set('X-Robots-Tag', 'noindex, nofollow');
+      return res;
     }
 
     const rawRedirect = (pathname !== '/' && pathname !== '/dashboard') ? pathname : '';
@@ -103,7 +121,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  // Authenticated access to private dashboard and app routes:
+  // Inject X-Robots-Tag to ensure private data is never indexed by search engines
+  const response = NextResponse.next();
+  response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  return response;
 }
 
 // Next.js 16 supports proxy as standard export

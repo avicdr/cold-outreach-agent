@@ -1,0 +1,27 @@
+# Outreacher by Arenova
+
+> Enterprise cold email outreach and sales automation platform by Arenova (https://arenova.in).
+
+## Overview
+Outreacher coordinates multi-inbox deliverability rotation, AI-personalized cold email sequencing, autonomous B2B lead discovery, and deliverability warmup.
+
+## Core Capabilities
+- **Multi-Inbox Rotation**: Connect multiple Google Workspace, Gmail, and custom SMTP inboxes. Send jobs cycle across inboxes with strict 15–18 emails/day per-account limits and 15-minute staggered intervals.
+- **AI-Powered Draft Generation**: Generates emails with Google Gemini and automatic OpenAI fallback. Claims are validated against extracted business signals with zero hallucinated claims.
+- **Follow-Up Sequencing**: Multi-step campaigns enforce same-inbox replies with native RFC In-Reply-To and References message headers. Sequences stop automatically upon reply.
+- **B2B Lead Discovery**: Prospect discovery via Google Places and OpenStreetMap Overpass with automated website friction checks and 0–100 lead qualification scoring.
+- **Automated Warmup**: Controlled peer exchange with progressive ramp-up to maximize domain and mailbox reputation.
+- **Anti-Spam & Compliance**: HMAC-SHA256 signed one-click unsubscribe links, global suppression tables, and automated bounce/mailer-daemon cleanup.
+
+## Organization
+- **Product**: Outreacher (https://outreacher.arenova.in)
+- **Parent Brand**: Arenova, AI Automation & Marketing Agency (https://arenova.in)
+- **Support**: avi@arenova.in
+
+## Public Links
+- Homepage: https://outreacher.arenova.in
+- Email Outreach & Deliverability: https://outreacher.arenova.in/features/email-outreach-automation
+- Lead Discovery & Intelligence: https://outreacher.arenova.in/features/lead-discovery
+- Privacy Policy: https://outreacher.arenova.in/privacy
+- Terms of Service: https://outreacher.arenova.in/tos
+

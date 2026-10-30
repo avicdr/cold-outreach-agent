@@ -1,0 +1,29 @@
+# Outreacher — Technical & Architectural Reference
+
+## 1. Product Identity & Ecosystem
+Outreacher (https://outreacher.arenova.in) is the outbound sales and email deliverability platform of Arenova (https://arenova.in), an AI automation and digital solutions agency. It operates alongside Arenova Frontdesk (https://frontdesk.arenova.in) and Arova Lead Intelligence (https://arova.arenova.in).
+
+## 2. Technical Stack
+- **Framework**: Next.js 16 (App Router), React 19, TypeScript
+- **Styling**: Tailwind CSS with volcanic/dark editorial theme
+- **Database / Backend**: Supabase PostgreSQL with in-memory fallback adapter
+- **AI Engine**: Google Gemini (gemini-3.8-flash, gemini-3.5-flash) with candidate model retry and OpenAI (gpt-4o-mini) fallback
+- **Email Protocols**: Google OAuth 2.0 Gmail REST API, Nodemailer SMTP with TLS
+- **Security**: AES-256-GCM token encryption, HMAC-SHA256 session and unsubscribe signatures, CWE-1236 CSV injection protection
+
+## 3. Deliverability Safeguards
+- **Daily Volume Cap**: Enforces a strict 15–18 emails/day limit per connected mailbox.
+- **Dynamic Pacing**: Randomizes sending intervals with minimum 15-minute delays between consecutive sends from the same address.
+- **Same-Inbox Continuity**: Follow-up emails strictly inherit the originating account ID of Step 0.
+- **Thread Preservation**: RFC 2822 In-Reply-To and References headers are verified to preserve email client conversation threading.
+
+## 4. Prospect Research & Lead Intelligence
+- **Directory Ingestion**: Queries Google Places and OpenStreetMap Overpass directories by business niche and geographical metro area.
+- **Intake Gap Detection**: Inspects online presence to discover friction (e.g., lack of after-hours contact capture, broken booking links).
+- **Qualification Scoring**: Scores leads from 0 to 100 based on verified contact channels, review footfall, and operational friction.
+
+## 5. Compliance & Security Invariants
+- **RFC 8058 Compliance**: Every outreach email carries an automated, cryptographic one-click unsubscribe URL.
+- **Global Suppression**: Unsubscribes and bounces immediately transition the recipient to the suppression table, blocking any future outreach across all campaigns.
+- **Data Isolation**: Prospect data is strictly isolated to authenticated user accounts and never exposed publicly.
+

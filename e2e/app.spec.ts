@@ -1,8 +1,15 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Cold Outreach Agent End-to-End UI Verification', () => {
-  test('navigates to dashboard and renders metric cards', async ({ page }) => {
+  test('navigates to public landing page and renders brand hero', async ({ page }) => {
     await page.goto('/');
+    await expect(page.locator('h1')).toContainText('Outreacher');
+    await expect(page.getByText('Launch Outreach App')).toBeVisible();
+    await expect(page.getByText('Technical Architecture')).toBeVisible();
+  });
+
+  test('navigates to dashboard and renders metric cards', async ({ page }) => {
+    await page.goto('/dashboard');
     await expect(page.locator('h1')).toContainText('Dashboard');
     await expect(page.getByText('Total Leads')).toBeVisible();
     await expect(page.getByText('Eligible Leads')).toBeVisible();
