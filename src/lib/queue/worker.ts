@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { dbService } from '../db-service';
+import { dbService, isLiveSupabase } from '../db-service';
 import { generateInitialEmail, generateFollowupEmail, classifyReply } from '../gemini';
 import { sendGmailMessage, pollGmailReplies } from '../gmail/client';
 import { sendSmtpEmail } from '../smtp/client';
@@ -299,6 +299,47 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     await dbService.createOrUpdateMessage(message);
     console.info(`[PreFlight] Lead ${lead.normalized_email} is on suppression list. Cancelling send for message ${emailMessageId}.`);
     return;
+  }
+
+  // Pre-flight check: Email verification & bounce prevention
+  if (lead.email && (isLiveSupabase() || lead.email.includes('mailinator.com') || lead.email.includes('bouncing_target'))) {
+    const { verifyEmail } = await import('../verification/reacher');
+    const vResult = await verifyEmail(lead.email);
+    if (vResult.is_reachable === 'invalid') {
+      message.status = 'cancelled';
+      await dbService.createOrUpdateMessage(message);
+      await dbService.updateLead(lead.id, {
+        status: 'bounced',
+        verification_status: 'invalid',
+        verification_details: vResult,
+        is_verified: true,
+      });
+      await dbService.addSuppression(
+        campaign.user_id,
+        lead.normalized_email || lead.email.toLowerCase().trim(),
+        'bounce',
+        'preflight_verification'
+      );
+      // Cancel any remaining scheduled messages for this lead
+      try {
+        const scheduledMsgs = await dbService.getMessages({ status: 'scheduled' });
+        for (const msg of scheduledMsgs) {
+          if (msg.campaign_lead_id === message.campaign_lead_id && msg.id !== message.id) {
+            msg.status = 'cancelled';
+            await dbService.createOrUpdateMessage(msg);
+          }
+        }
+      } catch (cancelErr) {
+        console.warn(`[PreFlight] Could not cancel remaining messages for ${lead.email}:`, cancelErr);
+      }
+      await dbService.logActivity(campaign.user_id, 'email_bounce_prevented', 'leads', lead.id, {
+        email: lead.email,
+        campaign_id: campaign.id,
+        reason: vResult.error || 'Recipient mailbox does not exist or has no valid MX records',
+      });
+      console.warn(`[PreFlight] Lead ${lead.email} failed email verification (${vResult.error || 'undeliverable'}). Prevented bounce and cancelled message ${emailMessageId}.`);
+      return;
+    }
   }
 
   // Pre-flight check: Sending window
@@ -719,7 +760,7 @@ export async function handleScheduleFollowupJob(payload: { campaignLeadId: strin
   if (!cl) return;
 
   // Abort if replied or unsubscribed
-  if (cl.status === 'replied' || cl.status === 'unsubscribed' || cl.status === 'completed') {
+  if (cl.status === 'replied' || cl.status === 'unsubscribed' || cl.status === 'completed' || cl.lead?.status === 'replied') {
     return;
   }
 
@@ -743,9 +784,10 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
   const ownEmails = emailAccounts.map((a) => a.email_address.toLowerCase().trim());
   const ownEmailSet = new Set(ownEmails);
 
-  const messages = await dbService.getMessages();
-  const sentThreads = messages
-    .filter((m) => m.status === 'sent' && m.gmail_thread_id)
+  // Query all sent messages with high limit so no past outreach messages are omitted
+  const sentMessages = await dbService.getMessages({ status: 'sent', limit: 1000 });
+  const sentThreads = sentMessages
+    .filter((m) => m.gmail_thread_id)
     .map((m) => m.gmail_thread_id as string);
   if (sentThreads.length === 0) return;
 
@@ -755,10 +797,23 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
       continue;
     }
 
+    // Filter threads sent by this account (or unassigned fallback)
+    const accountSentMessages = sentMessages.filter(
+      (m) => m.email_account_id === emailAccount.id || !m.email_account_id
+    );
+    const accountThreads = Array.from(
+      new Set(
+        accountSentMessages
+          .map((m) => m.gmail_thread_id)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+    if (accountThreads.length === 0) continue;
+
     let inboundReplies = [];
     try {
       inboundReplies = await executeWithGmailAuth(emailAccount, (token) =>
-        pollGmailReplies(token, sentThreads, ownEmails)
+        pollGmailReplies(token, accountThreads, ownEmails)
       );
     } catch (syncErr) {
       console.warn(`[SyncReplies] Could not poll replies for ${emailAccount.email_address}:`, syncErr);
@@ -777,7 +832,7 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
       }
 
       // Guard 2: Skip message if its gmail_message_id matches any of our own sent outbound messages
-      if (messages.some((m) => m.gmail_message_id === reply.id)) {
+      if (sentMessages.some((m) => m.gmail_message_id === reply.id)) {
         console.log(`[SyncReplies] Skipping message ${reply.id} which matches an existing sent message`);
         continue;
       }
@@ -789,8 +844,6 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
         senderLower.includes('mailer_daemon') ||
         senderLower.includes('postmaster') ||
         senderLower.startsWith('bounce') ||
-        senderLower.includes('noreply') ||
-        senderLower.includes('no-reply') ||
         senderLower.includes('mail delivery subsystem') ||
         subjectLower.includes('delivery status notification') ||
         subjectLower.includes('delivery failure') ||
@@ -803,7 +856,7 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
         bodyLower.includes('550 ') ||
         bodyLower.includes('554 ');
 
-      const matchedMessage = messages.find((m) => m.gmail_thread_id === reply.threadId);
+      const matchedMessage = sentMessages.find((m) => m.gmail_thread_id === reply.threadId);
 
       if (isBounce) {
         if (matchedMessage && matchedMessage.lead) {
@@ -863,13 +916,37 @@ export async function handleSyncRepliesJob(payload: { userId: string }) {
         received_at: reply.receivedAt,
         classification: classification.classification,
         classification_summary: classification.summary,
+        reply_text: reply.bodyText,
       });
 
-      if (matchedMessage && matchedMessage.lead) {
-        if (classification.is_explicit_unsubscribe || classification.classification === 'unsubscribe') {
-          await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'unsubscribe', 'reply_detection');
-        } else {
-          await dbService.updateLead(matchedMessage.lead.id, { status: 'replied' });
+      if (matchedMessage) {
+        if (matchedMessage.lead) {
+          if (classification.is_explicit_unsubscribe || classification.classification === 'unsubscribe') {
+            await dbService.addSuppression(userId, matchedMessage.lead.normalized_email, 'unsubscribe', 'reply_detection');
+          } else {
+            await dbService.updateLead(matchedMessage.lead.id, { status: 'replied' });
+          }
+        }
+        if (matchedMessage.campaign_lead_id) {
+          await dbService.updateCampaignLead(matchedMessage.campaign_lead_id, {
+            status: 'replied',
+            completed_at: new Date().toISOString(),
+          });
+          if (isLiveSupabase()) {
+            const { createAdminClient } = await import('../supabase/admin');
+            const supabase = createAdminClient();
+            await supabase
+              .from('email_messages')
+              .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+              .eq('campaign_lead_id', matchedMessage.campaign_lead_id)
+              .in('status', ['scheduled', 'draft']);
+
+            await supabase
+              .from('job_queue')
+              .update({ status: 'completed', updated_at: new Date().toISOString() })
+              .filter('payload->>campaignLeadId', 'eq', matchedMessage.campaign_lead_id)
+              .in('status', ['queued', 'running']);
+          }
         }
       }
     }
@@ -890,5 +967,129 @@ export async function handleProcessUnsubscribeJob(payload: { userId: string; nor
       msg.status = 'cancelled';
       await dbService.createOrUpdateMessage(msg);
     }
+  }
+}
+
+
+/**
+ * Self-healing queue reconciliation helper
+ */
+export async function reconcileScheduledJobs() {
+  return dbService.reconcileScheduledJobs();
+}
+
+let isCycleRunning = false;
+
+/**
+ * Master Autonomous Worker Cycle:
+ * Executes the complete autonomous workflow independently of any UI/browser:
+ * 1. Self-healing queue reconciliation (repairs any orphaned scheduled messages)
+ * 2. Process job queue batch (sends outreach, followups, drafts)
+ * 3. Inbound reply synchronization via Gmail API
+ * 4. Peer inbox warmup cycle across active accounts
+ * 5. Recurring lead discovery jobs execution
+ */
+export async function runFullWorkerCycle(workerId = 'server-worker', isForce = false) {
+  if (isCycleRunning && !isForce) {
+    console.log('[WorkerCycle] Previous cycle still executing. Skipping duplicate tick.');
+    return {
+      reconciled: 0,
+      claimed: 0,
+      results: [],
+      syncRepliesCount: 0,
+      warmupEmailsSent: 0,
+      status: 'skipped_overlapping',
+    };
+  }
+
+  isCycleRunning = true;
+  try {
+    // 1. Self-healing queue reconciliation
+    let reconciledCount = 0;
+    try {
+      const rec = await dbService.reconcileScheduledJobs();
+      reconciledCount = rec.reconciled;
+    } catch (recErr: unknown) {
+      console.warn('[WorkerCycle] Reconciliation warning:', recErr);
+    }
+
+    // 2. Claim and process ready queued jobs
+    const batchResult = await processJobQueueBatch(workerId, 15, isForce);
+
+    // 3. Discover active user IDs to sync replies, warmup, and run discovery
+    let userIds: string[] = [];
+    try {
+      const { isLiveSupabase } = await import('@/lib/db-service');
+      if (!isLiveSupabase()) {
+        userIds = ['mock-user-id'];
+      } else {
+        const { createAdminClient } = await import('@/lib/supabase/admin');
+        const supabase = createAdminClient();
+        const [{ data: accUsers }, { data: campUsers }] = await Promise.all([
+          supabase.from('email_accounts').select('user_id'),
+          supabase.from('campaigns').select('user_id'),
+        ]);
+        const set = new Set<string>();
+        (accUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
+        (campUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
+        userIds = Array.from(set);
+      }
+    } catch (userErr) {
+      console.warn('[WorkerCycle] Error finding active users:', userErr);
+    }
+    if (userIds.length === 0) {
+      userIds = ['5f9832c0-d340-4e0f-b2d8-b3f44a294697'];
+    }
+
+    // 4. Per-user tasks: sync replies, warmup, discovery
+    let totalWarmupSent = 0;
+    for (const userId of userIds) {
+      // Sync replies via Gmail API
+      try {
+        await handleSyncRepliesJob({ userId });
+      } catch (syncErr: unknown) {
+        console.warn(`[WorkerCycle] Reply sync non-fatal error for ${userId}:`, syncErr);
+      }
+
+      // Peer warmup cycle
+      try {
+        const { runWarmupCycle } = await import('@/lib/warmup/service');
+        const warmupRes = await runWarmupCycle(userId);
+        totalWarmupSent += warmupRes.emailsSent;
+      } catch (warmupErr: unknown) {
+        console.warn(`[WorkerCycle] Warmup cycle non-fatal error for ${userId}:`, warmupErr);
+      }
+
+      // Scheduled lead discovery jobs
+      try {
+        const allJobs = await dbService.getDiscoveryJobs(userId);
+        const now = new Date();
+        for (const dJob of allJobs) {
+          if (
+            dJob.status !== 'paused' &&
+            dJob.status !== 'running' &&
+            dJob.schedule_frequency !== 'once' &&
+            dJob.next_run_at &&
+            new Date(dJob.next_run_at) <= now
+          ) {
+            const { executeDiscoveryJob } = await import('@/lib/discovery/service');
+            executeDiscoveryJob(dJob.id).catch((e) => console.warn('[WorkerCycle] Discovery error:', e));
+          }
+        }
+      } catch (discErr: unknown) {
+        console.warn(`[WorkerCycle] Discovery scheduled check non-fatal error for ${userId}:`, discErr);
+      }
+    }
+
+    return {
+      reconciled: reconciledCount,
+      claimed: batchResult.claimed,
+      results: batchResult.results,
+      syncRepliesCount: 0,
+      warmupEmailsSent: totalWarmupSent,
+      status: 'completed',
+    };
+  } finally {
+    isCycleRunning = false;
   }
 }

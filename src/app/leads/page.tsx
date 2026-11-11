@@ -25,6 +25,10 @@ import {
   Ban,
   AlertCircle,
   ArrowRight,
+  ShieldCheck,
+  ShieldAlert,
+  Shield,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function LeadsPage() {
@@ -56,6 +60,11 @@ function LeadsPageInner() {
   const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
   const [groupActionLoading, setGroupActionLoading] = useState(false);
   const [groupActionError, setGroupActionError] = useState<string | null>(null);
+
+  // Email Verification State (Reacher / check-if-email-exists)
+  const [verifying, setVerifying] = useState(false);
+  const [verifyingLeadId, setVerifyingLeadId] = useState<string | null>(null);
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null);
 
   const fetchGroups = async (forceFresh = false) => {
     try {
@@ -194,6 +203,106 @@ function LeadsPageInner() {
     }
   };
 
+  const handleVerifyAllLeads = async () => {
+    setVerifying(true);
+    setVerifyNotice(null);
+    try {
+      const res = await fetch('/api/leads/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          verifyAll: true,
+          groupId: groupFilter && groupFilter !== 'ungrouped' ? groupFilter : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+      setVerifyNotice(
+        `Checked ${data.total ?? 0} leads: ${data.valid ?? 0} valid, ${data.invalid ?? 0} invalid (bounces prevented), ${data.risky ?? 0} risky.`
+      );
+      fetchLeads(page, pageSize);
+    } catch (err: any) {
+      setVerifyNotice(`Verification error: ${err.message}`);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleVerifySingleLead = async (leadId: string) => {
+    setVerifyingLeadId(leadId);
+    try {
+      const res = await fetch('/api/leads/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+      setLeads((prev) =>
+        prev.map((l) => (l.id === leadId && data.lead ? { ...l, ...data.lead } : l))
+      );
+    } catch (err: any) {
+      alert(`Could not verify email: ${err.message}`);
+    } finally {
+      setVerifyingLeadId(null);
+    }
+  };
+
+  const getVerificationBadge = (lead: Lead) => {
+    const vStatus = lead.verification_status;
+    const providerLabel = 'DNS & MX Validator';
+
+    if (vStatus === 'valid') {
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium"
+          title={`Deliverable (${providerLabel})`}
+        >
+          <ShieldCheck className="w-3 h-3 text-emerald-400" />
+          <span>Valid</span>
+        </span>
+      );
+    }
+    if (vStatus === 'risky') {
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium"
+          title={lead.verification_details?.error || `Risky / catch-all mailbox (${providerLabel})`}
+        >
+          <ShieldAlert className="w-3 h-3 text-amber-400" />
+          <span>Risky</span>
+        </span>
+      );
+    }
+    if (vStatus === 'invalid' || lead.status === 'bounced') {
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium"
+          title={lead.verification_details?.error || `Undeliverable / non-existent mailbox (${providerLabel})`}
+        >
+          <Ban className="w-3 h-3 text-rose-400" />
+          <span>Invalid</span>
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => handleVerifySingleLead(lead.id)}
+        disabled={verifyingLeadId === lead.id}
+        className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60 hover:bg-slate-700 hover:text-slate-200 transition-colors"
+        title="Unverified. Click to check if email exists."
+      >
+        {verifyingLeadId === lead.id ? (
+          <RefreshCw className="w-2.5 h-2.5 animate-spin text-indigo-400" />
+        ) : (
+          <Shield className="w-2.5 h-2.5 text-slate-500" />
+        )}
+        <span>Verify</span>
+      </button>
+    );
+  };
+
   const getStatusBadge = (status: Lead['status']) => {
     switch (status) {
       case 'active':
@@ -231,6 +340,16 @@ function LeadsPageInner() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
+              onClick={handleVerifyAllLeads}
+              disabled={verifying || loading || leads.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/20 disabled:opacity-50 transition-colors shrink-0"
+              title="Verify leads to detect non-existent mailboxes and prevent email bounces"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 ${verifying ? 'animate-spin' : ''}`} />
+              <span>{verifying ? 'Verifying...' : 'Verify Deliverability'}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setShowGroupsModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition-colors shrink-0"
             >
@@ -249,6 +368,23 @@ function LeadsPageInner() {
         </Header>
 
         <main className="p-4 sm:p-6 lg:p-8 space-y-6 flex-1 max-w-7xl w-full mx-auto min-w-0">
+          {/* Verification Result Banner */}
+          {verifyNotice && (
+            <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between text-xs text-emerald-200">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{verifyNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVerifyNotice(null)}
+                className="text-xs text-emerald-400 hover:text-emerald-300 ml-3"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Active Filter Banner if filtered by group */}
           {groupFilter && (
             <div className="p-3.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 flex items-center justify-between text-xs">
@@ -334,6 +470,7 @@ function LeadsPageInner() {
                     <th className="px-5 py-3 font-medium">Business / Prospect</th>
                     <th className="px-5 py-3 font-medium">Lead Group</th>
                     <th className="px-5 py-3 font-medium">Contact & Location</th>
+                    <th className="px-5 py-3 font-medium">Deliverability</th>
                     <th className="px-5 py-3 font-medium">Rating & Reviews</th>
                     <th className="px-5 py-3 font-medium">Personalization Hook</th>
                     <th className="px-5 py-3 font-medium">Status</th>
@@ -343,7 +480,7 @@ function LeadsPageInner() {
                 <tbody className="divide-y divide-slate-800/60">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
+                      <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
                         <div className="flex items-center justify-center gap-2">
                           <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                           <span>Loading leads...</span>
@@ -352,7 +489,7 @@ function LeadsPageInner() {
                     </tr>
                   ) : leads.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
                         <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="text-sm font-medium text-slate-300">No leads found</p>
                         <p className="text-xs text-slate-500 mt-1">Upload a CSV or Excel spreadsheet into a group using the Import Wizard.</p>
@@ -414,6 +551,9 @@ function LeadsPageInner() {
                                 {[city, country].filter(Boolean).join(', ')}
                               </div>
                             )}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {getVerificationBadge(lead)}
                           </td>
                           <td className="px-5 py-3.5">
                             {rating || reviews ? (

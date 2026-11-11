@@ -29,6 +29,10 @@ import {
   Check,
   Search,
   X,
+  ShieldCheck,
+  ShieldAlert,
+  Shield,
+  Ban,
 } from 'lucide-react';
 import { Suspense } from 'react';
 
@@ -68,6 +72,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [savingResumeUrl, setSavingResumeUrl] = useState(false);
   const [resumeSuccessMessage, setResumeSuccessMessage] = useState<string | null>(null);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [verifyingProspects, setVerifyingProspects] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
 
   const accountMap = useMemo(() => {
@@ -199,6 +204,28 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
     fetchCampaignData();
     loadAvailableLeads();
   }, [id]);
+
+  const handleVerifyCampaignProspects = async () => {
+    setVerifyingProspects(true);
+    setMessageNotice(null);
+    try {
+      const res = await fetch('/api/leads/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+      setMessageNotice(
+        `Deliverability Checked: ${data.valid ?? 0} valid, ${data.invalid ?? 0} invalid (bounces prevented), ${data.risky ?? 0} risky.`
+      );
+      fetchCampaignData();
+    } catch (err: any) {
+      setMessageNotice(`Verification failed: ${err.message}`);
+    } finally {
+      setVerifyingProspects(false);
+    }
+  };
 
   const handleGenerateDrafts = async () => {
     setActionLoading(true);
@@ -392,6 +419,17 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                 )}
               </button>
             )}
+
+            <button
+              onClick={handleVerifyCampaignProspects}
+              disabled={verifyingProspects || actionLoading || leads.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/20 transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
+              title="Check enrolled prospects to verify email existence and prevent bounces"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${verifyingProspects ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{verifyingProspects ? 'Checking...' : 'Check Deliverability'}</span>
+              <span className="sm:hidden">{verifyingProspects ? '...' : 'Verify'}</span>
+            </button>
 
             <button
               onClick={handleGenerateDrafts}
@@ -760,6 +798,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                   <tr>
                     <th className="px-5 py-3 font-medium">Prospect</th>
                     <th className="px-5 py-3 font-medium">Company</th>
+                    <th className="px-5 py-3 font-medium">Deliverability</th>
                     <th className="px-5 py-3 font-medium">Sending Inbox</th>
                     <th className="px-5 py-3 font-medium">Enrollment Status</th>
                     <th className="px-5 py-3 font-medium">Step</th>
@@ -769,7 +808,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                 <tbody className="divide-y divide-slate-800/60">
                   {filteredLeads.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
+                      <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
                         {leadsSearchQuery || leadsStatusFilter || leadsInboxFilter ? (
                           <div className="space-y-2">
                             <p className="text-sm font-medium text-slate-300">No prospects match your filter criteria.</p>
@@ -808,6 +847,29 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
                             <div className="text-[11px] text-slate-400 font-mono mt-0.5">{cl.lead?.email}</div>
                           </td>
                           <td className="px-5 py-3.5 text-slate-300">{cl.lead?.company || '—'}</td>
+                          <td className="px-5 py-3.5">
+                            {cl.lead?.verification_status === 'valid' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium" title="Deliverable: Mailbox exists">
+                                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                                <span>Valid</span>
+                              </span>
+                            ) : cl.lead?.verification_status === 'risky' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium" title={cl.lead?.verification_details?.error || 'Catch-all or risky'}>
+                                <ShieldAlert className="w-3 h-3 text-amber-400" />
+                                <span>Risky</span>
+                              </span>
+                            ) : cl.lead?.verification_status === 'invalid' || cl.lead?.status === 'bounced' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium" title={cl.lead?.verification_details?.error || 'Mailbox invalid/bounced'}>
+                                <Ban className="w-3 h-3 text-rose-400" />
+                                <span>Invalid</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60 font-medium" title="Will verify automatically before sending">
+                                <Shield className="w-2.5 h-2.5 text-slate-500" />
+                                <span>Pending Check</span>
+                              </span>
+                            )}
+                          </td>
                           <td className="px-5 py-3.5 text-slate-400 text-[11px]">
                             {sendingAcc ? (
                               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/60 font-mono text-[10px]" title={sendingAcc.email_address}>

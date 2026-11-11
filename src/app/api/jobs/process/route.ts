@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { processJobQueueBatch, handleSyncRepliesJob } from '@/lib/queue/worker';
+import { runFullWorkerCycle } from '@/lib/queue/worker';
 import { env } from '@/lib/env';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { dbService } from '@/lib/db-service';
 
 async function handleProcess(request: NextRequest) {
   // Validate authorization bearer token or query secret
@@ -21,13 +22,12 @@ async function handleProcess(request: NextRequest) {
   }
 
   try {
-    const workerId = `cron-worker-${Date.now()}`;
-    const batchResult = await processJobQueueBatch(workerId, 15, isForce);
+    const workerId = `api-worker-${Date.now()}`;
+    const cycleResult = await runFullWorkerCycle(workerId, isForce);
 
     // Queue diagnostics if 0 jobs were processed
     let queueStatus = null;
-    const { dbService } = await import('@/lib/db-service');
-    if (batchResult.claimed === 0) {
+    if (cycleResult.claimed === 0) {
       try {
         const diag = await dbService.getQueuedJobsDiagnostics();
         if (diag.total_queued > 0) {
@@ -42,47 +42,13 @@ async function handleProcess(request: NextRequest) {
       }
     }
 
-    // Sync replies
-    const syncUserId = user?.id || '5f9832c0-d340-4e0f-b2d8-b3f44a294697';
-    try {
-      await handleSyncRepliesJob({ userId: syncUserId });
-    } catch (syncErr) {
-      console.warn('Sync replies non-fatal error:', syncErr);
-    }
-
-    // Process peer warmup cycles
-    try {
-      const { runWarmupCycle } = await import('@/lib/warmup/service');
-      await runWarmupCycle(syncUserId);
-    } catch (warmupErr) {
-      console.warn('Warmup cycle non-fatal error:', warmupErr);
-    }
-
-    // Process recurring discovery jobs
-    try {
-      const allJobs = await dbService.getDiscoveryJobs(syncUserId);
-      const now = new Date();
-      for (const dJob of allJobs) {
-        if (
-          dJob.status !== 'paused' &&
-          dJob.status !== 'running' &&
-          dJob.schedule_frequency !== 'once' &&
-          dJob.next_run_at &&
-          new Date(dJob.next_run_at) <= now
-        ) {
-          const { executeDiscoveryJob } = await import('@/lib/discovery/service');
-          executeDiscoveryJob(dJob.id).catch((e) => console.warn('Scheduled discovery job error:', e));
-        }
-      }
-    } catch (discoveryErr) {
-      console.warn('Discovery scheduled check non-fatal error:', discoveryErr);
-    }
-
     return NextResponse.json({
       success: true,
       worker_id: workerId,
-      processed: batchResult.claimed,
-      results: batchResult.results,
+      processed: cycleResult.claimed,
+      reconciled: cycleResult.reconciled,
+      warmup_sent: cycleResult.warmupEmailsSent,
+      results: cycleResult.results,
       queue_status: queueStatus,
       timestamp: new Date().toISOString(),
     });

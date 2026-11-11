@@ -27,7 +27,7 @@ const envSchema = z.object({
   DEFAULT_TIMEZONE: z.string().default('Asia/Kolkata'),
   DEFAULT_DAILY_SEND_LIMIT: z.coerce.number().int().positive().default(10),
   DEFAULT_MAX_FOLLOWUPS: z.coerce.number().int().nonnegative().default(2),
-  
+
   MOCK_MODE: z.preprocess((val) => val === 'true' || val === true || val === '1', z.boolean()).default(false),
 });
 

@@ -28,14 +28,14 @@ function pass(name: string, detail?: string) {
   console.log(`  ✅ [PASS] ${name}${detail ? ` (${detail})` : ''}`);
 }
 
-function warn(name: string, detail: string) {
+function warn(name: string, detail?: string) {
   warningChecks++;
-  console.log(`  ⚠️ [WARN] ${name}: ${detail}`);
+  console.log(`  ⚠️ [WARN] ${name}${detail ? `: ${detail}` : ''}`);
 }
 
-function fail(name: string, detail: string) {
+function fail(name: string, detail?: string) {
   failedChecks++;
-  console.error(`  ❌ [FAIL] ${name}: ${detail}`);
+  console.error(`  ❌ [FAIL] ${name}${detail ? `: ${detail}` : ''}`);
 }
 
 async function validateSEO() {

@@ -63,7 +63,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
   };
 
   return (
-    <header className="min-h-16 py-3 border-b border-border-subtle bg-charcoal/90 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3 select-none">
+    <header className="min-h-[72px] py-3.5 border-b border-border-subtle bg-charcoal/95 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md gap-3 select-none">
       {/* Title & Mobile Nav Toggle */}
       <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 mr-2 sm:mr-4">
         <button
@@ -77,7 +77,7 @@ export function Header({ title, subtitle, category, children }: HeaderProps) {
 
         <div className="min-w-0">
           {category && (
-            <div className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#E84B2C]/10 border border-[#E84B2C]/25 text-[#E87A38] text-[9px] font-mono uppercase tracking-widest font-semibold mb-1">
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#E84B2C]/10 border border-[#E84B2C]/25 text-[#E87A38] text-[9px] font-mono uppercase tracking-widest font-semibold mb-1.5">
               <span className="w-1 h-1 rounded-full bg-[#E84B2C] shadow-[0_0_6px_#E84B2C]"></span>
               {category}
             </div>

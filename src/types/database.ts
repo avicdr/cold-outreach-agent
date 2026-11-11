@@ -3,6 +3,35 @@ export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'canc
 export type CampaignLeadStatus = 'enrolled' | 'drafted' | 'in_progress' | 'replied' | 'unsubscribed' | 'completed' | 'failed';
 export type EmailMessageStatus = 'draft' | 'scheduled' | 'paused' | 'sending' | 'sent' | 'failed' | 'cancelled';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead';
+export type EmailVerificationStatus = 'valid' | 'risky' | 'invalid' | 'unverified';
+
+export interface EmailVerificationResult {
+  input: string;
+  is_reachable: 'safe' | 'risky' | 'invalid' | 'unknown';
+  syntax: {
+    is_valid_syntax: boolean;
+    domain: string;
+    username: string;
+  };
+  mx: {
+    accepts_mail: boolean;
+    records: string[];
+  };
+  smtp?: {
+    can_connect_smtp: boolean;
+    has_full_inbox: boolean;
+    is_catch_all: boolean;
+    is_deliverable: boolean;
+    is_disabled: boolean;
+  };
+  misc: {
+    is_disposable: boolean;
+    is_role_account: boolean;
+  };
+  provider: 'reacher' | 'native_fallback';
+  checked_at: string;
+  error?: string;
+}
 export type JobType = 
   | 'generate_email' 
   | 'send_email' 
@@ -206,6 +235,9 @@ export interface Lead {
   discovery_timestamp?: string | null;
   last_enriched_at?: string | null;
   is_verified?: boolean;
+  verification_status?: EmailVerificationStatus;
+  verification_details?: EmailVerificationResult | null;
+  verified_at?: string | null;
 }
 
 export interface DiscoveryJob {
@@ -358,6 +390,7 @@ export interface ReplyEvent {
   classification: ReplyClassification;
   classification_summary: string;
   created_at: string;
+  reply_text?: string;
   // Enriched lead and campaign details
   lead_name?: string;
   lead_company?: string;
@@ -366,6 +399,9 @@ export interface ReplyEvent {
   campaign_id?: string;
   receiving_account?: string;
   email_subject?: string;
+  sent_message_body?: string;
+  sent_message_subject?: string;
+  sent_at?: string;
 }
 
 export interface ActivityLog {

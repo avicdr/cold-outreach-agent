@@ -21,6 +21,7 @@ import {
   DiscoveryJob,
 } from '@/types/database';
 import {
+  isWithinSendingWindow,
   getNextSendingWindowDate,
   createDateInTimezone,
   getTimezoneParts,
@@ -49,8 +50,6 @@ export function isMailerDaemonOrBounce(senderEmail: string, summary?: string | n
     s.includes('mail delivery subsystem') ||
     s.includes('delivery status') ||
     s.startsWith('bounce') ||
-    s.includes('noreply') ||
-    s.includes('no-reply') ||
     sum.includes('delivery failure') ||
     sum.includes('domain could not be found') ||
     sum.includes('address not found') ||
@@ -269,7 +268,25 @@ export const dbService = {
     }
 
     const supabase = createAdminClient();
-    const { data, error } = await supabase.from('leads').update(updates).eq('id', id).select().single();
+    const cleanUpdates: Record<string, any> = { ...updates };
+    
+    // Virtual fields: Store in custom_fields if columns do not exist on the live leads table
+    const virtualFields = ['verification_status', 'verification_details', 'verified_at'];
+    let needsCustomFieldsUpdate = false;
+    const customFields = cleanUpdates.custom_fields ? { ...cleanUpdates.custom_fields } : {};
+
+    for (const field of virtualFields) {
+      if (field in cleanUpdates) {
+        customFields[field] = cleanUpdates[field];
+        delete cleanUpdates[field];
+        needsCustomFieldsUpdate = true;
+      }
+    }
+    if (needsCustomFieldsUpdate) {
+      cleanUpdates.custom_fields = customFields;
+    }
+
+    const { data, error } = await supabase.from('leads').update(cleanUpdates).eq('id', id).select().single();
     if (error) throw new Error(error.message);
     return data;
   },
@@ -326,10 +343,10 @@ export const dbService = {
         source,
         created_at: new Date().toISOString(),
       });
-      // Also update status of any leads with this email to 'unsubscribed'
+      // Update status of matching leads according to suppression reason
       for (const lead of mockDb.leads.values()) {
         if (lead.user_id === userId && lead.normalized_email === normalizedEmail) {
-          lead.status = 'unsubscribed';
+          lead.status = reason === 'bounce' ? 'bounced' : 'unsubscribed';
         }
       }
       return;
@@ -346,7 +363,8 @@ export const dbService = {
       },
       { onConflict: 'user_id,normalized_email' }
     );
-    await supabase.from('leads').update({ status: 'unsubscribed' }).eq('user_id', userId).eq('normalized_email', normalizedEmail);
+    const targetStatus = reason === 'bounce' ? 'bounced' : 'unsubscribed';
+    await supabase.from('leads').update({ status: targetStatus }).eq('user_id', userId).eq('normalized_email', normalizedEmail);
   },
 
   // Campaigns
@@ -475,6 +493,27 @@ export const dbService = {
     const { data, error } = await supabase.from('campaign_leads').select('*, lead:leads(*)').eq('campaign_id', campaignId);
     if (error) throw new Error(error.message);
     return data || [];
+  },
+
+  async updateCampaignLead(id: string, updates: Partial<CampaignLead>): Promise<CampaignLead | null> {
+    if (!id) return null;
+    if (!isLiveSupabase()) {
+      const cl = mockDb.campaignLeads.get(id);
+      if (!cl) return null;
+      const updated = { ...cl, ...updates, updated_at: new Date().toISOString() };
+      mockDb.campaignLeads.set(id, updated);
+      return updated;
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from('campaign_leads')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*, lead:leads(*)')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data || null;
   },
 
   async getCampaignLead(id: string): Promise<CampaignLead | null> {
@@ -2415,6 +2454,8 @@ export const dbService = {
         email_messages (
           id,
           subject,
+          body_text,
+          sent_at,
           email_accounts (id, email_address),
           campaign_leads (
             leads (id, company, first_name, last_name, email, job_title),
@@ -2442,6 +2483,10 @@ export const dbService = {
 
         return {
           ...rest,
+          reply_text: r.reply_text || undefined,
+          sent_message_body: msg?.body_text || undefined,
+          sent_message_subject: msg?.subject || undefined,
+          sent_at: msg?.sent_at || undefined,
           lead_name: leadName || undefined,
           lead_company: lead?.company || undefined,
           lead_email: lead?.email || undefined,
@@ -2484,6 +2529,10 @@ export const dbService = {
 
         return {
           ...r,
+          reply_text: r.reply_text || undefined,
+          sent_message_body: msg?.body_text || undefined,
+          sent_message_subject: msg?.subject || undefined,
+          sent_at: msg?.sent_at || undefined,
           lead_name: leadName || undefined,
           lead_company: lead?.company || undefined,
           lead_email: lead?.email || undefined,
@@ -2504,6 +2553,8 @@ export const dbService = {
         email_messages (
           id,
           subject,
+          body_text,
+          sent_at,
           email_accounts (id, email_address),
           campaign_leads (
             leads (id, company, first_name, last_name, email, job_title),
@@ -2515,7 +2566,6 @@ export const dbService = {
       .not('sender_email', 'ilike', '%mailer-daemon%')
       .not('sender_email', 'ilike', '%mail-daemon%')
       .not('sender_email', 'ilike', '%postmaster%')
-      .not('sender_email', 'ilike', '%noreply%')
       .not('classification_summary', 'ilike', '%delivery failure%')
       .not('classification_summary', 'ilike', '%domain could not be found%')
       .not('classification_summary', 'ilike', '%undeliverable%')
@@ -2545,6 +2595,10 @@ export const dbService = {
 
       return {
         ...rest,
+        reply_text: r.reply_text || undefined,
+        sent_message_body: msg?.body_text || undefined,
+        sent_message_subject: msg?.subject || undefined,
+        sent_at: msg?.sent_at || undefined,
         lead_name: leadName || undefined,
         lead_company: lead?.company || undefined,
         lead_email: lead?.email || undefined,
@@ -2716,6 +2770,140 @@ export const dbService = {
       .single();
     if (error) throw new Error(error.message);
     return data;
+  },
+
+  /**
+   * Self-Healing Queue Reconciler:
+   * Identifies any email messages marked 'scheduled' that do not have an active
+   * ('queued' or 'running') send_email job in the job_queue.
+   * Auto-repairs by rescheduling into the next valid campaign window and enqueuing jobs.
+   */
+  async reconcileScheduledJobs(): Promise<{
+    checked: number;
+    orphaned: number;
+    reconciled: number;
+    reconciledIds: string[];
+  }> {
+    if (!isLiveSupabase()) {
+      const scheduledMsgs = Array.from(mockDb.emailMessages.values()).filter((m) => m.status === 'scheduled');
+      const activeJobs = Array.from(mockDb.jobQueue.values()).filter(
+        (j) => j.job_type === 'send_email' && (j.status === 'queued' || j.status === 'running')
+      );
+      const activeMsgIds = new Set(activeJobs.map((j) => (j.payload as any)?.emailMessageId).filter(Boolean));
+      const orphaned = scheduledMsgs.filter((m) => !activeMsgIds.has(m.id));
+
+      const reconciledIds: string[] = [];
+      const now = new Date();
+
+      for (const msg of orphaned) {
+        const cl = mockDb.campaignLeads.get(msg.campaign_lead_id);
+        const camp = cl ? mockDb.campaigns.get(cl.campaign_id) : null;
+
+        if (camp?.status === 'paused') {
+          msg.status = 'paused';
+          continue;
+        }
+
+        let runAt = msg.scheduled_at ? new Date(msg.scheduled_at) : now;
+        if (runAt <= now || (camp?.sending_config && !isWithinSendingWindow(camp.sending_config))) {
+          runAt = camp?.sending_config ? getNextSendingWindowDate(camp.sending_config, now) : now;
+          msg.scheduled_at = runAt.toISOString();
+        }
+
+        await this.enqueueJob(
+          'send_email',
+          { emailMessageId: msg.id },
+          `reconcile_send_${msg.id}_${runAt.getTime()}`,
+          runAt
+        );
+        reconciledIds.push(msg.id);
+      }
+
+      return {
+        checked: scheduledMsgs.length,
+        orphaned: orphaned.length,
+        reconciled: reconciledIds.length,
+        reconciledIds,
+      };
+    }
+
+    const supabase = createAdminClient();
+
+    // 1. Fetch all scheduled messages with campaign configuration & lead status
+    const { data: scheduledMsgs, error: msgErr } = await supabase
+      .from('email_messages')
+      .select('id, scheduled_at, status, campaign_lead_id, campaign_lead:campaign_leads!inner(campaign_id, lead:leads(status, normalized_email), campaign:campaigns!inner(id, status, sending_config))')
+      .eq('status', 'scheduled');
+
+    if (msgErr || !scheduledMsgs) {
+      console.warn('[Reconcile] Error fetching scheduled messages:', msgErr?.message);
+      return { checked: 0, orphaned: 0, reconciled: 0, reconciledIds: [] };
+    }
+
+    // 2. Fetch all currently active send_email jobs in job_queue
+    const { data: activeJobs, error: jobErr } = await supabase
+      .from('job_queue')
+      .select('payload')
+      .eq('job_type', 'send_email')
+      .in('status', ['queued', 'running']);
+
+    if (jobErr) {
+      console.warn('[Reconcile] Error fetching active send_email jobs:', jobErr.message);
+      return { checked: scheduledMsgs.length, orphaned: 0, reconciled: 0, reconciledIds: [] };
+    }
+
+    const activeMsgIds = new Set((activeJobs || []).map((j: any) => j.payload?.emailMessageId).filter(Boolean));
+    const orphaned = scheduledMsgs.filter((m: any) => !activeMsgIds.has(m.id));
+
+    if (orphaned.length === 0) {
+      return { checked: scheduledMsgs.length, orphaned: 0, reconciled: 0, reconciledIds: [] };
+    }
+
+    console.info(`[Reconcile] Detected ${orphaned.length} orphaned scheduled message(s) lacking active queue jobs. Reconciling...`);
+
+    const reconciledIds: string[] = [];
+    const now = new Date();
+
+    for (const msg of orphaned) {
+      try {
+        const lead = (msg as any).campaign_lead?.lead;
+        if (lead && (lead.status === 'bounced' || lead.status === 'unsubscribed' || lead.status === 'replied')) {
+          await supabase.from('email_messages').update({ status: 'cancelled', updated_at: now.toISOString() }).eq('id', msg.id);
+          continue;
+        }
+
+        const campaign = (msg as any).campaign_lead?.campaign;
+        if (campaign?.status === 'paused') {
+          await supabase.from('email_messages').update({ status: 'paused', updated_at: now.toISOString() }).eq('id', msg.id);
+          continue;
+        }
+
+        let runAt = msg.scheduled_at ? new Date(msg.scheduled_at) : now;
+        if (runAt <= now || (campaign?.sending_config && !isWithinSendingWindow(campaign.sending_config))) {
+          runAt = campaign?.sending_config ? getNextSendingWindowDate(campaign.sending_config, now) : now;
+          await supabase.from('email_messages').update({ scheduled_at: runAt.toISOString(), updated_at: now.toISOString() }).eq('id', msg.id);
+        }
+
+        await this.enqueueJob(
+          'send_email',
+          { emailMessageId: msg.id },
+          `reconcile_send_${msg.id}_${runAt.getTime()}`,
+          runAt
+        );
+        reconciledIds.push(msg.id);
+      } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Reconcile] Failed to reconcile message ${msg.id}:`, errorMsg);
+      }
+    }
+
+    console.info(`[Reconcile] Successfully reconciled ${reconciledIds.length}/${orphaned.length} message(s).`);
+    return {
+      checked: scheduledMsgs.length,
+      orphaned: orphaned.length,
+      reconciled: reconciledIds.length,
+      reconciledIds,
+    };
   },
 
   async claimJobs(

@@ -73,7 +73,8 @@ describe('Job Queue & Worker Execution', () => {
     expect(isMailerDaemonOrBounce('MAIL-DAEMON@domain.com')).toBe(true);
     expect(isMailerDaemonOrBounce('postmaster@server.net')).toBe(true);
     expect(isMailerDaemonOrBounce('bounce-handler@outreach.com')).toBe(true);
-    expect(isMailerDaemonOrBounce('noreply@company.com')).toBe(true);
+    expect(isMailerDaemonOrBounce('noreply@company.com', 'Delivery failure: address not found')).toBe(true);
+    expect(isMailerDaemonOrBounce('ai+noreply@ohr.xyz', 'Role has been filled, thank you.')).toBe(false);
     expect(
       isMailerDaemonOrBounce('user@domain.com', 'The email is a delivery failure notification stating the domain could not be found.')
     ).toBe(true);
@@ -105,6 +106,7 @@ describe('Job Queue & Worker Execution', () => {
       received_at: new Date().toISOString(),
       classification: 'positive',
       classification_summary: 'Interested in a demo call next week.',
+      reply_text: 'Hi Om, I saw your pitch and would love to chat on Tuesday at 2pm.',
     });
 
     const replies = await dbService.getReplies(testUserId);
@@ -113,7 +115,9 @@ describe('Job Queue & Worker Execution', () => {
 
     const paginated = await dbService.getPaginatedReplies(testUserId, { limit: 10 });
     expect(paginated.replies.some((r) => r.sender_email.includes('mailer-daemon'))).toBe(false);
-    expect(paginated.replies.some((r) => r.sender_email === 'sarah@startup.io')).toBe(true);
+    const targetReply = paginated.replies.find((r) => r.sender_email === 'sarah@startup.io');
+    expect(targetReply).toBeDefined();
+    expect(targetReply?.reply_text).toBe('Hi Om, I saw your pitch and would love to chat on Tuesday at 2pm.');
 
     // Test reply deletion
     const deleted = await dbService.deleteReply(genuineReply.id, testUserId);

@@ -204,15 +204,39 @@ export async function executeWarmupSend(
           ? `"${toAccount.sender_name.trim()}" <${toAccount.email_address}>`
           : toAccount.email_address;
 
-        const replyResult = await executeWithGmailAuth(toAccount, (token) =>
-          sendGmailMessage(token, {
-            from: toDisplay,
-            to: fromAccount.email_address,
-            subject: `Re: ${subject}`,
-            bodyText: replyText,
-            threadId: sendResult.threadId,
-          })
-        );
+        if (toAccount.provider === 'smtp') {
+          const smtpPassword = toAccount.encrypted_smtp_password
+            ? decryptToken(toAccount.encrypted_smtp_password)
+            : '';
+          await sendSmtpEmail(
+            {
+              host: toAccount.smtp_host || 'smtp.titan.email',
+              port: toAccount.smtp_port || 465,
+              secure: toAccount.smtp_secure ?? (toAccount.smtp_port === 465 || !toAccount.smtp_port),
+              user: toAccount.smtp_username || toAccount.email_address,
+              pass: smtpPassword,
+            },
+            {
+              from: toDisplay,
+              to: fromAccount.email_address,
+              subject: `Re: ${subject}`,
+              bodyText: replyText,
+            }
+          );
+        } else {
+          await executeWithGmailAuth(toAccount, (token) =>
+            sendGmailMessage(token, {
+              from: toDisplay,
+              to: fromAccount.email_address,
+              subject: `Re: ${subject}`,
+              bodyText: replyText,
+              // NOTE: DO NOT pass threadId: sendResult.threadId.
+              // In the Gmail API, threadId is mailbox-specific to fromAccount's mailbox.
+              // Attempting to use sendResult.threadId from toAccount causes a 404 NOT_FOUND.
+              // Standard email threading is achieved automatically via `Subject: Re: ...`.
+            })
+          );
+        }
 
         const replyTime = new Date().toISOString();
 
@@ -237,8 +261,9 @@ export async function executeWarmupSend(
           toAccount.warmup_received_today = (toAccount.warmup_received_today || 0) + 1;
           toAccount.total_warmup_received = (toAccount.total_warmup_received || 0) + 1;
         }
-      } catch (replyErr) {
-        console.warn('[Warmup] Peer auto-reply error:', replyErr);
+      } catch (replyErr: unknown) {
+        const replyErrMsg = replyErr instanceof Error ? replyErr.message : String(replyErr);
+        console.error(`[Warmup] Peer auto-reply failed from ${toAccount.email_address} to ${fromAccount.email_address}:`, replyErrMsg);
       }
     }
 

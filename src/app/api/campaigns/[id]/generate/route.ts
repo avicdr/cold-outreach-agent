@@ -31,7 +31,9 @@ export async function POST(
       existingMessages.filter((m) => m.step_number === 0).map((m) => m.campaign_lead_id)
     );
 
-    const leadsToProcess = campaignLeads.filter((cl) => !existingDraftClIds.has(cl.id));
+    const leadsToProcess = campaignLeads.filter(
+      (cl) => !existingDraftClIds.has(cl.id) && cl.lead?.verification_status !== 'invalid' && cl.lead?.status !== 'bounced'
+    );
 
     let generatedCount = existingDraftClIds.size;
     let newlyGenerated = 0;

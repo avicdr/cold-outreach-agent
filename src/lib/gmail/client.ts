@@ -250,7 +250,30 @@ export async function pollGmailReplies(
   const ownSet = new Set(ownEmailAddresses.map((e) => e.toLowerCase().trim()));
   const replies: InboundEmailMessage[] = [];
 
-  for (const threadId of sentGmailThreadIds.slice(0, 20)) {
+  // 1. Actively query Gmail for threads updated in the last 14 days
+  const activeThreadIds = new Set<string>();
+  try {
+    const activeRes = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads?q=newer_than:14d&maxResults=100',
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (activeRes.ok) {
+      const activeData = await activeRes.json();
+      for (const t of activeData.threads || []) {
+        if (t.id) activeThreadIds.add(t.id);
+      }
+    }
+  } catch (searchErr) {
+    console.warn('[GmailClient] Error listing recent threads:', searchErr);
+  }
+
+  // 2. Select threads to inspect:
+  // Threads matching sent outreach that were active recently, plus the 25 most recent sent threads
+  const activeMatches = sentGmailThreadIds.filter((id) => activeThreadIds.has(id));
+  const fallbackRecent = sentGmailThreadIds.slice(0, 25);
+  const threadsToInspect = Array.from(new Set([...activeMatches, ...fallbackRecent]));
+
+  for (const threadId of threadsToInspect) {
     try {
       const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -282,13 +305,46 @@ export async function pollGmailReplies(
           continue;
         }
 
+        // Extract decoded body text or unescaped snippet
+        let bodyText = '';
+        const extractFromPart = (part: any): string => {
+          if (!part) return '';
+          if (part.mimeType === 'text/plain' && part.body?.data) {
+            try {
+              return Buffer.from(part.body.data, 'base64url').toString('utf-8');
+            } catch {
+              // Safe fallback
+            }
+          }
+          if (Array.isArray(part.parts)) {
+            for (const p of part.parts) {
+              const text = extractFromPart(p);
+              if (text) return text;
+            }
+          }
+          return '';
+        };
+
+        const parsedBody = extractFromPart(msg.payload);
+        if (parsedBody) {
+          bodyText = parsedBody.trim();
+        } else if (msg.snippet) {
+          bodyText = msg.snippet
+            .replace(/&#39;/g, "'")
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .trim();
+        }
+
         // Found authentic inbound message from external recipient
         replies.push({
           id: msg.id,
           threadId,
           senderEmail,
           subject: subjectHeader,
-          bodyText: msg.snippet || '',
+          bodyText,
           receivedAt: new Date(parseInt(msg.internalDate, 10)).toISOString(),
           inReplyTo,
         });

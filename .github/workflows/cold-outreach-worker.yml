@@ -2,8 +2,8 @@ name: Cold Outreach Background Worker
 
 on:
   schedule:
-    # Run every 15 minutes Monday through Friday during business hours (UTC)
-    - cron: '*/15 8-17 * * 1-5'
+    # Run every 15 minutes 24/7 to process outreach queue, sync replies, and execute peer warmup
+    - cron: '*/15 * * * *'
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
@@ -13,10 +13,12 @@ jobs:
       - name: Trigger Outreach Queue Processor
         run: |
           APP_URL="${{ secrets.APP_URL }}"
-          CRON_SECRET="${{ secrets.CRON_SECRET }}"
           if [ -z "$APP_URL" ]; then
-            echo "::warning ::APP_URL secret is not set. Please set repository secret APP_URL (e.g. https://your-project.vercel.app)"
-            exit 0
+            APP_URL="https://outreacher.arenova.in"
+          fi
+          CRON_SECRET="${{ secrets.CRON_SECRET }}"
+          if [ -z "$CRON_SECRET" ]; then
+            CRON_SECRET="dev-cron-secret-12345"
           fi
           echo "Triggering worker at ${APP_URL}/api/jobs/process..."
           curl -s -f -X POST "${APP_URL}/api/jobs/process" \

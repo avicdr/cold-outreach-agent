@@ -6,17 +6,19 @@ export async function register() {
     }
 
     try {
-      const { processJobQueueBatch } = await import('@/lib/queue/worker');
+      const { runFullWorkerCycle } = await import('@/lib/queue/worker');
 
-      console.log('🚀 [Background Worker] Initialized 60s queue processor inside Next.js server.');
+      console.log('🚀 [Background Worker] Initialized 60s autonomous worker daemon inside Next.js server.');
 
-      // Wait 10 seconds after server boot before the first tick
+      // Wait 5 seconds after server boot before the first tick
       setTimeout(() => {
         const tick = async () => {
           try {
-            const batchResult = await processJobQueueBatch('server-worker', 10);
-            if (batchResult.claimed > 0) {
-              console.log(`[Server Worker] Processed ${batchResult.claimed} job(s).`);
+            const cycleResult = await runFullWorkerCycle('server-worker', false);
+            if (cycleResult.reconciled > 0 || cycleResult.claimed > 0 || cycleResult.warmupEmailsSent > 0) {
+              console.log(
+                `[Server Worker] Cycle complete: ${cycleResult.claimed} job(s) processed, ${cycleResult.reconciled} message(s) reconciled, ${cycleResult.warmupEmailsSent} warmup email(s) sent.`
+              );
             }
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);
@@ -27,15 +29,11 @@ export async function register() {
         // Run immediately once
         tick();
 
-        // Recurring interval every 60 seconds
-        const interval = setInterval(tick, 60000);
-        if (interval.unref) {
-          interval.unref();
-        }
-      }, 10000);
+        // Recurring interval every 60 seconds (keeps server daemon active 24/7 without browser tabs)
+        setInterval(tick, 60000);
+      }, 5000);
     } catch (err) {
-      console.warn('[Background Worker] Failed to initialize server worker:', err);
+      console.warn('[Background Worker] Failed to initialize server worker daemon:', err);
     }
   }
 }
-
