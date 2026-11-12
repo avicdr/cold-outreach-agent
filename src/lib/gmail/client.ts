@@ -222,6 +222,7 @@ export async function sendGmailMessage(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!response.ok) {
@@ -254,8 +255,11 @@ export async function pollGmailReplies(
   const activeThreadIds = new Set<string>();
   try {
     const activeRes = await fetch(
-      'https://gmail.googleapis.com/gmail/v1/users/me/threads?q=newer_than:14d&maxResults=100',
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads?q=newer_than:14d&maxResults=50',
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(10000),
+      }
     );
     if (activeRes.ok) {
       const activeData = await activeRes.json();
@@ -268,15 +272,16 @@ export async function pollGmailReplies(
   }
 
   // 2. Select threads to inspect:
-  // Threads matching sent outreach that were active recently, plus the 25 most recent sent threads
+  // Threads matching sent outreach that were active recently, plus the 10 most recent sent threads (capped for fast execution)
   const activeMatches = sentGmailThreadIds.filter((id) => activeThreadIds.has(id));
-  const fallbackRecent = sentGmailThreadIds.slice(0, 25);
-  const threadsToInspect = Array.from(new Set([...activeMatches, ...fallbackRecent]));
+  const fallbackRecent = sentGmailThreadIds.slice(0, 10);
+  const threadsToInspect = Array.from(new Set([...activeMatches, ...fallbackRecent])).slice(0, 10);
 
   for (const threadId of threadsToInspect) {
     try {
       const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=metadata`, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(6000),
       });
 
       if (!response.ok) continue;

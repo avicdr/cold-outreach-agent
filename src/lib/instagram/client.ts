@@ -484,6 +484,7 @@ export async function verifyInstagramSession(
     const res = await fetch('https://www.instagram.com/api/v1/accounts/current_user/?edit=true', {
       method: 'GET',
       headers: webHeaders,
+      signal: AbortSignal.timeout(12000),
     });
 
     const setCookies = parseSetCookieHeaders(res.headers);
@@ -545,6 +546,7 @@ export async function verifyInstagramSession(
         {
           method: 'GET',
           headers: getInstagramWebHeaders(mergedBundle, 'https://www.instagram.com/'),
+          signal: AbortSignal.timeout(12000),
         }
       );
       if (gqlRes.ok) {
@@ -580,6 +582,7 @@ export async function verifyInstagramSession(
               mergedBundle,
               `https://www.instagram.com/${encodeURIComponent(normalizedExpected)}/`
             ),
+            signal: AbortSignal.timeout(12000),
           }
         );
         if (profileRes.ok) {
@@ -732,6 +735,7 @@ export async function resolveInstagramProfile(
     {
       method: 'GET',
       headers: getInstagramWebHeaders(cookies, `https://www.instagram.com/${encodeURIComponent(normalized)}/`),
+      signal: AbortSignal.timeout(12000),
     }
   );
 
@@ -859,6 +863,7 @@ export async function sendInstagramDM(params: {
       ...(cookies.csrftoken && cookies.csrftoken !== 'missing' ? { 'X-CSRFToken': cookies.csrftoken } : {}),
     },
     body: payload.toString(),
+    signal: AbortSignal.timeout(15000),
   });
 
   const data = await sendRes.json().catch(() => ({}));
@@ -949,6 +954,7 @@ export async function pollInstagramReplies(account: InstagramAccount): Promise<I
         Accept: 'application/json',
         ...(cookies.csrftoken && cookies.csrftoken !== 'missing' ? { 'X-CSRFToken': cookies.csrftoken } : {}),
       },
+      signal: AbortSignal.timeout(12000),
     }
   );
 

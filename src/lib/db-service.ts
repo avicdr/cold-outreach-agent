@@ -3003,6 +3003,23 @@ export const dbService = {
     await supabase.from('job_queue').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', jobId);
   },
 
+  async releaseJobs(jobIds: string[]): Promise<void> {
+    if (jobIds.length === 0) return;
+    if (!isLiveSupabase()) {
+      return mockDb.releaseJobs(jobIds);
+    }
+    const supabase = createAdminClient();
+    await supabase
+      .from('job_queue')
+      .update({
+        status: 'queued',
+        locked_at: null,
+        lock_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', jobIds);
+  },
+
   async failJob(jobId: string, errorMsg: string): Promise<void> {
     if (!isLiveSupabase()) {
       const job = mockDb.jobQueue.get(jobId);

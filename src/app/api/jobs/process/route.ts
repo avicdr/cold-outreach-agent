@@ -4,6 +4,8 @@ import { env } from '@/lib/env';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dbService } from '@/lib/db-service';
 
+export const maxDuration = 60;
+
 async function handleProcess(request: NextRequest) {
   // Validate authorization bearer token or query secret
   const authHeader = request.headers.get('authorization') || '';
@@ -11,9 +13,17 @@ async function handleProcess(request: NextRequest) {
   const url = new URL(request.url);
   const querySecret = url.searchParams.get('secret') || url.searchParams.get('cron_secret');
   const isForce = url.searchParams.get('force') === 'true';
+  const isAsync = url.searchParams.get('async') === 'true';
+  const rawBatchSize = parseInt(url.searchParams.get('batch_size') || '5', 10);
+  const batchSize = Math.max(1, Math.min(10, isNaN(rawBatchSize) ? 5 : rawBatchSize));
+  const rawTimeout = parseInt(url.searchParams.get('timeout_ms') || '20000', 10);
+  const maxDurationMs = Math.max(5000, Math.min(30000, isNaN(rawTimeout) ? 20000 : rawTimeout));
+  const skipPeriodic = url.searchParams.get('skip_periodic') === 'true';
 
-  const isBearerMatch = (expectedSecret && authHeader === `Bearer ${expectedSecret}`) || (expectedSecret && querySecret === expectedSecret);
-  
+  const isBearerMatch =
+    (expectedSecret && authHeader === `Bearer ${expectedSecret}`) ||
+    (expectedSecret && querySecret === expectedSecret);
+
   // Or check if authenticated user is logged in
   const user = await getAuthenticatedUser();
 
@@ -21,9 +31,32 @@ async function handleProcess(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized: Invalid or missing CRON_SECRET token' }, { status: 401 });
   }
 
+  const workerId = `api-worker-${Date.now()}`;
+
+  // If async execution is requested, kick off the cycle in background and return 202 immediately
+  if (isAsync) {
+    runFullWorkerCycle(workerId, isForce, { batchSize, maxDurationMs, skipPeriodic }).catch((err) => {
+      console.error('[AsyncWorker] Error during background cycle:', err);
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        status: 'accepted',
+        worker_id: workerId,
+        message: 'Worker cycle started asynchronously in background.',
+        timestamp: new Date().toISOString(),
+      },
+      { status: 202 }
+    );
+  }
+
   try {
-    const workerId = `api-worker-${Date.now()}`;
-    const cycleResult = await runFullWorkerCycle(workerId, isForce);
+    const cycleResult = await runFullWorkerCycle(workerId, isForce, {
+      batchSize,
+      maxDurationMs,
+      skipPeriodic,
+    });
 
     // Queue diagnostics if 0 jobs were processed
     let queueStatus = null;
@@ -46,10 +79,13 @@ async function handleProcess(request: NextRequest) {
       success: true,
       worker_id: workerId,
       processed: cycleResult.claimed,
+      completed_count: cycleResult.processed,
       reconciled: cycleResult.reconciled,
       warmup_sent: cycleResult.warmupEmailsSent,
       results: cycleResult.results,
       queue_status: queueStatus,
+      duration_ms: cycleResult.durationMs,
+      timed_out: cycleResult.timedOut,
       timestamp: new Date().toISOString(),
     });
   } catch (err: unknown) {

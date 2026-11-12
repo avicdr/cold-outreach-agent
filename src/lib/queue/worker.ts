@@ -25,27 +25,70 @@ export {
   createDateInTimezone,
 };
 
+export interface ProcessBatchResult {
+  claimed: number;
+  processed: number;
+  remainingClaimedReleased: number;
+  results: { jobId: string; type: string; status: 'completed' | 'failed'; error?: string }[];
+  durationMs: number;
+  timedOut: boolean;
+}
+
 /**
- * Process a batch of jobs atomically from the job queue.
+ * Process a batch of jobs atomically from the job queue with strict time budgeting.
  */
-export async function processJobQueueBatch(workerId: string = 'worker-main', batchSize = 10, force = false) {
+export async function processJobQueueBatch(
+  workerId: string = 'worker-main',
+  batchSize = 5,
+  force = false,
+  maxDurationMs = 20000
+): Promise<ProcessBatchResult> {
+  const startTime = Date.now();
   const jobs = await dbService.claimJobs(workerId, batchSize, 300, force);
   const results: { jobId: string; type: string; status: 'completed' | 'failed'; error?: string }[] = [];
+  const processedJobIds = new Set<string>();
+  let timedOut = false;
 
   for (const job of jobs) {
+    // If elapsed time has exceeded budget - 3500ms, break early to cleanly complete and respond
+    if (Date.now() - startTime >= maxDurationMs - 3500) {
+      console.info(`[WorkerBatch] Time budget of ${maxDurationMs}ms reached. Halting batch early.`);
+      timedOut = true;
+      break;
+    }
+
     try {
       await processSingleJob(job, force);
       await dbService.completeJob(job.id);
+      processedJobIds.add(job.id);
       results.push({ jobId: job.id, type: job.job_type, status: 'completed' });
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`Error processing job ${job.id} (${job.job_type}):`, errorMsg);
       await dbService.failJob(job.id, errorMsg);
+      processedJobIds.add(job.id);
       results.push({ jobId: job.id, type: job.job_type, status: 'failed', error: errorMsg });
     }
   }
 
-  return { claimed: jobs.length, results };
+  // Release any claimed jobs that were not executed due to time budget limit
+  const unexecutedJobIds = jobs.map((j) => j.id).filter((id) => !processedJobIds.has(id));
+  if (unexecutedJobIds.length > 0) {
+    try {
+      await dbService.releaseJobs(unexecutedJobIds);
+    } catch (relErr) {
+      console.warn('[WorkerBatch] Could not release unexecuted jobs:', relErr);
+    }
+  }
+
+  return {
+    claimed: jobs.length,
+    processed: results.length,
+    remainingClaimedReleased: unexecutedJobIds.length,
+    results,
+    durationMs: Date.now() - startTime,
+    timedOut,
+  };
 }
 
 /**
@@ -1005,30 +1048,81 @@ export async function reconcileScheduledJobs() {
 }
 
 let isCycleRunning = false;
+let lastCycleStartTime = 0;
+const lastReplySyncTime = new Map<string, number>();
+const lastIgReplySyncTime = new Map<string, number>();
+const lastWarmupRunTime = new Map<string, number>();
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+export interface WorkerCycleOptions {
+  batchSize?: number;
+  maxDurationMs?: number;
+  skipPeriodic?: boolean;
+}
+
+export interface WorkerCycleResult {
+  reconciled: number;
+  claimed: number;
+  processed: number;
+  results: { jobId: string; type: string; status: 'completed' | 'failed'; error?: string }[];
+  syncRepliesCount: number;
+  warmupEmailsSent: number;
+  durationMs: number;
+  timedOut: boolean;
+  status: 'completed' | 'skipped_overlapping' | 'timed_out';
+}
 
 /**
  * Master Autonomous Worker Cycle:
  * Executes the complete autonomous workflow independently of any UI/browser:
  * 1. Self-healing queue reconciliation (repairs any orphaned scheduled messages)
- * 2. Process job queue batch (sends outreach, followups, drafts)
- * 3. Inbound reply synchronization via Gmail API
- * 4. Peer inbox warmup cycle across active accounts
- * 5. Recurring lead discovery jobs execution
+ * 2. Process job queue batch with strict time budgeting
+ * 3. Inbound reply synchronization via Gmail API (throttled)
+ * 4. Inbound Instagram DM reply synchronization (throttled)
+ * 5. Peer inbox warmup cycle across active accounts (throttled)
+ * 6. Recurring lead discovery jobs execution
  */
-export async function runFullWorkerCycle(workerId = 'server-worker', isForce = false) {
-  if (isCycleRunning && !isForce) {
+export async function runFullWorkerCycle(
+  workerId = 'server-worker',
+  isForce = false,
+  options?: WorkerCycleOptions
+): Promise<WorkerCycleResult> {
+  const cycleStartTime = Date.now();
+  const maxDurationMs = options?.maxDurationMs ?? 20000;
+  const batchSize = Math.max(1, Math.min(10, options?.batchSize ?? 5));
+  const skipPeriodic = Boolean(options?.skipPeriodic);
+
+  // If a cycle is currently running, check if it's stale (ran > 60 seconds ago)
+  const isStale = isCycleRunning && Date.now() - lastCycleStartTime > 60000;
+  if (isCycleRunning && !isForce && !isStale) {
     console.log('[WorkerCycle] Previous cycle still executing. Skipping duplicate tick.');
     return {
       reconciled: 0,
       claimed: 0,
+      processed: 0,
       results: [],
       syncRepliesCount: 0,
       warmupEmailsSent: 0,
+      durationMs: Date.now() - cycleStartTime,
+      timedOut: false,
       status: 'skipped_overlapping',
     };
   }
 
   isCycleRunning = true;
+  lastCycleStartTime = Date.now();
+
   try {
     // 1. Self-healing queue reconciliation
     let reconciledCount = 0;
@@ -1042,92 +1136,120 @@ export async function runFullWorkerCycle(workerId = 'server-worker', isForce = f
       console.warn('[WorkerCycle] Reconciliation warning:', recErr);
     }
 
-    // 2. Claim and process ready queued jobs
-    const batchResult = await processJobQueueBatch(workerId, 15, isForce);
+    // 2. Claim and process ready queued jobs with time budget
+    const remainingForBatch = Math.max(5000, maxDurationMs - (Date.now() - cycleStartTime));
+    const batchResult = await processJobQueueBatch(workerId, batchSize, isForce, remainingForBatch);
 
-    // 3. Discover active user IDs to sync replies, warmup, and run discovery
-    let userIds: string[] = [];
-    try {
-      const { isLiveSupabase } = await import('@/lib/db-service');
-      if (!isLiveSupabase()) {
-        userIds = ['mock-user-id'];
-      } else {
-        const { createAdminClient } = await import('@/lib/supabase/admin');
-        const supabase = createAdminClient();
-        const [{ data: accUsers }, { data: campUsers }, { data: igAccUsers }, { data: igCampUsers }] = await Promise.all([
-          supabase.from('email_accounts').select('user_id'),
-          supabase.from('campaigns').select('user_id'),
-          supabase.from('instagram_accounts').select('user_id'),
-          supabase.from('instagram_campaigns').select('user_id'),
-        ]);
-        const set = new Set<string>();
-        (accUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
-        (campUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
-        (igAccUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
-        (igCampUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
-        userIds = Array.from(set);
-      }
-    } catch (userErr) {
-      console.warn('[WorkerCycle] Error finding active users:', userErr);
-    }
-    if (userIds.length === 0) {
-      userIds = ['5f9832c0-d340-4e0f-b2d8-b3f44a294697'];
-    }
-
-    // 4. Per-user tasks: sync replies, warmup, discovery
+    // 3. Periodic Background Tasks (throttled & time-budgeted)
     let totalWarmupSent = 0;
-    for (const userId of userIds) {
-      // Sync replies via Gmail API
+    const remainingTime = maxDurationMs - (Date.now() - cycleStartTime);
+
+    // Only attempt periodic tasks if explicitly requested or if we have at least 6 seconds of budget remaining
+    if (!skipPeriodic && remainingTime >= 6000) {
+      let userIds: string[] = [];
       try {
-        await handleSyncRepliesJob({ userId });
-      } catch (syncErr: unknown) {
-        console.warn(`[WorkerCycle] Reply sync non-fatal error for ${userId}:`, syncErr);
+        const { isLiveSupabase } = await import('@/lib/db-service');
+        if (!isLiveSupabase()) {
+          userIds = ['mock-user-id'];
+        } else {
+          const { createAdminClient } = await import('@/lib/supabase/admin');
+          const supabase = createAdminClient();
+          const [{ data: accUsers }, { data: campUsers }, { data: igAccUsers }, { data: igCampUsers }] =
+            await Promise.all([
+              supabase.from('email_accounts').select('user_id'),
+              supabase.from('campaigns').select('user_id'),
+              supabase.from('instagram_accounts').select('user_id'),
+              supabase.from('instagram_campaigns').select('user_id'),
+            ]);
+          const set = new Set<string>();
+          (accUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
+          (campUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
+          (igAccUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
+          (igCampUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
+          userIds = Array.from(set);
+        }
+      } catch (userErr) {
+        console.warn('[WorkerCycle] Error finding active users:', userErr);
       }
 
-      // Sync Instagram DM replies
-      try {
-        const { handleSyncIgRepliesJob } = await import('../instagram/worker');
-        await handleSyncIgRepliesJob({ userId });
-      } catch (igSyncErr: unknown) {
-        console.warn(`[WorkerCycle] Instagram reply sync non-fatal error for ${userId}:`, igSyncErr);
+      if (userIds.length === 0) {
+        userIds = ['5f9832c0-d340-4e0f-b2d8-b3f44a294697'];
       }
 
-      // Peer warmup cycle
-      try {
-        const { runWarmupCycle } = await import('@/lib/warmup/service');
-        const warmupRes = await runWarmupCycle(userId);
-        totalWarmupSent += warmupRes.emailsSent;
-      } catch (warmupErr: unknown) {
-        console.warn(`[WorkerCycle] Warmup cycle non-fatal error for ${userId}:`, warmupErr);
-      }
+      const now = Date.now();
 
-      // Scheduled lead discovery jobs
-      try {
-        const allJobs = await dbService.getDiscoveryJobs(userId);
-        const now = new Date();
-        for (const dJob of allJobs) {
-          if (
-            dJob.status !== 'paused' &&
-            dJob.status !== 'running' &&
-            dJob.schedule_frequency !== 'once' &&
-            dJob.next_run_at &&
-            new Date(dJob.next_run_at) <= now
-          ) {
-            const { executeDiscoveryJob } = await import('@/lib/discovery/service');
-            executeDiscoveryJob(dJob.id).catch((e) => console.warn('[WorkerCycle] Discovery error:', e));
+      for (const userId of userIds) {
+        // Check if time budget is running low before processing next user
+        if (maxDurationMs - (Date.now() - cycleStartTime) < 4000) break;
+
+        // Sync replies via Gmail API (at most once every 3 minutes per user)
+        const lastSync = lastReplySyncTime.get(userId) || 0;
+        if (now - lastSync >= 3 * 60 * 1000) {
+          lastReplySyncTime.set(userId, now);
+          await withTimeout(handleSyncRepliesJob({ userId }), 4000, null).catch((syncErr) => {
+            console.warn(`[WorkerCycle] Reply sync non-fatal error for ${userId}:`, syncErr);
+          });
+        }
+
+        // Sync Instagram DM replies (at most once every 3 minutes per user)
+        const lastIgSync = lastIgReplySyncTime.get(userId) || 0;
+        if (now - lastIgSync >= 3 * 60 * 1000) {
+          lastIgReplySyncTime.set(userId, now);
+          try {
+            const { handleSyncIgRepliesJob } = await import('../instagram/worker');
+            await withTimeout(handleSyncIgRepliesJob({ userId }), 4000, null).catch((igSyncErr) => {
+              console.warn(`[WorkerCycle] Instagram reply sync non-fatal error for ${userId}:`, igSyncErr);
+            });
+          } catch {
+            // Module load failure guard
           }
         }
-      } catch (discErr: unknown) {
-        console.warn(`[WorkerCycle] Discovery scheduled check non-fatal error for ${userId}:`, discErr);
+
+        // Peer warmup cycle (at most once every 2 hours per user)
+        const lastWarmup = lastWarmupRunTime.get(userId) || 0;
+        if (now - lastWarmup >= 2 * 60 * 60 * 1000) {
+          lastWarmupRunTime.set(userId, now);
+          try {
+            const { runWarmupCycle } = await import('@/lib/warmup/service');
+            const warmupRes = await withTimeout(runWarmupCycle(userId), 4000, null);
+            if (warmupRes) totalWarmupSent += warmupRes.emailsSent;
+          } catch (warmupErr) {
+            console.warn(`[WorkerCycle] Warmup cycle non-fatal error for ${userId}:`, warmupErr);
+          }
+        }
+
+        // Scheduled lead discovery jobs (run only if scheduled and due)
+        try {
+          const allJobs = await dbService.getDiscoveryJobs(userId);
+          const nowDate = new Date();
+          for (const dJob of allJobs) {
+            if (
+              dJob.status !== 'paused' &&
+              dJob.status !== 'running' &&
+              dJob.schedule_frequency !== 'once' &&
+              dJob.next_run_at &&
+              new Date(dJob.next_run_at) <= nowDate
+            ) {
+              const { executeDiscoveryJob } = await import('@/lib/discovery/service');
+              executeDiscoveryJob(dJob.id).catch((e) => console.warn('[WorkerCycle] Discovery error:', e));
+            }
+          }
+        } catch (discErr) {
+          console.warn(`[WorkerCycle] Discovery check non-fatal error for ${userId}:`, discErr);
+        }
       }
     }
 
+    const durationMs = Date.now() - cycleStartTime;
     return {
       reconciled: reconciledCount,
       claimed: batchResult.claimed,
+      processed: batchResult.processed,
       results: batchResult.results,
       syncRepliesCount: 0,
       warmupEmailsSent: totalWarmupSent,
+      durationMs,
+      timedOut: batchResult.timedOut,
       status: 'completed',
     };
   } finally {

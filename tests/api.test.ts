@@ -9,7 +9,7 @@ import { POST as campaignsPost, GET as campaignsGet } from '@/app/api/campaigns/
 import { POST as enrollPost } from '@/app/api/campaigns/[id]/enroll/route';
 import { POST as activatePost } from '@/app/api/campaigns/[id]/activate/route';
 import { POST as unsubscribePost } from '@/app/api/unsubscribe/route';
-import { POST as workerPost } from '@/app/api/jobs/process/route';
+import { POST as workerPost, GET as workerGet } from '@/app/api/jobs/process/route';
 import { DELETE as accountDelete } from '@/app/api/accounts/[id]/route';
 import { dbService } from '@/lib/db-service';
 import { OWNER_USER_ID } from '@/lib/auth';
@@ -150,6 +150,30 @@ describe('API Routes Integration Tests', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.success).toBe(true);
+    expect(data.worker_id).toBeDefined();
+    expect(typeof data.duration_ms).toBe('number');
+  });
+
+  it('GET /api/jobs/process?force=true processes immediately and returns timing stats without timeout', async () => {
+    const getReq = new Request(`http://localhost:3000/api/jobs/process?force=true&secret=${env.CRON_SECRET}`);
+    const res = await workerGet(getReq as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.worker_id).toBeDefined();
+    expect(typeof data.duration_ms).toBe('number');
+  });
+
+  it('POST /api/jobs/process?async=true returns HTTP 202 immediately', async () => {
+    const asyncReq = new Request('http://localhost:3000/api/jobs/process?async=true', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.CRON_SECRET}` },
+    });
+    const res = await workerPost(asyncReq as any);
+    expect(res.status).toBe(202);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.status).toBe('accepted');
     expect(data.worker_id).toBeDefined();
   });
 

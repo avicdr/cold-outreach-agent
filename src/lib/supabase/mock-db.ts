@@ -80,6 +80,19 @@ export class MockDatabase {
 
     return claimed;
   }
+
+  releaseJobs(jobIds: string[]): void {
+    const now = new Date().toISOString();
+    for (const id of jobIds) {
+      const job = this.jobQueue.get(id);
+      if (job && job.status === 'running') {
+        job.status = 'queued';
+        job.locked_at = null;
+        job.lock_expires_at = null;
+        job.updated_at = now;
+      }
+    }
+  }
 }
 
 // Global in-memory singleton for development / testing
