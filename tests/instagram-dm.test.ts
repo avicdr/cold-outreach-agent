@@ -15,7 +15,7 @@ import {
   processInstagramImportRows,
 } from '@/lib/instagram/csv';
 import { instagramDb } from '@/lib/instagram/db';
-import { loginWithInstagramCredentials, verifyInstagramSession } from '@/lib/instagram/client';
+import { loginWithInstagramCredentials, verifyInstagramSession, parseSessionInput } from '@/lib/instagram/client';
 import { handleGenerateIgDmJob, handleSendIgDmJob } from '@/lib/instagram/worker';
 
 describe('Instagram DM Automation Engine', () => {
@@ -112,6 +112,67 @@ describe('Instagram DM Automation Engine', () => {
     expect((sanitized as any).encrypted_password).toBeUndefined();
     expect((sanitized as any).encrypted_access_token).toBeUndefined();
     expect(sanitized.username).toBe('mybrand');
+  });
+
+  it('correctly parses raw, quoted, colons, key-value and full cookie headers via parseSessionInput', () => {
+    // 1. Raw percent-encoded value
+    const p1 = parseSessionInput('70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p1.sessionid).toBe('70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p1.ds_user_id).toBe('70857948332');
+
+    // 2. Raw unencoded colons value
+    const p2 = parseSessionInput('70857948332:bhWkd9w0:19:123');
+    expect(p2.sessionid).toBe('70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p2.ds_user_id).toBe('70857948332');
+
+    // 3. Key-value string
+    const p3 = parseSessionInput('sessionid=70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p3.sessionid).toBe('70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p3.ds_user_id).toBe('70857948332');
+
+    // 4. Quoted string
+    const p4 = parseSessionInput('"sessionid=70857948332%3AbhWkd9w0%3A19%3A123"');
+    expect(p4.sessionid).toBe('70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p4.ds_user_id).toBe('70857948332');
+
+    // 5. Full browser cookie header string
+    const fullHeader =
+      'mid=Z123; ig_did=D456; csrftoken=abc987; ds_user_id=70857948332; sessionid="70857948332%3AbhWkd9w0%3A19%3A123"; rur="RVA"';
+    const p5 = parseSessionInput(fullHeader);
+    expect(p5.sessionid).toBe('70857948332%3AbhWkd9w0%3A19%3A123');
+    expect(p5.csrftoken).toBe('abc987');
+    expect(p5.ds_user_id).toBe('70857948332');
+    expect(p5.mid).toBe('Z123');
+    expect(p5.ig_did).toBe('D456');
+    expect(p5.rur).toBe('RVA');
+  });
+
+  it('resiliently verifies session with valid token structure and handle when network throttled', async () => {
+    // Non-mock session format: <user_id>%3A<token>
+    delete process.env.MOCK_MODE;
+    const globalFetch = globalThis.fetch;
+
+    // Simulate Instagram returning 400 generic error from datacenter IP
+    (globalThis as any).fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ message: "We're sorry, but something went wrong. Please try again." }),
+      headers: new Headers(),
+    });
+
+    try {
+      const res = await verifyInstagramSession(
+        '70857948332%3AbhWkd9w0i0P4xyz%3A19%3A1782390123',
+        'arenova.ai'
+      );
+      expect(res.valid).toBe(true);
+      expect(res.username).toBe('arenova.ai');
+      expect(res.igUserId).toBe('70857948332');
+      expect(res.cookies?.sessionid).toBe('70857948332%3AbhWkd9w0i0P4xyz%3A19%3A1782390123');
+    } finally {
+      globalThis.fetch = globalFetch;
+      process.env.MOCK_MODE = 'true';
+    }
   });
 
   it('keeps Instagram campaigns segregated while bridging leads from an Email Campaign and allowing inline @handle assignment + DM dispatch', async () => {

@@ -144,7 +144,10 @@ export async function POST(request: NextRequest) {
       resolvedUsername = verified.username || resolvedUsername;
       if (!resolvedUsername) {
         return NextResponse.json(
-          { error: 'Could not determine Instagram username from session.' },
+          {
+            error:
+              'Could not determine Instagram username from session. Please enter your Instagram handle in the Handle field alongside your sessionid.',
+          },
           { status: 400 }
         );
       }

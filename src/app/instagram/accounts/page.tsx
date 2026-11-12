@@ -673,10 +673,32 @@ export default function InstagramAccountsPage() {
 
                 {authTab === 'session' && (
                   <>
-                    <div className="p-3 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 text-[11px] text-slate-300 space-y-1">
+                    <div className="p-3 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/20 text-[11px] text-slate-300 space-y-1.5">
                       <div className="font-semibold text-fuchsia-300">How to get your Session Cookie:</div>
-                      <div>1. Open instagram.com logged in → Press F12 → Application → Cookies → instagram.com</div>
-                      <div>2. Copy the value of <code className="px-1 py-0.5 bg-slate-950 rounded">sessionid</code> (and optionally <code className="px-1 py-0.5 bg-slate-950 rounded">csrftoken</code>).</div>
+                      <div>1. Open <strong className="text-slate-100">instagram.com</strong> logged into your account in Chrome/Firefox/Edge.</div>
+                      <div>2. Press <kbd className="px-1 py-0.5 bg-slate-950 border border-slate-800 rounded font-mono text-[10px]">F12</kbd> → Application (or Storage) → Cookies → <code className="px-1 py-0.5 bg-slate-950 rounded">instagram.com</code>.</div>
+                      <div>3. Copy the value of <code className="px-1 py-0.5 bg-slate-950 text-fuchsia-300 rounded font-mono">sessionid</code> and paste it below.</div>
+                    </div>
+                    <div>
+                      <label htmlFor="ig-session-user" className="block text-xs font-medium text-slate-300 mb-1">
+                        Instagram Handle <span className="text-slate-400 font-normal">(@username)</span>{' '}
+                        <span className="text-[10px] text-fuchsia-400 font-normal ml-1">(Recommended)</span>
+                      </label>
+                      <input
+                        id="ig-session-user"
+                        name="username"
+                        type="text"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        value={form.username}
+                        onChange={(e) => setForm({ ...form, username: e.target.value })}
+                        placeholder="e.g. yourhandle"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:border-fuchsia-500"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Providing your handle guarantees instant setup even if Instagram anti-bot checks throttle server verification.
+                      </p>
                     </div>
                     <div>
                       <label htmlFor="ig-session-id" className="block text-xs font-medium text-slate-300 mb-1">
@@ -691,46 +713,53 @@ export default function InstagramAccountsPage() {
                         autoCapitalize="none"
                         spellCheck={false}
                         value={form.sessionid}
-                        onChange={(e) => setForm({ ...form, sessionid: e.target.value })}
-                        placeholder="Paste sessionid cookie value"
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const trimmed = val.trim();
+                          if (trimmed.includes(';') || trimmed.includes('=')) {
+                            let foundSession = '';
+                            let foundCsrf = form.csrftoken;
+                            let foundDsUserId = form.ds_user_id;
+                            for (const pair of trimmed.split(';')) {
+                              const eq = pair.indexOf('=');
+                              if (eq !== -1) {
+                                const k = pair.slice(0, eq).trim().toLowerCase();
+                                const v = pair.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+                                if (k === 'sessionid') foundSession = v;
+                                else if (k === 'csrftoken') foundCsrf = v;
+                                else if (k === 'ds_user_id') foundDsUserId = v;
+                              }
+                            }
+                            setForm({
+                              ...form,
+                              sessionid: foundSession || trimmed,
+                              csrftoken: foundCsrf,
+                              ds_user_id: foundDsUserId,
+                            });
+                          } else {
+                            setForm({ ...form, sessionid: val });
+                          }
+                        }}
+                        placeholder="Paste sessionid (or entire cookie string)"
                         className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-100 focus:outline-none focus:border-fuchsia-500"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label htmlFor="ig-csrf" className="block text-xs font-medium text-slate-300 mb-1">
-                          csrftoken (optional)
-                        </label>
-                        <input
-                          id="ig-csrf"
-                          name="csrftoken"
-                          type="text"
-                          autoCorrect="off"
-                          autoCapitalize="none"
-                          spellCheck={false}
-                          value={form.csrftoken}
-                          onChange={(e) => setForm({ ...form, csrftoken: e.target.value })}
-                          placeholder="Auto-fetched if blank"
-                          className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-100"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="ig-session-user" className="block text-xs font-medium text-slate-300 mb-1">
-                          Handle hint (optional)
-                        </label>
-                        <input
-                          id="ig-session-user"
-                          name="username"
-                          type="text"
-                          autoCorrect="off"
-                          autoCapitalize="none"
-                          spellCheck={false}
-                          value={form.username}
-                          onChange={(e) => setForm({ ...form, username: e.target.value })}
-                          placeholder="Auto-detected"
-                          className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-100"
-                        />
-                      </div>
+                    <div>
+                      <label htmlFor="ig-csrf" className="block text-xs font-medium text-slate-300 mb-1">
+                        csrftoken <span className="text-slate-500 font-normal">(optional)</span>
+                      </label>
+                      <input
+                        id="ig-csrf"
+                        name="csrftoken"
+                        type="text"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        value={form.csrftoken}
+                        onChange={(e) => setForm({ ...form, csrftoken: e.target.value })}
+                        placeholder="Auto-fetched if left blank"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-100"
+                      />
                     </div>
                   </>
                 )}
