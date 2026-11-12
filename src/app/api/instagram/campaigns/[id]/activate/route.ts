@@ -50,7 +50,11 @@ export async function POST(
     for (const cl of campaignLeads) {
       if (!cl.lead?.normalized_handle) continue;
       const msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === 0);
-      if (msg && (msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'paused')) {
+      if (
+        msg &&
+        (msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'paused' || msg.status === 'failed') &&
+        msg.body_text?.trim()
+      ) {
         eligibleMessages.push(msg);
       }
     }

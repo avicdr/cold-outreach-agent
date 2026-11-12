@@ -25,7 +25,9 @@ export async function POST(
 
     const existingMessages = await instagramDb.getInstagramMessages({ campaignId: id });
     const existingStep0Ids = new Set(
-      existingMessages.filter((m) => m.step_number === 0).map((m) => m.campaign_lead_id)
+      existingMessages
+        .filter((m) => m.step_number === 0 && Boolean(m.body_text?.trim()) && m.status !== 'failed')
+        .map((m) => m.campaign_lead_id)
     );
 
     const leadsWithHandle = campaignLeads.filter(

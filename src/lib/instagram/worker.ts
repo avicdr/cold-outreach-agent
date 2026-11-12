@@ -7,8 +7,12 @@ import {
 import { InstagramAccount } from '@/types/database';
 import { instagramDb } from './db';
 import { generateInitialInstagramDM, generateFollowupInstagramDM } from './ai';
-import { sendInstagramDM, pollInstagramReplies } from './client';
+import { sendInstagramDM, pollInstagramReplies, resolveInstagramProfile } from './client';
 import { formatInstagramHandle, normalizeInstagramHandle } from './handles';
+
+// In-memory safety trackers across concurrent/batch worker executions
+const accountBackoffUntil = new Map<string, number>();
+const lastAccountAttemptMs = new Map<string, number>();
 
 /**
  * 1. Generate an AI Instagram DM draft (step 0 or follow-up)
@@ -55,20 +59,37 @@ export async function handleGenerateIgDmJob(payload: { campaignLeadId: string; s
       senderDisplayName,
     });
 
-    await instagramDb.createOrUpdateInstagramMessage({
+    const isCampaignActive = campaign.status === 'active';
+    const scheduledDate = isCampaignActive
+      ? getNextSendingWindowDate(campaign.sending_config, new Date())
+      : null;
+
+    const savedMsg = await instagramDb.createOrUpdateInstagramMessage({
       campaign_lead_id: campaignLeadId,
       step_number: 0,
       body_text: generated.body,
       personalization_basis: generated.personalization_basis,
       unsupported_claims: generated.unsupported_claims,
-      status: 'draft',
+      status: isCampaignActive ? 'scheduled' : 'draft',
+      scheduled_at: scheduledDate ? scheduledDate.toISOString() : null,
+      instagram_account_id: campaign.instagram_account_id || null,
     });
 
     await instagramDb.updateInstagramCampaignLead(campaignLeadId, {
-      status: 'drafted',
+      status: isCampaignActive ? 'in_progress' : 'drafted',
       current_step: 0,
+      next_action_at: scheduledDate ? scheduledDate.toISOString() : null,
       last_error: null,
     });
+
+    if (isCampaignActive) {
+      await dbService.enqueueJob(
+        'send_ig_dm',
+        { instagramMessageId: savedMsg.id },
+        `send_ig_initial_${savedMsg.id}`,
+        scheduledDate!
+      );
+    }
   } else {
     const initialMsg = await instagramDb.getInstagramMessageByLeadAndStep(campaignLeadId, 0);
     const stepConfig = campaign.followup_config?.steps?.find((s) => s.step === stepNumber);
@@ -317,11 +338,36 @@ export async function handleSendIgDmJob(payload: { instagramMessageId: string },
     return;
   }
 
-  if (!force && selectedAccount.last_sent_at) {
-    const minIntervalMs = (selectedAccount.min_interval_minutes || 10) * 60 * 1000;
-    const elapsed = Date.now() - new Date(selectedAccount.last_sent_at).getTime();
+  // 1. Account 429 Backoff Check
+  const backoffUntil = accountBackoffUntil.get(selectedAccount.id) || 0;
+  if (backoffUntil > Date.now()) {
+    const nextReady = new Date(backoffUntil + 2000);
+    await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: message.campaign_lead_id,
+      step_number: message.step_number,
+      status: 'scheduled',
+      scheduled_at: nextReady.toISOString(),
+      error_message: `Account is cooling down after rate limit (HTTP 429). Retrying at ${nextReady.toLocaleTimeString()}.`,
+    });
+    await dbService.enqueueJob(
+      'send_ig_dm',
+      { instagramMessageId },
+      `cooldown_ig_429_${instagramMessageId}_${nextReady.getTime()}`,
+      nextReady
+    );
+    return;
+  }
+
+  // 2. Minimum safe interval between DMs (at least 60s, or account min_interval_minutes)
+  const minIntervalMs = Math.max(60000, (selectedAccount.min_interval_minutes || 3) * 60 * 1000);
+  const lastSentDb = selectedAccount.last_sent_at ? new Date(selectedAccount.last_sent_at).getTime() : 0;
+  const lastAttemptMemory = lastAccountAttemptMs.get(selectedAccount.id) || 0;
+  const mostRecentActivity = Math.max(lastSentDb, lastAttemptMemory);
+
+  if (mostRecentActivity > 0) {
+    const elapsed = Date.now() - mostRecentActivity;
     if (elapsed < minIntervalMs) {
-      const nextReady = new Date(new Date(selectedAccount.last_sent_at).getTime() + minIntervalMs + 1000);
+      const nextReady = new Date(mostRecentActivity + minIntervalMs + 2000);
       await instagramDb.createOrUpdateInstagramMessage({
         campaign_lead_id: message.campaign_lead_id,
         step_number: message.step_number,
@@ -338,12 +384,29 @@ export async function handleSendIgDmJob(payload: { instagramMessageId: string },
     }
   }
 
+  // Record this attempt timestamp in memory immediately before network requests
+  lastAccountAttemptMs.set(selectedAccount.id, Date.now());
+
+  // 3. Draft body guard: If body text is empty, generate it on the fly
+  let textToSend = message.body_text?.trim() || '';
+  if (!textToSend) {
+    await handleGenerateIgDmJob({
+      campaignLeadId: message.campaign_lead_id,
+      stepNumber: message.step_number,
+    });
+    const refreshed = await instagramDb.getInstagramMessage(instagramMessageId);
+    textToSend = refreshed?.body_text?.trim() || '';
+    if (!textToSend) {
+      throw new Error(`Message draft ${instagramMessageId} is empty and could not be generated.`);
+    }
+  }
+
   // Send the DM!
   try {
     const result = await sendInstagramDM({
       account: selectedAccount,
       recipientHandle: handle,
-      text: message.body_text,
+      text: textToSend,
       recipientIgUserId: lead.ig_user_id,
       existingThreadId: targetThreadId,
     });
@@ -407,6 +470,46 @@ export async function handleSendIgDmJob(payload: { instagramMessageId: string },
     });
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    const isRateLimited =
+      errMsg.includes('429') ||
+      errMsg.includes('RATE_LIMITED') ||
+      errMsg.toLowerCase().includes('rate limit') ||
+      errMsg.toLowerCase().includes('throttled') ||
+      errMsg.toLowerCase().includes('wait a few minutes');
+
+    if (isRateLimited) {
+      const backoffMs = 15 * 60 * 1000;
+      const resumeTime = new Date(Date.now() + backoffMs);
+      accountBackoffUntil.set(selectedAccount.id, resumeTime.getTime());
+
+      await instagramDb.updateInstagramAccount(selectedAccount.id, {
+        last_error: `Instagram rate limit (HTTP 429). Pausing sends until ${resumeTime.toLocaleTimeString()}.`,
+      });
+
+      await instagramDb.createOrUpdateInstagramMessage({
+        campaign_lead_id: message.campaign_lead_id,
+        step_number: message.step_number,
+        status: 'scheduled',
+        scheduled_at: resumeTime.toISOString(),
+        error_message: `Rate limited by Instagram (HTTP 429). Auto-rescheduled for ${resumeTime.toLocaleTimeString()}.`,
+      });
+
+      await instagramDb.updateInstagramCampaignLead(campaignLead.id, {
+        status: campaignLead.status === 'failed' ? 'drafted' : campaignLead.status,
+        last_error: `Rate limited by Instagram (HTTP 429). Will retry at ${resumeTime.toLocaleTimeString()}.`,
+      });
+
+      await dbService.enqueueJob(
+        'send_ig_dm',
+        { instagramMessageId: message.id },
+        `retry_ig_429_${message.id}_${resumeTime.getTime()}`,
+        resumeTime
+      );
+
+      console.warn(`[InstagramWorker] Rate limited for @${selectedAccount.username}. Rescheduled message ${message.id} to ${resumeTime.toISOString()}`);
+      return;
+    }
+
     if (errMsg.startsWith('AUTH_EXPIRED:')) {
       await instagramDb.updateInstagramAccount(selectedAccount.id, {
         status: 'error',

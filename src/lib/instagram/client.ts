@@ -702,6 +702,11 @@ export async function verifyInstagramGraphApi(igUserId: string, accessToken: str
 
 /**
  * Resolves a target Instagram @handle to its numeric user PK and profile metadata.
+ * Uses a resilient multi-tier strategy:
+ * Tier 1: Direct Message recipient search / ranked_recipients (built for DM compose, much less rate-limited)
+ * Tier 2: Universal Web TopSearch (web/search/topsearch)
+ * Tier 3: web_profile_info
+ * Tier 4: Public HTML profile inspection (instapp:owner_user_id & embedded state)
  */
 export async function resolveInstagramProfile(
   handle: string,
@@ -727,35 +732,162 @@ export async function resolveInstagramProfile(
   }
 
   if (!cookies?.sessionid) {
-    throw new Error(`Account @${account.username} has no active session cookies to look up @${normalized}`);
+    throw new Error(`AUTH_EXPIRED: Account @${account.username} has no active session cookies to look up @${normalized}. Reconnect required.`);
   }
 
-  const res = await fetch(
-    `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(normalized)}`,
-    {
+  let rateLimitEncountered = false;
+  let lastStatus = 0;
+
+  // Tier 1: Direct Message recipient search (built specifically for DM compose in Instagram Web)
+  try {
+    const directSearchUrl = `https://www.instagram.com/api/v1/direct_v2/ranked_recipients/?mode=raven&query=${encodeURIComponent(normalized)}`;
+    const directRes = await fetch(directSearchUrl, {
       method: 'GET',
-      headers: getInstagramWebHeaders(cookies, `https://www.instagram.com/${encodeURIComponent(normalized)}/`),
-      signal: AbortSignal.timeout(12000),
+      headers: getInstagramWebHeaders(cookies, 'https://www.instagram.com/direct/inbox/'),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (directRes.status === 429) {
+      rateLimitEncountered = true;
+      lastStatus = 429;
+    } else if (directRes.ok) {
+      const directData = await directRes.json().catch(() => ({}));
+      const recipients: any[] = directData?.ranked_recipients || [];
+      for (const item of recipients) {
+        const u = item?.user || item?.thread?.users?.[0];
+        if (u && normalizeInstagramHandle(u.username) === normalized) {
+          const pk = String(u.pk_id || u.pk || u.id || '');
+          if (pk) {
+            return {
+              igUserId: pk,
+              username: normalized,
+              fullName: u.full_name || undefined,
+            };
+          }
+        }
+      }
     }
-  );
-
-  if (!res.ok) {
-    throw new Error(`Could not resolve Instagram profile @${normalized} (HTTP ${res.status})`);
+  } catch {
+    // Fall through to next tier
   }
 
-  const data = await res.json().catch(() => ({}));
-  const user = data?.data?.user;
-  if (!user?.id) {
-    throw new Error(`Instagram handle @${normalized} does not exist or is unreachable.`);
+  // Tier 2: Universal Web TopSearch
+  try {
+    const searchUrl = `https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query=${encodeURIComponent(normalized)}`;
+    const searchRes = await fetch(searchUrl, {
+      method: 'GET',
+      headers: getInstagramWebHeaders(cookies, 'https://www.instagram.com/'),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (searchRes.status === 429) {
+      rateLimitEncountered = true;
+      lastStatus = 429;
+    } else if (searchRes.ok) {
+      const searchData = await searchRes.json().catch(() => ({}));
+      const users: any[] = searchData?.users || [];
+      for (const entry of users) {
+        const u = entry?.user;
+        if (u && normalizeInstagramHandle(u.username) === normalized) {
+          const pk = String(u.pk_id || u.pk || u.id || '');
+          if (pk) {
+            return {
+              igUserId: pk,
+              username: normalized,
+              fullName: u.full_name || undefined,
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    // Fall through to next tier
   }
 
-  return {
-    igUserId: String(user.id),
-    username: normalizeInstagramHandle(user.username || normalized),
-    fullName: user.full_name || undefined,
-    bio: user.biography || undefined,
-    followersCount: typeof user.edge_followed_by?.count === 'number' ? user.edge_followed_by.count : undefined,
-  };
+  // Tier 3: web_profile_info
+  try {
+    const res = await fetch(
+      `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(normalized)}`,
+      {
+        method: 'GET',
+        headers: getInstagramWebHeaders(cookies, `https://www.instagram.com/${encodeURIComponent(normalized)}/`),
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    if (res.status === 429) {
+      rateLimitEncountered = true;
+      lastStatus = 429;
+    } else if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const user = data?.data?.user;
+      if (user?.id) {
+        return {
+          igUserId: String(user.id),
+          username: normalizeInstagramHandle(user.username || normalized),
+          fullName: user.full_name || undefined,
+          bio: user.biography || undefined,
+          followersCount: typeof user.edge_followed_by?.count === 'number' ? user.edge_followed_by.count : undefined,
+        };
+      }
+    } else {
+      lastStatus = res.status;
+    }
+  } catch {
+    // Fall through to Tier 4
+  }
+
+  // Tier 4: Public HTML profile inspection
+  try {
+    const htmlRes = await fetch(`https://www.instagram.com/${encodeURIComponent(normalized)}/`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': IG_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        ...(cookies.sessionid ? { Cookie: `sessionid=${cookies.sessionid.replace(/:/g, '%3A')}` } : {}),
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (htmlRes.status === 429) {
+      rateLimitEncountered = true;
+      lastStatus = 429;
+    } else if (htmlRes.ok) {
+      const html = await htmlRes.text();
+      const metaMatch = html.match(/property=["']instapp:owner_user_id["']\s+content=["'](\d+)["']/i);
+      if (metaMatch && metaMatch[1]) {
+        return {
+          igUserId: metaMatch[1],
+          username: normalized,
+        };
+      }
+
+      const propMatch = html.match(/"(?:page_id|profile_id)":\s*"(\d+)"/i);
+      if (propMatch && propMatch[1]) {
+        return {
+          igUserId: propMatch[1],
+          username: normalized,
+        };
+      }
+
+      const jsonMatch = html.match(/"id":\s*"(\d{5,})"[^}]*"username":\s*"${normalized}"/i);
+      if (jsonMatch && jsonMatch[1]) {
+        return {
+          igUserId: jsonMatch[1],
+          username: normalized,
+        };
+      }
+    }
+  } catch {
+    // Fall through
+  }
+
+  if (rateLimitEncountered || lastStatus === 429) {
+    throw new Error(`RATE_LIMITED: Could not resolve Instagram profile @${normalized} (HTTP 429). Throttled by Instagram.`);
+  }
+
+  throw new Error(`Could not resolve Instagram profile @${normalized} (HTTP ${lastStatus || 404}).`);
 }
 
 /**

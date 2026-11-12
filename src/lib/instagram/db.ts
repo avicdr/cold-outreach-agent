@@ -1208,7 +1208,10 @@ export const instagramDb = {
     return { sentToday, sentPastHour, earliestHourSendMs };
   },
 
-  async rescheduleInstagramCampaignMessages(campaignId: string) {
+  async rescheduleInstagramCampaignMessages(
+    campaignId: string,
+    options?: { includeFailed?: boolean }
+  ) {
     const campaign = await this.getInstagramCampaign(campaignId);
     if (!campaign || campaign.status !== 'active') return 0;
 
@@ -1221,9 +1224,17 @@ export const instagramDb = {
     if (targetAccounts.length === 0) return 0;
 
     const messages = await this.getInstagramMessages({ campaignId });
-    const eligible = messages.filter(
-      (m) => m.step_number === 0 && (m.status === 'draft' || m.status === 'scheduled' || m.status === 'paused') && m.lead?.normalized_handle
-    );
+    const includeFailed = options?.includeFailed ?? true;
+
+    const eligible = messages.filter((m) => {
+      if (m.step_number !== 0) return false;
+      if (!m.lead?.normalized_handle) return false;
+      if (!m.body_text?.trim()) return false;
+      if (m.status === 'draft' || m.status === 'scheduled' || m.status === 'paused') return true;
+      if (includeFailed && m.status === 'failed') return true;
+      return false;
+    });
+
     if (eligible.length === 0) return 0;
 
     const schedulerCompatibleAccounts = targetAccounts.map((a) => ({
@@ -1251,7 +1262,15 @@ export const instagramDb = {
         status: 'scheduled',
         scheduled_at: scheduledAt.toISOString(),
         instagram_account_id: slot?.accountId || msg.instagram_account_id || targetAccounts[0].id,
+        error_message: null,
       });
+
+      await this.updateInstagramCampaignLead(msg.campaign_lead_id, {
+        status: 'in_progress',
+        next_action_at: scheduledAt.toISOString(),
+        last_error: null,
+      });
+
       await dbService.enqueueJob(
         'send_ig_dm',
         { instagramMessageId: msg.id },
@@ -1267,6 +1286,29 @@ export const instagramDb = {
   async reconcileInstagramJobs(): Promise<{ checked: number; reconciled: number }> {
     const scheduled = await this.getInstagramMessages({ status: 'scheduled' });
     let reconciled = 0;
+
+    // Auto-schedule drafts in active campaigns
+    try {
+      const draftedInActive = await this.getInstagramMessages({ status: 'draft' });
+      const eligibleDrafts = draftedInActive.filter(
+        (m) => m.step_number === 0 && Boolean(m.body_text?.trim()) && Boolean(m.lead?.normalized_handle)
+      );
+      if (eligibleDrafts.length > 0) {
+        const campaignIds = Array.from(
+          new Set(eligibleDrafts.map((m) => m.campaign_id).filter((id): id is string => Boolean(id)))
+        );
+        for (const cId of campaignIds) {
+          const camp = await this.getInstagramCampaign(cId);
+          if (camp && camp.status === 'active') {
+            const autoScheduled = await this.rescheduleInstagramCampaignMessages(cId);
+            reconciled += autoScheduled;
+          }
+        }
+      }
+    } catch (schedErr) {
+      console.warn('[ReconcileIG] Draft auto-schedule non-fatal notice:', schedErr);
+    }
+
     if (!isLiveSupabase()) {
       const activeJobs = new Set(
         Array.from(mockDb.jobQueue.values())

@@ -17,7 +17,7 @@ export async function POST(
 
   try {
     const updated = await instagramDb.updateInstagramCampaign(id, { status: 'active' });
-    const rescheduled = await instagramDb.rescheduleInstagramCampaignMessages(id);
+    const rescheduled = await instagramDb.rescheduleInstagramCampaignMessages(id, { includeFailed: true });
     return NextResponse.json({ success: true, campaign: updated, rescheduled });
   } catch (err: unknown) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });

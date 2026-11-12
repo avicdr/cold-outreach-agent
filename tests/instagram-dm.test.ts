@@ -391,4 +391,141 @@ describe('Instagram DM Automation Engine', () => {
     );
     expect(queued).toHaveLength(1);
   });
+
+  it('handles HTTP 429 rate limits gracefully by backing off without failing the lead', async () => {
+    const acc = await instagramDb.upsertInstagramAccount({
+      user_id: OWNER_USER_ID,
+      username: 'rate_limited_sender',
+      auth_method: 'session',
+      status: 'active',
+      encrypted_session_id: encryptToken('mock-ig-session-429'),
+      daily_limit: 15,
+      min_interval_minutes: 1,
+    });
+
+    const camp = await instagramDb.createInstagramCampaign(OWNER_USER_ID, {
+      name: 'Rate Limit Resilience Camp',
+      instagram_account_id: acc.id,
+      sending_config: {
+        days: [0, 1, 2, 3, 4, 5, 6],
+        start_hour: 0,
+        end_hour: 24,
+        timezone: 'UTC',
+        daily_limit: 25,
+        hourly_limit: 10,
+      },
+    });
+    await instagramDb.updateInstagramCampaign(camp.id, { status: 'active' });
+
+    const insert = await instagramDb.insertInstagramLeads(OWNER_USER_ID, [
+      { instagram_handle: '@rate_limited_lead', status: 'active' },
+    ]);
+    const lead = insert.insertedLeads[0];
+    await instagramDb.enrollInstagramLeads(camp.id, [lead.id]);
+    const cl = (await instagramDb.getInstagramCampaignLeads(camp.id))[0];
+
+    const msg = await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: cl.id,
+      step_number: 0,
+      body_text: 'Test message for rate limit handling',
+      status: 'scheduled',
+      instagram_account_id: acc.id,
+    });
+
+    // Mock sendInstagramDM to simulate HTTP 429 rate limit error
+    const clientModule = await import('@/lib/instagram/client');
+    const sendSpy = vi.spyOn(clientModule, 'sendInstagramDM').mockRejectedValueOnce(
+      new Error('RATE_LIMITED: Could not resolve Instagram profile @rate_limited_lead (HTTP 429 rate limit). Throttled by Instagram.')
+    );
+
+    // Call handleSendIgDmJob
+    await handleSendIgDmJob({ instagramMessageId: msg.id }, false);
+
+    // Message must remain scheduled (NOT failed!)
+    const refreshedMsg = await instagramDb.getInstagramMessage(msg.id);
+    expect(refreshedMsg?.status).toBe('scheduled');
+    expect(refhedMsgOrError(refreshedMsg?.error_message)).toContain('429');
+    expect(new Date(refreshedMsg!.scheduled_at!).getTime()).toBeGreaterThan(Date.now());
+
+    // Campaign lead must stay drafted/in_progress (NOT failed!)
+    const refreshedCl = await instagramDb.getInstagramCampaignLead(cl.id);
+    expect(refreshedCl?.status).not.toBe('failed');
+
+    // Account must have last_error recording the rate limit
+    const refreshedAcc = await instagramDb.getInstagramAccount(acc.id);
+    expect(refreshedAcc?.last_error).toContain('429');
+
+    // Enqueued retry job must exist
+    const retryJob = Array.from(mockDb.jobQueue.values()).find(
+      (j) => j.job_type === 'send_ig_dm' && String(j.idempotency_key).includes('retry_ig_429_')
+    );
+    expect(retryJob).toBeDefined();
+
+    sendSpy.mockRestore();
+  });
+
+  it('reschedules failed and drafted messages when resuming an active campaign', async () => {
+    const acc = await instagramDb.upsertInstagramAccount({
+      user_id: OWNER_USER_ID,
+      username: 'resume_sender',
+      auth_method: 'session',
+      status: 'active',
+      encrypted_session_id: encryptToken('mock-ig-session-resume'),
+    });
+
+    const camp = await instagramDb.createInstagramCampaign(OWNER_USER_ID, {
+      name: 'Resume Reschedule Camp',
+      instagram_account_id: acc.id,
+      sending_config: {
+        days: [0, 1, 2, 3, 4, 5, 6],
+        start_hour: 0,
+        end_hour: 24,
+        timezone: 'UTC',
+        daily_limit: 25,
+        hourly_limit: 10,
+      },
+    });
+    await instagramDb.updateInstagramCampaign(camp.id, { status: 'active' });
+
+    const insert = await instagramDb.insertInstagramLeads(OWNER_USER_ID, [
+      { instagram_handle: '@draft_lead', status: 'active' },
+      { instagram_handle: '@failed_lead', status: 'active' },
+    ]);
+
+    await instagramDb.enrollInstagramLeads(camp.id, [insert.insertedLeads[0].id, insert.insertedLeads[1].id]);
+    const [cl1, cl2] = await instagramDb.getInstagramCampaignLeads(camp.id);
+
+    // Draft message
+    await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: cl1.id,
+      step_number: 0,
+      body_text: 'Draft body text',
+      status: 'draft',
+      instagram_account_id: acc.id,
+    });
+
+    // Failed message (e.g. from 429)
+    await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: cl2.id,
+      step_number: 0,
+      body_text: 'Failed body text to be resumed',
+      status: 'failed',
+      instagram_account_id: acc.id,
+    });
+    await instagramDb.updateInstagramCampaignLead(cl2.id, { status: 'failed', last_error: 'HTTP 429' });
+
+    // Call rescheduleInstagramCampaignMessages with includeFailed: true
+    const count = await instagramDb.rescheduleInstagramCampaignMessages(camp.id, { includeFailed: true });
+    expect(count).toBe(2);
+
+    const msgs = await instagramDb.getInstagramMessages({ campaignId: camp.id });
+    expect(msgs.every((m) => m.status === 'scheduled')).toBe(true);
+
+    const leads = await instagramDb.getInstagramCampaignLeads(camp.id);
+    expect(leads.every((l) => l.status === 'in_progress')).toBe(true);
+  });
 });
+
+function refhedMsgOrError(val?: string | null): string {
+  return val || '';
+}

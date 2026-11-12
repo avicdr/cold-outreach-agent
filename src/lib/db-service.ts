@@ -3141,6 +3141,49 @@ export const dbService = {
     };
   },
 
+  async resetRelatedEntityForJob(job: JobQueueItem): Promise<void> {
+    const now = new Date().toISOString();
+    if (job.job_type === 'send_ig_dm' && job.payload?.instagramMessageId) {
+      try {
+        const { instagramDb } = await import('@/lib/instagram/db');
+        const msg = await instagramDb.getInstagramMessage(String(job.payload.instagramMessageId));
+        if (msg) {
+          await instagramDb.createOrUpdateInstagramMessage({
+            campaign_lead_id: msg.campaign_lead_id,
+            step_number: msg.step_number,
+            status: 'scheduled',
+            scheduled_at: now,
+            error_message: null,
+          });
+          await instagramDb.updateInstagramCampaignLead(msg.campaign_lead_id, {
+            status: 'in_progress',
+            last_error: null,
+            next_action_at: now,
+          });
+        }
+      } catch (e) {
+        console.warn('[RetryJob] Could not reset IG message/lead:', e);
+      }
+    } else if (job.job_type === 'send_email' && job.payload?.emailMessageId) {
+      try {
+        const msg = await this.getMessage(String(job.payload.emailMessageId));
+        if (msg) {
+          await this.createOrUpdateMessage({
+            ...msg,
+            status: 'scheduled',
+            scheduled_at: now,
+          });
+          await this.updateCampaignLead(msg.campaign_lead_id, {
+            status: 'in_progress',
+            next_action_at: now,
+          });
+        }
+      } catch (e) {
+        console.warn('[RetryJob] Could not reset email message/lead:', e);
+      }
+    }
+  },
+
   async retryJob(jobId: string): Promise<JobQueueItem | null> {
     const now = new Date().toISOString();
     if (!isLiveSupabase()) {
@@ -3153,6 +3196,7 @@ export const dbService = {
         job.lock_expires_at = null;
         job.run_at = now;
         job.updated_at = now;
+        await this.resetRelatedEntityForJob(job);
         return { ...job };
       }
       return null;
@@ -3175,6 +3219,9 @@ export const dbService = {
       .maybeSingle();
 
     if (error) throw new Error(error.message);
+    if (data) {
+      await this.resetRelatedEntityForJob(data as JobQueueItem);
+    }
     return data;
   },
 
