@@ -1,0 +1,743 @@
+import crypto from 'crypto';
+import { decryptToken } from '@/lib/crypto';
+import { env } from '@/lib/env';
+import { InstagramAccount } from '@/types/database';
+import { normalizeInstagramHandle } from './handles';
+
+const IG_WEB_APP_ID = '936619743392459';
+const IG_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+export interface InstagramCookieBundle {
+  sessionid: string;
+  csrftoken?: string;
+  ds_user_id?: string;
+  mid?: string;
+  ig_did?: string;
+  rur?: string;
+}
+
+export interface InstagramLoginResult {
+  status: 'authenticated' | 'two_factor_required' | 'challenge_required' | 'failed';
+  username?: string;
+  displayName?: string;
+  igUserId?: string;
+  cookies?: InstagramCookieBundle;
+  twoFactorIdentifier?: string;
+  checkpointUrl?: string;
+  error?: string;
+}
+
+export interface InstagramVerifyResult {
+  valid: boolean;
+  username?: string;
+  displayName?: string;
+  igUserId?: string;
+  cookies?: InstagramCookieBundle;
+  error?: string;
+}
+
+export interface SendInstagramDmResult {
+  messageId: string;
+  threadId: string;
+  recipientIgUserId?: string;
+  simulated?: boolean;
+}
+
+export interface IncomingInstagramReply {
+  igMessageId: string;
+  igThreadId: string;
+  senderHandle: string;
+  senderIgUserId: string;
+  text: string;
+  receivedAt: string;
+}
+
+function parseSetCookieHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  const rawCookies: string[] =
+    typeof (headers as any).getSetCookie === 'function'
+      ? (headers as any).getSetCookie()
+      : (headers.get('set-cookie') || '').split(/,(?=\s*[A-Za-z0-9_-]+=)/);
+
+  for (const raw of rawCookies) {
+    if (!raw) continue;
+    const firstPart = raw.split(';')[0]?.trim();
+    if (!firstPart) continue;
+    const eqIdx = firstPart.indexOf('=');
+    if (eqIdx === -1) continue;
+    const name = firstPart.slice(0, eqIdx).trim();
+    const val = firstPart.slice(eqIdx + 1).trim();
+    if (name && val && val !== '""') {
+      result[name] = val;
+    }
+  }
+  return result;
+}
+
+function buildCookieHeader(cookies: InstagramCookieBundle): string {
+  const parts: string[] = [];
+  if (cookies.sessionid) parts.push(`sessionid=${cookies.sessionid}`);
+  if (cookies.csrftoken) parts.push(`csrftoken=${cookies.csrftoken}`);
+  if (cookies.ds_user_id) parts.push(`ds_user_id=${cookies.ds_user_id}`);
+  if (cookies.mid) parts.push(`mid=${cookies.mid}`);
+  if (cookies.ig_did) parts.push(`ig_did=${cookies.ig_did}`);
+  if (cookies.rur) parts.push(`rur=${cookies.rur}`);
+  return parts.join('; ');
+}
+
+export function extractCookiesFromAccount(account: InstagramAccount): InstagramCookieBundle | null {
+  if (account.encrypted_cookies_json) {
+    try {
+      const raw = decryptToken(account.encrypted_cookies_json);
+      const parsed = JSON.parse(raw);
+      if (parsed?.sessionid) {
+        return parsed as InstagramCookieBundle;
+      }
+    } catch {
+      // Fallback to encrypted_session_id
+    }
+  }
+  if (account.encrypted_session_id) {
+    try {
+      const sessionid = decryptToken(account.encrypted_session_id);
+      if (sessionid) {
+        return {
+          sessionid,
+          ds_user_id: account.ig_user_id || undefined,
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function isMockInstagramSession(account: InstagramAccount, cookies?: InstagramCookieBundle | null): boolean {
+  if (env.MOCK_MODE) return true;
+  if (cookies?.sessionid?.startsWith('mock-ig-')) return true;
+  if (account.ig_user_id?.startsWith('mock-ig-')) return true;
+  return false;
+}
+
+/**
+ * Fetches initial CSRF token & anonymous cookies from Instagram web login endpoint.
+ */
+async function bootstrapInstagramCsrf(): Promise<{ csrftoken: string; cookies: Record<string, string> }> {
+  const res = await fetch('https://www.instagram.com/api/v1/web/login_page/', {
+    method: 'GET',
+    headers: {
+      'User-Agent': IG_USER_AGENT,
+      'X-IG-App-ID': IG_WEB_APP_ID,
+      Accept: '*/*',
+    },
+  });
+  const cookieMap = parseSetCookieHeaders(res.headers);
+  let csrftoken = cookieMap.csrftoken || '';
+
+  if (!csrftoken) {
+    const homeRes = await fetch('https://www.instagram.com/accounts/login/', {
+      method: 'GET',
+      headers: { 'User-Agent': IG_USER_AGENT },
+    });
+    const homeCookies = parseSetCookieHeaders(homeRes.headers);
+    Object.assign(cookieMap, homeCookies);
+    csrftoken = homeCookies.csrftoken || crypto.randomBytes(16).toString('hex');
+  }
+
+  return { csrftoken, cookies: cookieMap };
+}
+
+/**
+ * Attempts direct Instagram web login with username & password.
+ * Gracefully handles 2FA and security checkpoints.
+ */
+export async function loginWithInstagramCredentials(
+  rawUsername: string,
+  password: string,
+  options?: { twoFactorCode?: string; twoFactorIdentifier?: string }
+): Promise<InstagramLoginResult> {
+  const username = normalizeInstagramHandle(rawUsername);
+  if (!username || !password) {
+    return { status: 'failed', error: 'Instagram username and password are required.' };
+  }
+
+  if (env.MOCK_MODE || password === 'mock-pass') {
+    const mockId = `mock-ig-${username}`;
+    return {
+      status: 'authenticated',
+      username,
+      displayName: username,
+      igUserId: mockId,
+      cookies: {
+        sessionid: `mock-ig-session-${username}-${Date.now()}`,
+        csrftoken: 'mock-csrf-token',
+        ds_user_id: mockId,
+      },
+    };
+  }
+
+  try {
+    const { csrftoken, cookies: initialCookies } = await bootstrapInstagramCsrf();
+    const initialCookieStr = Object.entries({ ...initialCookies, csrftoken })
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+
+    // Handle 2FA submission if twoFactorCode is provided
+    if (options?.twoFactorCode && options?.twoFactorIdentifier) {
+      const twoFaBody = new URLSearchParams({
+        username,
+        verificationCode: options.twoFactorCode.trim(),
+        identifier: options.twoFactorIdentifier,
+        queryParams: '{}',
+      });
+
+      const twoFaRes = await fetch('https://www.instagram.com/api/v1/web/accounts/login/ajax/two_factor/', {
+        method: 'POST',
+        headers: {
+          'User-Agent': IG_USER_AGENT,
+          'X-IG-App-ID': IG_WEB_APP_ID,
+          'X-CSRFToken': csrftoken,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: initialCookieStr,
+          Referer: 'https://www.instagram.com/accounts/login/two_factor',
+          Origin: 'https://www.instagram.com',
+        },
+        body: twoFaBody.toString(),
+      });
+
+      const setCookies = parseSetCookieHeaders(twoFaRes.headers);
+      const data = await twoFaRes.json().catch(() => ({}));
+
+      if (data?.authenticated && setCookies.sessionid) {
+        const bundle: InstagramCookieBundle = {
+          sessionid: decodeURIComponent(setCookies.sessionid),
+          csrftoken: setCookies.csrftoken || csrftoken,
+          ds_user_id: setCookies.ds_user_id || String(data.userId || ''),
+          mid: setCookies.mid || initialCookies.mid,
+          ig_did: setCookies.ig_did || initialCookies.ig_did,
+          rur: setCookies.rur,
+        };
+        const verified = await verifyInstagramSession(bundle);
+        return {
+          status: 'authenticated',
+          username: verified.username || username,
+          displayName: verified.displayName || username,
+          igUserId: verified.igUserId || bundle.ds_user_id,
+          cookies: verified.cookies || bundle,
+        };
+      }
+
+      return {
+        status: 'failed',
+        error: data?.message || 'Invalid 2FA verification code. Please try again or use Session Cookie auth.',
+      };
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const encPassword = `#PWD_INSTAGRAM_BROWSER:0:${timestamp}:${password}`;
+    const body = new URLSearchParams({
+      enc_password: encPassword,
+      username,
+      queryParams: '{}',
+      optIntoOneTap: 'false',
+    });
+
+    const loginRes = await fetch('https://www.instagram.com/api/v1/web/accounts/login/ajax/', {
+      method: 'POST',
+      headers: {
+        'User-Agent': IG_USER_AGENT,
+        'X-IG-App-ID': IG_WEB_APP_ID,
+        'X-CSRFToken': csrftoken,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: initialCookieStr,
+        Referer: 'https://www.instagram.com/accounts/login/',
+        Origin: 'https://www.instagram.com',
+      },
+      body: body.toString(),
+    });
+
+    const setCookies = parseSetCookieHeaders(loginRes.headers);
+    const data = await loginRes.json().catch(() => ({}));
+
+    if (data?.two_factor_required) {
+      return {
+        status: 'two_factor_required',
+        username,
+        twoFactorIdentifier: data.two_factor_info?.two_factor_identifier || '',
+        error: 'Two-factor authentication code required.',
+      };
+    }
+
+    if (data?.checkpoint_url || data?.message === 'checkpoint_required') {
+      return {
+        status: 'challenge_required',
+        username,
+        checkpointUrl: data.checkpoint_url ? `https://www.instagram.com${data.checkpoint_url}` : undefined,
+        error:
+          'Instagram requested a security checkpoint on this IP. Approve the login in your Instagram app or connect using your browser Session Cookie instead.',
+      };
+    }
+
+    if (data?.authenticated && setCookies.sessionid) {
+      const bundle: InstagramCookieBundle = {
+        sessionid: decodeURIComponent(setCookies.sessionid),
+        csrftoken: setCookies.csrftoken || csrftoken,
+        ds_user_id: setCookies.ds_user_id || String(data.userId || ''),
+        mid: setCookies.mid || initialCookies.mid,
+        ig_did: setCookies.ig_did || initialCookies.ig_did,
+        rur: setCookies.rur,
+      };
+      const verified = await verifyInstagramSession(bundle);
+      return {
+        status: 'authenticated',
+        username: verified.username || username,
+        displayName: verified.displayName || username,
+        igUserId: verified.igUserId || bundle.ds_user_id,
+        cookies: verified.cookies || bundle,
+      };
+    }
+
+    return {
+      status: 'failed',
+      error:
+        data?.message ||
+        (data?.user === false
+          ? `Instagram account @${username} was not found.`
+          : 'Instagram rejected the login credentials or blocked automated login. Try connecting via Session Cookie for instant auth.'),
+    };
+  } catch (err: unknown) {
+    return {
+      status: 'failed',
+      error: err instanceof Error ? err.message : 'Failed to connect to Instagram login endpoint.',
+    };
+  }
+}
+
+/**
+ * Verifies an Instagram browser/app session using `sessionid` cookie.
+ */
+export async function verifyInstagramSession(
+  cookies: InstagramCookieBundle,
+  expectedUsername?: string
+): Promise<InstagramVerifyResult> {
+  const cleanSession = decodeURIComponent((cookies.sessionid || '').trim());
+  if (!cleanSession) {
+    return { valid: false, error: 'Session ID (sessionid) is required.' };
+  }
+
+  if (env.MOCK_MODE || cleanSession.startsWith('mock-ig-')) {
+    const fallbackUser = normalizeInstagramHandle(expectedUsername) || 'ig_demo_account';
+    return {
+      valid: true,
+      username: fallbackUser,
+      displayName: fallbackUser,
+      igUserId: cookies.ds_user_id || `mock-ig-${fallbackUser}`,
+      cookies: {
+        sessionid: cleanSession,
+        csrftoken: cookies.csrftoken || 'mock-csrf-token',
+        ds_user_id: cookies.ds_user_id || `mock-ig-${fallbackUser}`,
+      },
+    };
+  }
+
+  // Extract ds_user_id prefix from sessionid if missing (format: <user_id>%3A... or <user_id>:...)
+  const inferredDsUserId = cookies.ds_user_id || cleanSession.split(':')[0] || '';
+  const bundle: InstagramCookieBundle = {
+    ...cookies,
+    sessionid: cleanSession,
+    ds_user_id: inferredDsUserId || undefined,
+    csrftoken: cookies.csrftoken || 'missing',
+  };
+
+  try {
+    const res = await fetch('https://i.instagram.com/api/v1/accounts/current_user/?edit=true', {
+      method: 'GET',
+      headers: {
+        'User-Agent': IG_USER_AGENT,
+        'X-IG-App-ID': IG_WEB_APP_ID,
+        'X-CSRFToken': bundle.csrftoken || '',
+        Cookie: buildCookieHeader(bundle),
+        Accept: 'application/json',
+      },
+    });
+
+    const setCookies = parseSetCookieHeaders(res.headers);
+    const mergedBundle: InstagramCookieBundle = {
+      ...bundle,
+      csrftoken: setCookies.csrftoken || (bundle.csrftoken !== 'missing' ? bundle.csrftoken : undefined),
+      ds_user_id: setCookies.ds_user_id || bundle.ds_user_id,
+      rur: setCookies.rur || bundle.rur,
+    };
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      return {
+        valid: false,
+        error:
+          errJson?.message ||
+          `Instagram session rejected (HTTP ${res.status}). Copy a fresh sessionid cookie from an active browser login.`,
+      };
+    }
+
+    const data = await res.json().catch(() => ({}));
+    const userObj = data?.user;
+    if (!userObj?.username) {
+      return {
+        valid: false,
+        error: 'Session cookie is invalid or expired. Please re-authenticate.',
+      };
+    }
+
+    return {
+      valid: true,
+      username: normalizeInstagramHandle(userObj.username),
+      displayName: userObj.full_name || userObj.username,
+      igUserId: String(userObj.pk || userObj.pk_id || mergedBundle.ds_user_id || ''),
+      cookies: {
+        ...mergedBundle,
+        ds_user_id: String(userObj.pk || userObj.pk_id || mergedBundle.ds_user_id || ''),
+      },
+    };
+  } catch (err: unknown) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : 'Network error verifying Instagram session.',
+    };
+  }
+}
+
+/**
+ * Verifies an official Meta Instagram Graph API account + token.
+ */
+export async function verifyInstagramGraphApi(igUserId: string, accessToken: string): Promise<InstagramVerifyResult> {
+  const cleanId = igUserId.trim();
+  const cleanToken = accessToken.trim();
+  if (!cleanId || !cleanToken) {
+    return { valid: false, error: 'Instagram Business Account ID and Access Token are required.' };
+  }
+
+  if (env.MOCK_MODE || cleanToken.startsWith('mock-ig-')) {
+    return {
+      valid: true,
+      username: `biz_${cleanId.slice(-6)}`,
+      displayName: 'Mock Business Account',
+      igUserId: cleanId,
+    };
+  }
+
+  try {
+    const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(cleanId)}?fields=id,username,name&access_token=${encodeURIComponent(cleanToken)}`;
+    const res = await fetch(url, { method: 'GET' });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || data?.error) {
+      return {
+        valid: false,
+        error: data?.error?.message || `Meta Graph API error (HTTP ${res.status})`,
+      };
+    }
+
+    return {
+      valid: true,
+      username: normalizeInstagramHandle(data.username || data.name || cleanId),
+      displayName: data.name || data.username || cleanId,
+      igUserId: String(data.id || cleanId),
+    };
+  } catch (err: unknown) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : 'Failed to verify Meta Graph API credentials.',
+    };
+  }
+}
+
+/**
+ * Resolves a target Instagram @handle to its numeric user PK and profile metadata.
+ */
+export async function resolveInstagramProfile(
+  handle: string,
+  account: InstagramAccount
+): Promise<{
+  igUserId: string;
+  username: string;
+  fullName?: string;
+  bio?: string;
+  followersCount?: number;
+}> {
+  const normalized = normalizeInstagramHandle(handle);
+  if (!normalized) {
+    throw new Error('Invalid Instagram handle');
+  }
+
+  const cookies = extractCookiesFromAccount(account);
+  if (isMockInstagramSession(account, cookies)) {
+    return {
+      igUserId: `mock-recipient-${normalized}`,
+      username: normalized,
+    };
+  }
+
+  if (!cookies?.sessionid) {
+    throw new Error(`Account @${account.username} has no active session cookies to look up @${normalized}`);
+  }
+
+  const res = await fetch(
+    `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(normalized)}`,
+    {
+      method: 'GET',
+      headers: {
+        'User-Agent': IG_USER_AGENT,
+        'X-IG-App-ID': IG_WEB_APP_ID,
+        'X-CSRFToken': cookies.csrftoken || '',
+        Cookie: buildCookieHeader(cookies),
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Could not resolve Instagram profile @${normalized} (HTTP ${res.status})`);
+  }
+
+  const data = await res.json().catch(() => ({}));
+  const user = data?.data?.user;
+  if (!user?.id) {
+    throw new Error(`Instagram handle @${normalized} does not exist or is unreachable.`);
+  }
+
+  return {
+    igUserId: String(user.id),
+    username: normalizeInstagramHandle(user.username || normalized),
+    fullName: user.full_name || undefined,
+    bio: user.biography || undefined,
+    followersCount: typeof user.edge_followed_by?.count === 'number' ? user.edge_followed_by.count : undefined,
+  };
+}
+
+/**
+ * Sends a direct message from an InstagramAccount to a target handle or existing thread.
+ */
+export async function sendInstagramDM(params: {
+  account: InstagramAccount;
+  recipientHandle: string;
+  text: string;
+  recipientIgUserId?: string | null;
+  existingThreadId?: string | null;
+}): Promise<SendInstagramDmResult> {
+  const { account, recipientHandle, text, recipientIgUserId, existingThreadId } = params;
+  const normalizedRecipient = normalizeInstagramHandle(recipientHandle);
+
+  if (!normalizedRecipient && !recipientIgUserId && !existingThreadId) {
+    throw new Error('Recipient Instagram handle is missing.');
+  }
+
+  const cookies = extractCookiesFromAccount(account);
+  if (isMockInstagramSession(account, cookies)) {
+    const resolvedId = recipientIgUserId || `mock-recipient-${normalizedRecipient || 'unknown'}`;
+    return {
+      messageId: `mock-ig-msg-${crypto.randomUUID()}`,
+      threadId: existingThreadId || `mock-ig-thread-${resolvedId}`,
+      recipientIgUserId: resolvedId,
+      simulated: true,
+    };
+  }
+
+  // Path A: Official Meta Graph API
+  if (account.auth_method === 'graph_api') {
+    if (!account.encrypted_access_token || !account.ig_user_id) {
+      throw new Error(`Instagram Graph API credentials missing for @${account.username}`);
+    }
+    const accessToken = decryptToken(account.encrypted_access_token);
+    if (!recipientIgUserId) {
+      throw new Error(
+        `Meta Graph API requires a recipient Instagram-Scoped User ID (IGSID) from an existing conversation before sending to @${normalizedRecipient}.`
+      );
+    }
+
+    const res = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(account.ig_user_id)}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipient: { id: recipientIgUserId },
+        message: { text },
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) {
+      throw new Error(data?.error?.message || `Instagram Graph API send failed (HTTP ${res.status})`);
+    }
+
+    return {
+      messageId: String(data.message_id || `ig-graph-${Date.now()}`),
+      threadId: existingThreadId || `graph-thread-${recipientIgUserId}`,
+      recipientIgUserId,
+    };
+  }
+
+  // Path B: Authenticated Session / Login Web API
+  if (!cookies?.sessionid) {
+    throw new Error(`Instagram session expired or missing for @${account.username}. Please reconnect the account.`);
+  }
+
+  let targetIgUserId = recipientIgUserId || '';
+  if (!targetIgUserId && !existingThreadId) {
+    const profile = await resolveInstagramProfile(normalizedRecipient, account);
+    targetIgUserId = profile.igUserId;
+  }
+
+  const clientContext = crypto.randomUUID();
+  const payload = new URLSearchParams({
+    action: 'send_item',
+    client_context: clientContext,
+    text,
+  });
+
+  if (existingThreadId) {
+    payload.set('thread_ids', JSON.stringify([existingThreadId]));
+  } else {
+    payload.set('recipient_users', JSON.stringify([[targetIgUserId]]));
+  }
+
+  const sendRes = await fetch('https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/', {
+    method: 'POST',
+    headers: {
+      'User-Agent': IG_USER_AGENT,
+      'X-IG-App-ID': IG_WEB_APP_ID,
+      'X-CSRFToken': cookies.csrftoken || '',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: buildCookieHeader(cookies),
+      Origin: 'https://www.instagram.com',
+      Referer: 'https://www.instagram.com/direct/inbox/',
+    },
+    body: payload.toString(),
+  });
+
+  const data = await sendRes.json().catch(() => ({}));
+  if (!sendRes.ok || data?.status === 'fail') {
+    const msg = data?.message || `Instagram DM send failed (HTTP ${sendRes.status})`;
+    if (sendRes.status === 401 || sendRes.status === 403 || String(msg).toLowerCase().includes('login_required')) {
+      throw new Error(`AUTH_EXPIRED: Instagram session expired for @${account.username}. Reconnect required.`);
+    }
+    if (String(msg).toLowerCase().includes('challenge')) {
+      throw new Error(`CHALLENGE_REQUIRED: Instagram requested verification for @${account.username}.`);
+    }
+    throw new Error(msg);
+  }
+
+  const threadId = String(
+    data?.payload?.thread_id ||
+      data?.thread_id ||
+      existingThreadId ||
+      `ig-thread-${targetIgUserId}`
+  );
+  const messageId = String(
+    data?.payload?.item_id ||
+      data?.item_id ||
+      clientContext
+  );
+
+  return {
+    messageId,
+    threadId,
+    recipientIgUserId: targetIgUserId || undefined,
+  };
+}
+
+/**
+ * Polls recent inbound DM replies for an InstagramAccount.
+ */
+export async function pollInstagramReplies(account: InstagramAccount): Promise<IncomingInstagramReply[]> {
+  const cookies = extractCookiesFromAccount(account);
+  if (isMockInstagramSession(account, cookies)) {
+    return [];
+  }
+
+  if (account.auth_method === 'graph_api') {
+    if (!account.encrypted_access_token || !account.ig_user_id) return [];
+    const accessToken = decryptToken(account.encrypted_access_token);
+    const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(account.ig_user_id)}/conversations?platform=instagram&fields=id,participants,messages.limit(10){id,message,from,created_time}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    const replies: IncomingInstagramReply[] = [];
+
+    for (const conv of data?.data || []) {
+      const messages = conv?.messages?.data || [];
+      for (const m of messages) {
+        if (!m?.message || !m?.from) continue;
+        if (String(m.from.id) === String(account.ig_user_id)) continue;
+        replies.push({
+          igMessageId: String(m.id),
+          igThreadId: String(conv.id),
+          senderHandle: normalizeInstagramHandle(m.from.username || m.from.name || m.from.id),
+          senderIgUserId: String(m.from.id),
+          text: String(m.message),
+          receivedAt: m.created_time || new Date().toISOString(),
+        });
+      }
+    }
+    return replies;
+  }
+
+  if (!cookies?.sessionid) return [];
+
+  const res = await fetch(
+    'https://i.instagram.com/api/v1/direct_v2/inbox/?visual_message_return_type=unseen&thread_message_limit=10&limit=20',
+    {
+      method: 'GET',
+      headers: {
+        'User-Agent': IG_USER_AGENT,
+        'X-IG-App-ID': IG_WEB_APP_ID,
+        'X-CSRFToken': cookies.csrftoken || '',
+        Cookie: buildCookieHeader(cookies),
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  const threads = data?.inbox?.threads || [];
+  const selfId = String(account.ig_user_id || cookies.ds_user_id || '');
+  const replies: IncomingInstagramReply[] = [];
+
+  for (const thread of threads) {
+    const threadId = String(thread.thread_id || '');
+    const usersById = new Map<string, string>();
+    for (const u of thread.users || []) {
+      if (u?.pk && u?.username) {
+        usersById.set(String(u.pk), normalizeInstagramHandle(u.username));
+      }
+    }
+
+    for (const item of thread.items || []) {
+      const senderId = String(item.user_id || '');
+      if (!senderId || (selfId && senderId === selfId)) continue;
+      if (item.item_type !== 'text' || !item.text) continue;
+
+      const tsMicro = Number(item.timestamp || 0);
+      const receivedAt = tsMicro > 0 ? new Date(Math.floor(tsMicro / 1000)).toISOString() : new Date().toISOString();
+
+      replies.push({
+        igMessageId: String(item.item_id),
+        igThreadId: threadId,
+        senderHandle: usersById.get(senderId) || senderId,
+        senderIgUserId: senderId,
+        text: String(item.text),
+        receivedAt,
+      });
+    }
+  }
+
+  return replies;
+}

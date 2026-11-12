@@ -85,6 +85,32 @@ async function processSingleJob(job: JobQueueItem, force = false) {
       // Periodic cleanup of completed jobs
       break;
 
+    case 'generate_ig_dm': {
+      const { handleGenerateIgDmJob } = await import('../instagram/worker');
+      await handleGenerateIgDmJob(job.payload as { campaignLeadId: string; stepNumber?: number });
+      break;
+    }
+
+    case 'send_ig_dm': {
+      const { handleSendIgDmJob } = await import('../instagram/worker');
+      await handleSendIgDmJob(job.payload as { instagramMessageId: string }, force);
+      break;
+    }
+
+    case 'schedule_ig_followup': {
+      const { handleScheduleIgFollowupJob } = await import('../instagram/worker');
+      await handleScheduleIgFollowupJob(
+        job.payload as { campaignLeadId: string; nextStepNumber: number; delayDays: number }
+      );
+      break;
+    }
+
+    case 'sync_ig_replies': {
+      const { handleSyncIgRepliesJob } = await import('../instagram/worker');
+      await handleSyncIgRepliesJob(job.payload as { userId: string });
+      break;
+    }
+
     default:
       throw new Error(`Unsupported job type: ${job.job_type}`);
   }
@@ -1009,6 +1035,9 @@ export async function runFullWorkerCycle(workerId = 'server-worker', isForce = f
     try {
       const rec = await dbService.reconcileScheduledJobs();
       reconciledCount = rec.reconciled;
+      const { instagramDb } = await import('../instagram/db');
+      const igRec = await instagramDb.reconcileInstagramJobs();
+      reconciledCount += igRec.reconciled;
     } catch (recErr: unknown) {
       console.warn('[WorkerCycle] Reconciliation warning:', recErr);
     }
@@ -1025,13 +1054,17 @@ export async function runFullWorkerCycle(workerId = 'server-worker', isForce = f
       } else {
         const { createAdminClient } = await import('@/lib/supabase/admin');
         const supabase = createAdminClient();
-        const [{ data: accUsers }, { data: campUsers }] = await Promise.all([
+        const [{ data: accUsers }, { data: campUsers }, { data: igAccUsers }, { data: igCampUsers }] = await Promise.all([
           supabase.from('email_accounts').select('user_id'),
           supabase.from('campaigns').select('user_id'),
+          supabase.from('instagram_accounts').select('user_id'),
+          supabase.from('instagram_campaigns').select('user_id'),
         ]);
         const set = new Set<string>();
         (accUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
         (campUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
+        (igAccUsers || []).forEach((a: any) => a.user_id && set.add(a.user_id));
+        (igCampUsers || []).forEach((c: any) => c.user_id && set.add(c.user_id));
         userIds = Array.from(set);
       }
     } catch (userErr) {
@@ -1049,6 +1082,14 @@ export async function runFullWorkerCycle(workerId = 'server-worker', isForce = f
         await handleSyncRepliesJob({ userId });
       } catch (syncErr: unknown) {
         console.warn(`[WorkerCycle] Reply sync non-fatal error for ${userId}:`, syncErr);
+      }
+
+      // Sync Instagram DM replies
+      try {
+        const { handleSyncIgRepliesJob } = await import('../instagram/worker');
+        await handleSyncIgRepliesJob({ userId });
+      } catch (igSyncErr: unknown) {
+        console.warn(`[WorkerCycle] Instagram reply sync non-fatal error for ${userId}:`, igSyncErr);
       }
 
       // Peer warmup cycle

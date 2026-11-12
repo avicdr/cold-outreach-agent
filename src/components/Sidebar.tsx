@@ -19,10 +19,13 @@ import {
   Moon,
   ShieldCheck,
   Flame,
+  AtSign,
+  MessageCircle,
 } from 'lucide-react';
+import { InstagramIcon } from './InstagramIcon';
 import { useState, useEffect } from 'react';
 
-const navItems = [
+const emailNavItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Inboxes & Groups', href: '/accounts', icon: Inbox },
   { name: 'Lead Discovery', href: '/discovery', icon: Compass },
@@ -30,6 +33,17 @@ const navItems = [
   { name: 'Campaigns', href: '/campaigns', icon: Send },
   { name: 'Messages', href: '/messages', icon: Mail },
   { name: 'Replies', href: '/replies', icon: MessageSquareQuote },
+];
+
+const instagramNavItems = [
+  { name: 'IG Accounts', href: '/instagram/accounts', icon: AtSign },
+  { name: 'IG Leads', href: '/instagram/leads', icon: Users },
+  { name: 'IG Campaigns', href: '/instagram/campaigns', icon: Send },
+  { name: 'IG Messages', href: '/instagram/messages', icon: MessageCircle },
+  { name: 'IG Replies', href: '/instagram/replies', icon: MessageSquareQuote },
+];
+
+const systemNavItems = [
   { name: 'Job Queue', href: '/jobs', icon: Activity },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -65,38 +79,73 @@ export function Sidebar() {
     }
   };
 
-  const renderNavLinks = (onItemClick?: () => void) => (
-    <div className="p-3 space-y-1">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        const isActive =
-          item.href === '/dashboard'
-            ? pathname === '/' || pathname === '/dashboard'
-            : pathname.startsWith(item.href);
+  const renderNavGroup = (
+    items: typeof emailNavItems,
+    accent: 'flame' | 'ig' = 'flame',
+    onItemClick?: () => void
+  ) =>
+    items.map((item) => {
+      const Icon = item.icon;
+      const isActive =
+        item.href === '/dashboard'
+          ? pathname === '/' || pathname === '/dashboard'
+          : pathname.startsWith(item.href);
 
-        return (
-          <Link
-            key={item.name}
-            href={item.href}
-            onClick={onItemClick}
-            className={`flex items-center gap-3 px-3.5 py-2.5 rounded-[10px] text-xs font-medium transition-all duration-200 group relative ${
-              isActive
-                ? 'bg-[#E84B2C] text-white shadow-[0_2px_12px_rgba(232,75,44,0.35)]'
-                : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+      const activeClass =
+        accent === 'ig'
+          ? 'bg-gradient-to-r from-fuchsia-600 to-rose-500 text-white shadow-[0_2px_12px_rgba(217,70,239,0.3)]'
+          : 'bg-[#E84B2C] text-white shadow-[0_2px_12px_rgba(232,75,44,0.35)]';
+
+      const iconHover =
+        accent === 'ig' ? 'group-hover:text-fuchsia-400' : 'group-hover:text-[#E87A38]';
+
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          onClick={onItemClick}
+          className={`flex items-center gap-3 px-3.5 py-2 rounded-[10px] text-xs font-medium transition-all duration-200 group relative ${
+            isActive
+              ? activeClass
+              : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+          }`}
+        >
+          <Icon
+            className={`w-4 h-4 transition-transform group-hover:scale-110 ${
+              isActive ? 'text-white' : `text-text-muted ${iconHover}`
             }`}
-          >
-            <Icon
-              className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                isActive ? 'text-white' : 'text-text-muted group-hover:text-[#E87A38]'
-              }`}
-            />
-            <span className="font-sans font-medium tracking-wide">{item.name}</span>
-            {isActive && (
-              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_6px_#ffffff]" />
-            )}
-          </Link>
-        );
-      })}
+          />
+          <span className="font-sans font-medium tracking-wide">{item.name}</span>
+          {isActive && (
+            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_6px_#ffffff]" />
+          )}
+        </Link>
+      );
+    });
+
+  const renderNavLinks = (onItemClick?: () => void) => (
+    <div className="p-3 space-y-4">
+      <div>
+        <div className="px-3 pb-1.5 text-[10px] font-mono uppercase tracking-widest text-text-muted">
+          Email Outreach
+        </div>
+        <div className="space-y-1">{renderNavGroup(emailNavItems, 'flame', onItemClick)}</div>
+      </div>
+
+      <div className="pt-1 border-t border-border-subtle">
+        <div className="px-3 pt-2 pb-1.5 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-fuchsia-400">
+          <InstagramIcon className="w-3 h-3" />
+          <span>Instagram DM</span>
+        </div>
+        <div className="space-y-1">{renderNavGroup(instagramNavItems, 'ig', onItemClick)}</div>
+      </div>
+
+      <div className="pt-1 border-t border-border-subtle">
+        <div className="px-3 pt-2 pb-1.5 text-[10px] font-mono uppercase tracking-widest text-text-muted">
+          System
+        </div>
+        <div className="space-y-1">{renderNavGroup(systemNavItems, 'flame', onItemClick)}</div>
+      </div>
     </div>
   );
 

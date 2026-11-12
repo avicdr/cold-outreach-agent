@@ -42,7 +42,11 @@ export type JobType =
   | 'process_warmup'
   | 'send_warmup_email'
   | 'process_discovery'
-  | 'cleanup_expired_jobs';
+  | 'cleanup_expired_jobs'
+  | 'generate_ig_dm'
+  | 'send_ig_dm'
+  | 'schedule_ig_followup'
+  | 'sync_ig_replies';
 
 export type ReplyClassification = 'positive' | 'neutral' | 'objection' | 'out_of_office' | 'unsubscribe' | 'other';
 export type SuppressionReason = 'unsubscribe' | 'bounce' | 'manual' | 'complaint';
@@ -412,4 +416,167 @@ export interface ActivityLog {
   entity_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+}
+
+// ==========================================
+// Segregated Instagram DM Automation Types
+// ==========================================
+
+export type InstagramAuthMethod = 'login' | 'session' | 'graph_api';
+export type InstagramAccountStatus = 'active' | 'paused' | 'error' | 'challenge_required';
+export type InstagramLeadStatus = 'active' | 'contacted' | 'replied' | 'do_not_contact' | 'invalid';
+export type InstagramCampaignLeadStatus = 'enrolled' | 'drafted' | 'in_progress' | 'replied' | 'do_not_contact' | 'completed' | 'failed';
+export type InstagramMessageStatus = 'draft' | 'scheduled' | 'paused' | 'sending' | 'sent' | 'failed' | 'cancelled';
+
+export interface InstagramAccount {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name: string;
+  ig_user_id?: string | null;
+  auth_method: InstagramAuthMethod;
+  encrypted_session_id?: string | null;
+  encrypted_cookies_json?: string | null;
+  encrypted_password?: string | null;
+  encrypted_access_token?: string | null;
+  daily_limit: number;
+  min_interval_minutes: number;
+  status: InstagramAccountStatus;
+  last_error?: string | null;
+  last_sent_at?: string | null;
+  last_sync_at?: string | null;
+  connected_at: string;
+  created_at: string;
+  updated_at: string;
+  // Computed fields
+  sent_today?: number;
+  remaining_today?: number;
+}
+
+export interface InstagramLeadGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  leads_count?: number;
+}
+
+export interface InstagramLead {
+  id: string;
+  user_id: string;
+  normalized_handle: string;
+  instagram_handle: string;
+  instagram_url: string;
+  ig_user_id?: string | null;
+  full_name: string;
+  first_name: string;
+  last_name: string;
+  company: string;
+  niche: string;
+  bio: string;
+  followers_count?: number | null;
+  website: string;
+  city: string;
+  country: string;
+  email: string;
+  phone: string;
+  personalization_hook: string;
+  notes: string;
+  custom_fields: Record<string, string | number | boolean>;
+  group_id?: string | null;
+  source_email_lead_id?: string | null;
+  source_import: string;
+  status: InstagramLeadStatus;
+  created_at: string;
+  updated_at: string;
+  // Joined relation
+  lead_group?: InstagramLeadGroup | null;
+}
+
+export interface InstagramCampaign {
+  id: string;
+  user_id: string;
+  name: string;
+  status: CampaignStatus;
+  instagram_account_id?: string | null;
+  business_context: string;
+  ideal_customer_profile: string;
+  offer: string;
+  tone: string;
+  call_to_action: string;
+  initial_dm_instructions: string;
+  sending_config: SendingConfig;
+  followup_config: FollowupConfig;
+  created_at: string;
+  updated_at: string;
+  activated_at: string | null;
+  // Joined relations
+  instagram_account?: InstagramAccount | null;
+}
+
+export interface InstagramCampaignLead {
+  id: string;
+  campaign_id: string;
+  instagram_lead_id: string;
+  status: InstagramCampaignLeadStatus;
+  current_step: number;
+  next_action_at: string | null;
+  enrolled_at: string;
+  completed_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined relations
+  lead?: InstagramLead;
+  campaign?: InstagramCampaign;
+  messages?: InstagramMessage[];
+}
+
+export interface InstagramMessage {
+  id: string;
+  campaign_lead_id: string;
+  step_number: number;
+  body_text: string;
+  personalization_basis: string[];
+  unsupported_claims: string[];
+  status: InstagramMessageStatus;
+  instagram_account_id?: string | null;
+  ig_thread_id?: string | null;
+  ig_message_id?: string | null;
+  scheduled_at: string | null;
+  sent_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  // Optional populated relations
+  lead?: InstagramLead;
+  campaign_id?: string;
+  campaign_name?: string;
+  instagram_account?: InstagramAccount | null;
+}
+
+export interface InstagramReplyEvent {
+  id: string;
+  user_id: string;
+  instagram_message_id: string | null;
+  instagram_account_id: string | null;
+  ig_thread_id: string;
+  ig_message_id: string;
+  sender_handle: string;
+  received_at: string;
+  classification: ReplyClassification;
+  classification_summary: string;
+  reply_text?: string;
+  created_at: string;
+  // Enriched fields
+  lead_name?: string;
+  lead_company?: string;
+  campaign_name?: string;
+  campaign_id?: string;
+  receiving_account?: string;
+  sent_message_body?: string;
+  sent_at?: string;
 }

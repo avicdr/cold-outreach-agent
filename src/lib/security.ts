@@ -1,4 +1,4 @@
-import { EmailAccount } from '@/types/database';
+import { EmailAccount, InstagramAccount } from '@/types/database';
 
 /**
  * Sanitized EmailAccount object for safe client responses.
@@ -9,6 +9,11 @@ export type SanitizedEmailAccount = Omit<
   'encrypted_access_token' | 'encrypted_refresh_token' | 'encrypted_smtp_password'
 >;
 
+export type SanitizedInstagramAccount = Omit<
+  InstagramAccount,
+  'encrypted_session_id' | 'encrypted_cookies_json' | 'encrypted_password' | 'encrypted_access_token'
+>;
+
 /**
  * Strips secret encrypted credentials from an EmailAccount before sending to the client.
  */
@@ -17,6 +22,20 @@ export function sanitizeAccountForClient(account: EmailAccount): SanitizedEmailA
     encrypted_access_token: _a,
     encrypted_refresh_token: _r,
     encrypted_smtp_password: _p,
+    ...safeAccount
+  } = account;
+  return safeAccount;
+}
+
+/**
+ * Strips secret encrypted credentials from an InstagramAccount before sending to the client.
+ */
+export function sanitizeInstagramAccountForClient(account: InstagramAccount): SanitizedInstagramAccount {
+  const {
+    encrypted_session_id: _s,
+    encrypted_cookies_json: _c,
+    encrypted_password: _pw,
+    encrypted_access_token: _at,
     ...safeAccount
   } = account;
   return safeAccount;

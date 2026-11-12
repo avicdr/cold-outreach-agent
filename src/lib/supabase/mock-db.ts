@@ -12,6 +12,13 @@ import {
   AccountGroup,
   LeadGroup,
   JobType,
+  InstagramAccount,
+  InstagramLeadGroup,
+  InstagramLead,
+  InstagramCampaign,
+  InstagramCampaignLead,
+  InstagramMessage,
+  InstagramReplyEvent,
 } from '@/types/database';
 
 export class MockDatabase {
@@ -29,6 +36,14 @@ export class MockDatabase {
   warmupMessages: Map<string, any> = new Map();
   discoveryJobs: Map<string, any> = new Map();
   activityLogs: ActivityLog[] = [];
+  // Segregated Instagram DM tables
+  instagramAccounts: Map<string, InstagramAccount> = new Map();
+  instagramLeadGroups: Map<string, InstagramLeadGroup> = new Map();
+  instagramLeads: Map<string, InstagramLead> = new Map();
+  instagramCampaigns: Map<string, InstagramCampaign> = new Map();
+  instagramCampaignLeads: Map<string, InstagramCampaignLead> = new Map();
+  instagramMessages: Map<string, InstagramMessage> = new Map();
+  instagramReplyEvents: Map<string, InstagramReplyEvent> = new Map();
 
   constructor() {
     this.seedDefaultData();
