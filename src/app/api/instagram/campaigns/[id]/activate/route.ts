@@ -49,11 +49,19 @@ export async function POST(
 
     for (const cl of campaignLeads) {
       if (!cl.lead?.normalized_handle) continue;
-      const msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === 0);
+      let msg = messages.find((m) => m.campaign_lead_id === cl.id && m.step_number === 0);
+      if (!msg) {
+        msg = await instagramDb.createOrUpdateInstagramMessage({
+          campaign_lead_id: cl.id,
+          step_number: 0,
+          status: 'draft',
+        });
+      }
       if (
-        msg &&
-        (msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'paused' || msg.status === 'failed') &&
-        msg.body_text?.trim()
+        msg.status === 'draft' ||
+        msg.status === 'scheduled' ||
+        msg.status === 'paused' ||
+        msg.status === 'failed'
       ) {
         eligibleMessages.push(msg);
       }
@@ -81,7 +89,7 @@ export async function POST(
       await instagramDb.createOrUpdateInstagramMessage({
         campaign_lead_id: msg.campaign_lead_id,
         step_number: msg.step_number,
-        body_text: msg.body_text,
+        body_text: msg.body_text || undefined,
         status: 'scheduled',
         scheduled_at: scheduledDate.toISOString(),
         instagram_account_id: slot?.accountId || targetAccounts[0].id,

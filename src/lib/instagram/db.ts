@@ -1128,10 +1128,10 @@ export const instagramDb = {
         id: existing?.id || msg.id || crypto.randomUUID(),
         campaign_lead_id: msg.campaign_lead_id,
         step_number: msg.step_number,
-        body_text: msg.body_text ?? existing?.body_text ?? '',
-        personalization_basis: msg.personalization_basis ?? existing?.personalization_basis ?? [],
-        unsupported_claims: msg.unsupported_claims ?? existing?.unsupported_claims ?? [],
-        status: msg.status ?? existing?.status ?? 'draft',
+        body_text: msg.body_text !== undefined ? msg.body_text : existing?.body_text ?? '',
+        personalization_basis: msg.personalization_basis !== undefined ? msg.personalization_basis : existing?.personalization_basis ?? [],
+        unsupported_claims: msg.unsupported_claims !== undefined ? msg.unsupported_claims : existing?.unsupported_claims ?? [],
+        status: msg.status !== undefined ? msg.status : existing?.status ?? 'draft',
         instagram_account_id: msg.instagram_account_id !== undefined ? msg.instagram_account_id : existing?.instagram_account_id ?? null,
         ig_thread_id: msg.ig_thread_id !== undefined ? msg.ig_thread_id : existing?.ig_thread_id ?? null,
         ig_message_id: msg.ig_message_id !== undefined ? msg.ig_message_id : existing?.ig_message_id ?? null,
@@ -1147,7 +1147,53 @@ export const instagramDb = {
     }
 
     const supabase = createAdminClient();
-    const payload = {
+
+    // Check if message record already exists by ID or by (campaign_lead_id, step_number)
+    let existing: any = null;
+    if (msg.id) {
+      const { data } = await supabase.from('instagram_messages').select('*').eq('id', msg.id).maybeSingle();
+      existing = data;
+    }
+    if (!existing && msg.campaign_lead_id && msg.step_number !== undefined) {
+      const { data } = await supabase
+        .from('instagram_messages')
+        .select('*')
+        .eq('campaign_lead_id', msg.campaign_lead_id)
+        .eq('step_number', msg.step_number)
+        .maybeSingle();
+      existing = data;
+    }
+
+    if (existing?.id) {
+      // Targeted partial update: NEVER overwrite body_text or personalization with empty values if omitted
+      const updatePayload: Record<string, any> = {
+        updated_at: now,
+      };
+      if (msg.body_text !== undefined) updatePayload.body_text = msg.body_text;
+      if (msg.personalization_basis !== undefined) updatePayload.personalization_basis = msg.personalization_basis;
+      if (msg.unsupported_claims !== undefined) updatePayload.unsupported_claims = msg.unsupported_claims;
+      if (msg.status !== undefined) updatePayload.status = msg.status;
+      if (msg.instagram_account_id !== undefined) updatePayload.instagram_account_id = msg.instagram_account_id;
+      if (msg.ig_thread_id !== undefined) updatePayload.ig_thread_id = msg.ig_thread_id;
+      if (msg.ig_message_id !== undefined) updatePayload.ig_message_id = msg.ig_message_id;
+      if (msg.scheduled_at !== undefined) updatePayload.scheduled_at = msg.scheduled_at;
+      if (msg.sent_at !== undefined) updatePayload.sent_at = msg.sent_at;
+      if (msg.error_code !== undefined) updatePayload.error_code = msg.error_code;
+      if (msg.error_message !== undefined) updatePayload.error_message = msg.error_message;
+
+      const { data, error } = await supabase
+        .from('instagram_messages')
+        .update(updatePayload)
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data;
+    }
+
+    // New message insertion
+    const insertPayload = {
+      id: msg.id || crypto.randomUUID(),
       campaign_lead_id: msg.campaign_lead_id,
       step_number: msg.step_number,
       body_text: msg.body_text ?? '',
@@ -1161,12 +1207,13 @@ export const instagramDb = {
       sent_at: msg.sent_at ?? null,
       error_code: msg.error_code ?? null,
       error_message: msg.error_message ?? null,
+      created_at: now,
       updated_at: now,
     };
 
     const { data, error } = await supabase
       .from('instagram_messages')
-      .upsert(payload, { onConflict: 'campaign_lead_id,step_number' })
+      .insert(insertPayload)
       .select()
       .single();
     if (error) throw new Error(error.message);
@@ -1229,7 +1276,6 @@ export const instagramDb = {
     const eligible = messages.filter((m) => {
       if (m.step_number !== 0) return false;
       if (!m.lead?.normalized_handle) return false;
-      if (!m.body_text?.trim()) return false;
       if (m.status === 'draft' || m.status === 'scheduled' || m.status === 'paused') return true;
       if (includeFailed && m.status === 'failed') return true;
       return false;
@@ -1291,7 +1337,7 @@ export const instagramDb = {
     try {
       const draftedInActive = await this.getInstagramMessages({ status: 'draft' });
       const eligibleDrafts = draftedInActive.filter(
-        (m) => m.step_number === 0 && Boolean(m.body_text?.trim()) && Boolean(m.lead?.normalized_handle)
+        (m) => m.step_number === 0 && Boolean(m.lead?.normalized_handle)
       );
       if (eligibleDrafts.length > 0) {
         const campaignIds = Array.from(

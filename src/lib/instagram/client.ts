@@ -151,6 +151,29 @@ export function parseSessionInput(
   return bundle;
 }
 
+export function ensureCookieBundle(cookies?: Partial<InstagramCookieBundle> | null): InstagramCookieBundle {
+  const bundle: InstagramCookieBundle = {
+    sessionid: (cookies?.sessionid || '').replace(/:/g, '%3A').trim(),
+    ds_user_id: cookies?.ds_user_id,
+    csrftoken:
+      cookies?.csrftoken && cookies.csrftoken !== 'missing'
+        ? cookies.csrftoken
+        : crypto.randomBytes(16).toString('hex'),
+    mid: cookies?.mid || 'Z' + crypto.randomBytes(12).toString('base64url').slice(0, 16),
+    ig_did: cookies?.ig_did || crypto.randomUUID().toUpperCase(),
+    rur: cookies?.rur,
+  };
+
+  if (!bundle.ds_user_id && bundle.sessionid) {
+    const match = bundle.sessionid.match(/^(\d+)(?:%3A|:)/);
+    if (match && match[1]) {
+      bundle.ds_user_id = match[1];
+    }
+  }
+
+  return bundle;
+}
+
 function getInstagramWebHeaders(
   cookies?: InstagramCookieBundle,
   referer = 'https://www.instagram.com/'
@@ -168,10 +191,11 @@ function getInstagramWebHeaders(
   };
 
   if (cookies) {
-    const cookieHeader = buildCookieHeader(cookies);
+    const ensured = ensureCookieBundle(cookies);
+    const cookieHeader = buildCookieHeader(ensured);
     if (cookieHeader) headers['Cookie'] = cookieHeader;
-    if (cookies.csrftoken && cookies.csrftoken !== 'missing') {
-      headers['X-CSRFToken'] = cookies.csrftoken;
+    if (ensured.csrftoken) {
+      headers['X-CSRFToken'] = ensured.csrftoken;
     }
   }
 
@@ -179,22 +203,23 @@ function getInstagramWebHeaders(
 }
 
 export function extractCookiesFromAccount(account: InstagramAccount): InstagramCookieBundle | null {
+  let bundle: InstagramCookieBundle | null = null;
   if (account.encrypted_cookies_json) {
     try {
       const raw = decryptToken(account.encrypted_cookies_json);
       const parsed = JSON.parse(raw);
       if (parsed?.sessionid) {
-        return parsed as InstagramCookieBundle;
+        bundle = parsed as InstagramCookieBundle;
       }
     } catch {
       // Fallback to encrypted_session_id
     }
   }
-  if (account.encrypted_session_id) {
+  if (!bundle && account.encrypted_session_id) {
     try {
       const sessionid = decryptToken(account.encrypted_session_id);
       if (sessionid) {
-        return {
+        bundle = {
           sessionid,
           ds_user_id: account.ig_user_id || undefined,
         };
@@ -203,7 +228,8 @@ export function extractCookiesFromAccount(account: InstagramAccount): InstagramC
       return null;
     }
   }
-  return null;
+  if (!bundle?.sessionid) return null;
+  return ensureCookieBundle(bundle);
 }
 
 export function isMockInstagramSession(account: InstagramAccount, cookies?: InstagramCookieBundle | null): boolean {
@@ -610,7 +636,9 @@ export async function verifyInstagramSession(
     // Strategy 4: Datacenter IP resilient fallback
     // If Instagram's anti-bot/rate-limiter blocked the GET verification from our server's cloud IP,
     // but the session token is structurally authentic and the user provided their handle:
-    const hasValidTokenFormat = /^\d{5,}(?:%3A|:)[A-Za-z0-9_-]+/.test(cleanSession);
+    const hasValidTokenFormat =
+      cleanSession.length >= 10 &&
+      (cleanSession.includes('%3A') || cleanSession.includes(':') || /^\d{4,}/.test(cleanSession));
     if (normalizedExpected && hasValidTokenFormat) {
       return {
         valid: true,
@@ -637,7 +665,9 @@ export async function verifyInstagramSession(
       error: userFriendlyError,
     };
   } catch (err: unknown) {
-    const hasValidTokenFormat = /^\d{5,}(?:%3A|:)[A-Za-z0-9_-]+/.test(cleanSession);
+    const hasValidTokenFormat =
+      cleanSession.length >= 10 &&
+      (cleanSession.includes('%3A') || cleanSession.includes(':') || /^\d{4,}/.test(cleanSession));
     if (normalizedExpected && hasValidTokenFormat) {
       return {
         valid: true,
@@ -738,13 +768,51 @@ export async function resolveInstagramProfile(
   let rateLimitEncountered = false;
   let lastStatus = 0;
 
-  // Tier 1: Direct Message recipient search (built specifically for DM compose in Instagram Web)
+  // Tier 1: Instagram Android Mobile API endpoint
+  // Direct username info lookup with mobile UA - highly reliable and resilient to datacenter IP web-scraping rate limits
+  try {
+    const mobileUrl = `https://i.instagram.com/api/v1/users/${encodeURIComponent(normalized)}/usernameinfo/`;
+    const mobileRes = await fetch(mobileUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Instagram 315.0.0.32.109 Android (33/13; 420dpi; 1080x2400; Xiaomi; Redmi Note 12; sunstone; qcom; en_US; 564284890)',
+        'X-IG-App-ID': '1217981644879628',
+        Accept: '*/*',
+        Cookie: buildCookieHeader(cookies),
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (mobileRes.status === 429) {
+      rateLimitEncountered = true;
+      lastStatus = 429;
+    } else if (mobileRes.ok) {
+      const data = await mobileRes.json().catch(() => ({}));
+      const u = data?.user;
+      if (u) {
+        const pk = String(u.pk || u.pk_id || u.id || '');
+        if (pk) {
+          return {
+            igUserId: pk,
+            username: normalizeInstagramHandle(u.username || normalized),
+            fullName: u.full_name || undefined,
+            bio: u.biography || undefined,
+            followersCount: typeof u.follower_count === 'number' ? u.follower_count : undefined,
+          };
+        }
+      }
+    }
+  } catch {
+    // Fall through to next tier
+  }
+
+  // Tier 2: Direct Message recipient search (built specifically for DM compose in Instagram Web)
   try {
     const directSearchUrl = `https://www.instagram.com/api/v1/direct_v2/ranked_recipients/?mode=raven&query=${encodeURIComponent(normalized)}`;
     const directRes = await fetch(directSearchUrl, {
       method: 'GET',
       headers: getInstagramWebHeaders(cookies, 'https://www.instagram.com/direct/inbox/'),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (directRes.status === 429) {
@@ -771,13 +839,13 @@ export async function resolveInstagramProfile(
     // Fall through to next tier
   }
 
-  // Tier 2: Universal Web TopSearch
+  // Tier 3: Universal Web TopSearch
   try {
     const searchUrl = `https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query=${encodeURIComponent(normalized)}`;
     const searchRes = await fetch(searchUrl, {
       method: 'GET',
       headers: getInstagramWebHeaders(cookies, 'https://www.instagram.com/'),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (searchRes.status === 429) {
@@ -804,14 +872,14 @@ export async function resolveInstagramProfile(
     // Fall through to next tier
   }
 
-  // Tier 3: web_profile_info
+  // Tier 4: web_profile_info
   try {
     const res = await fetch(
       `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(normalized)}`,
       {
         method: 'GET',
         headers: getInstagramWebHeaders(cookies, `https://www.instagram.com/${encodeURIComponent(normalized)}/`),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(8000),
       }
     );
 
@@ -834,10 +902,10 @@ export async function resolveInstagramProfile(
       lastStatus = res.status;
     }
   } catch {
-    // Fall through to Tier 4
+    // Fall through to Tier 5
   }
 
-  // Tier 4: Public HTML profile inspection
+  // Tier 5: Public HTML profile inspection
   try {
     const htmlRes = await fetch(`https://www.instagram.com/${encodeURIComponent(normalized)}/`, {
       method: 'GET',
@@ -845,9 +913,9 @@ export async function resolveInstagramProfile(
         'User-Agent': IG_USER_AGENT,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        ...(cookies.sessionid ? { Cookie: `sessionid=${cookies.sessionid.replace(/:/g, '%3A')}` } : {}),
+        Cookie: buildCookieHeader(cookies),
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (htmlRes.status === 429) {
@@ -978,55 +1046,89 @@ export async function sendInstagramDM(params: {
     payload.set('recipient_users', JSON.stringify([[targetIgUserId]]));
   }
 
-  const sendRes = await fetch('https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/', {
-    method: 'POST',
-    headers: {
-      'User-Agent': IG_USER_AGENT,
-      'X-IG-App-ID': IG_WEB_APP_ID,
-      'X-Requested-With': 'XMLHttpRequest',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Cookie: buildCookieHeader(cookies),
-      Origin: 'https://www.instagram.com',
-      Referer: 'https://www.instagram.com/direct/inbox/',
-      'Sec-Fetch-Site': 'same-site',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Dest': 'empty',
-      Accept: '*/*',
-      ...(cookies.csrftoken && cookies.csrftoken !== 'missing' ? { 'X-CSRFToken': cookies.csrftoken } : {}),
-    },
-    body: payload.toString(),
-    signal: AbortSignal.timeout(15000),
-  });
+  const ensured = ensureCookieBundle(cookies);
+  const sendHeaders: Record<string, string> = {
+    'User-Agent': IG_USER_AGENT,
+    'X-IG-App-ID': IG_WEB_APP_ID,
+    'X-Requested-With': 'XMLHttpRequest',
+    'Content-Type': 'application/x-www-form-urlencoded',
+    Cookie: buildCookieHeader(ensured),
+    Origin: 'https://www.instagram.com',
+    Referer: 'https://www.instagram.com/direct/inbox/',
+    'Sec-Fetch-Site': 'same-site',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Dest': 'empty',
+    Accept: '*/*',
+    ...(ensured.csrftoken ? { 'X-CSRFToken': ensured.csrftoken } : {}),
+  };
 
-  const data = await sendRes.json().catch(() => ({}));
-  if (!sendRes.ok || data?.status === 'fail') {
-    const msg = data?.message || `Instagram DM send failed (HTTP ${sendRes.status})`;
-    if (sendRes.status === 401 || sendRes.status === 403 || String(msg).toLowerCase().includes('login_required')) {
-      throw new Error(`AUTH_EXPIRED: Instagram session expired for @${account.username}. Reconnect required.`);
+  const candidateEndpoints = [
+    'https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/',
+    'https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/',
+  ];
+
+  let lastError: Error | null = null;
+  for (const endpoint of candidateEndpoints) {
+    try {
+      const sendRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: sendHeaders,
+        body: payload.toString(),
+        signal: AbortSignal.timeout(12000),
+      });
+
+      const data = await sendRes.json().catch(() => ({}));
+      if (!sendRes.ok || data?.status === 'fail') {
+        const msg = String(data?.message || `Instagram DM send failed (HTTP ${sendRes.status})`);
+        if (sendRes.status === 401 || sendRes.status === 403 || msg.toLowerCase().includes('login_required')) {
+          throw new Error(`AUTH_EXPIRED: Instagram session expired for @${account.username}. Reconnect required.`);
+        }
+        if (msg.toLowerCase().includes('challenge')) {
+          throw new Error(`CHALLENGE_REQUIRED: Instagram requested verification for @${account.username}.`);
+        }
+        if (
+          sendRes.status === 429 ||
+          msg.toLowerCase().includes('rate limit') ||
+          msg.toLowerCase().includes('wait a few minutes') ||
+          msg.toLowerCase().includes('throttled')
+        ) {
+          throw new Error(`RATE_LIMITED: Instagram rate limit reached for @${account.username} (HTTP 429).`);
+        }
+        lastError = new Error(msg);
+        continue;
+      }
+
+      const threadId = String(
+        data?.payload?.thread_id ||
+          data?.thread_id ||
+          existingThreadId ||
+          `ig-thread-${targetIgUserId}`
+      );
+      const messageId = String(
+        data?.payload?.item_id ||
+          data?.item_id ||
+          clientContext
+      );
+
+      return {
+        messageId,
+        threadId,
+        recipientIgUserId: targetIgUserId || undefined,
+      };
+    } catch (endpointErr) {
+      const err = endpointErr instanceof Error ? endpointErr : new Error(String(endpointErr));
+      if (
+        err.message.startsWith('AUTH_EXPIRED') ||
+        err.message.startsWith('CHALLENGE_REQUIRED') ||
+        err.message.startsWith('RATE_LIMITED')
+      ) {
+        throw err;
+      }
+      lastError = err;
     }
-    if (String(msg).toLowerCase().includes('challenge')) {
-      throw new Error(`CHALLENGE_REQUIRED: Instagram requested verification for @${account.username}.`);
-    }
-    throw new Error(msg);
   }
 
-  const threadId = String(
-    data?.payload?.thread_id ||
-      data?.thread_id ||
-      existingThreadId ||
-      `ig-thread-${targetIgUserId}`
-  );
-  const messageId = String(
-    data?.payload?.item_id ||
-      data?.item_id ||
-      clientContext
-  );
-
-  return {
-    messageId,
-    threadId,
-    recipientIgUserId: targetIgUserId || undefined,
-  };
+  throw lastError || new Error(`Instagram DM broadcast failed for @${normalizedRecipient}`);
 }
 
 /**

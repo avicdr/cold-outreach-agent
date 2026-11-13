@@ -15,7 +15,12 @@ import {
   processInstagramImportRows,
 } from '@/lib/instagram/csv';
 import { instagramDb } from '@/lib/instagram/db';
-import { loginWithInstagramCredentials, verifyInstagramSession, parseSessionInput } from '@/lib/instagram/client';
+import {
+  loginWithInstagramCredentials,
+  verifyInstagramSession,
+  parseSessionInput,
+  ensureCookieBundle,
+} from '@/lib/instagram/client';
 import { handleGenerateIgDmJob, handleSendIgDmJob } from '@/lib/instagram/worker';
 
 describe('Instagram DM Automation Engine', () => {
@@ -523,6 +528,74 @@ describe('Instagram DM Automation Engine', () => {
 
     const leads = await instagramDb.getInstagramCampaignLeads(camp.id);
     expect(leads.every((l) => l.status === 'in_progress')).toBe(true);
+  });
+
+  it('preserves body_text and metadata during partial status and backoff updates', async () => {
+    const insert = await instagramDb.insertInstagramLeads(OWNER_USER_ID, [
+      {
+        instagram_handle: '@cafeparis_lucknow',
+        normalized_handle: 'cafeparis_lucknow',
+        company: 'Cafe Paris',
+        status: 'active',
+      },
+    ]);
+    const lead = insert.insertedLeads[0];
+
+    const camp = await instagramDb.createInstagramCampaign(OWNER_USER_ID, {
+      name: 'Partial Update Stability',
+      status: 'active',
+    });
+
+    await instagramDb.enrollInstagramLeads(camp.id, [lead.id]);
+    const cl = (await instagramDb.getInstagramCampaignLeads(camp.id))[0];
+
+    // Initial message creation with AI-generated body text
+    const initial = await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: cl.id,
+      step_number: 0,
+      body_text: 'Hey Cafe Paris! Love your aesthetic dishes.',
+      personalization_basis: ['French bakery Lucknow'],
+      status: 'draft',
+    });
+
+    expect(initial.body_text).toBe('Hey Cafe Paris! Love your aesthetic dishes.');
+
+    // Partial update: only updating status and scheduled_at (body_text omitted)
+    const updatedStatus = await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: cl.id,
+      step_number: 0,
+      status: 'scheduled',
+      scheduled_at: new Date(Date.now() + 60000).toISOString(),
+    });
+
+    expect(updatedStatus.body_text).toBe('Hey Cafe Paris! Love your aesthetic dishes.');
+    expect(updatedStatus.personalization_basis).toEqual(['French bakery Lucknow']);
+    expect(updatedStatus.status).toBe('scheduled');
+
+    // Partial update 2: backoff error message update (body_text omitted)
+    const updatedBackoff = await instagramDb.createOrUpdateInstagramMessage({
+      campaign_lead_id: cl.id,
+      step_number: 0,
+      status: 'scheduled',
+      error_message: 'Account is cooling down after rate limit (HTTP 429). Retrying at 12:49:21 AM.',
+    });
+
+    expect(updatedBackoff.body_text).toBe('Hey Cafe Paris! Love your aesthetic dishes.');
+    expect(updatedBackoff.status).toBe('scheduled');
+    expect(updatedBackoff.error_message).toContain('cooling down');
+  });
+
+  it('ensureCookieBundle generates required CSRF, MID, and device identifiers', () => {
+    const minimal = ensureCookieBundle({
+      sessionid: '49121359678%3AbhWkd9A%3A19%3AAYf',
+    });
+
+    expect(minimal.sessionid).toBe('49121359678%3AbhWkd9A%3A19%3AAYf');
+    expect(minimal.ds_user_id).toBe('49121359678');
+    expect(minimal.csrftoken).toBeTruthy();
+    expect(minimal.csrftoken?.length).toBe(32);
+    expect(minimal.mid).toBeTruthy();
+    expect(minimal.ig_did).toBeTruthy();
   });
 });
 

@@ -17,7 +17,10 @@ const lastAccountAttemptMs = new Map<string, number>();
 /**
  * 1. Generate an AI Instagram DM draft (step 0 or follow-up)
  */
-export async function handleGenerateIgDmJob(payload: { campaignLeadId: string; stepNumber?: number }) {
+export async function handleGenerateIgDmJob(
+  payload: { campaignLeadId: string; stepNumber?: number },
+  options?: { skipEnqueue?: boolean }
+) {
   const { campaignLeadId, stepNumber = 0 } = payload;
 
   const targetCl = await instagramDb.getInstagramCampaignLead(campaignLeadId);
@@ -82,7 +85,7 @@ export async function handleGenerateIgDmJob(payload: { campaignLeadId: string; s
       last_error: null,
     });
 
-    if (isCampaignActive) {
+    if (isCampaignActive && !options?.skipEnqueue) {
       await dbService.enqueueJob(
         'send_ig_dm',
         { instagramMessageId: savedMsg.id },
@@ -126,7 +129,7 @@ export async function handleGenerateIgDmJob(payload: { campaignLeadId: string; s
       next_action_at: scheduledDate.toISOString(),
     });
 
-    if (campaign.status === 'active') {
+    if (campaign.status === 'active' && !options?.skipEnqueue) {
       await dbService.enqueueJob(
         'send_ig_dm',
         { instagramMessageId: savedMsg.id },
@@ -390,10 +393,13 @@ export async function handleSendIgDmJob(payload: { instagramMessageId: string },
   // 3. Draft body guard: If body text is empty, generate it on the fly
   let textToSend = message.body_text?.trim() || '';
   if (!textToSend) {
-    await handleGenerateIgDmJob({
-      campaignLeadId: message.campaign_lead_id,
-      stepNumber: message.step_number,
-    });
+    await handleGenerateIgDmJob(
+      {
+        campaignLeadId: message.campaign_lead_id,
+        stepNumber: message.step_number,
+      },
+      { skipEnqueue: true }
+    );
     const refreshed = await instagramDb.getInstagramMessage(instagramMessageId);
     textToSend = refreshed?.body_text?.trim() || '';
     if (!textToSend) {

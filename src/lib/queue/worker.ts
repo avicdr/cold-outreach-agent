@@ -34,6 +34,18 @@ export interface ProcessBatchResult {
   timedOut: boolean;
 }
 
+async function withTimeoutThrow<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 /**
  * Process a batch of jobs atomically from the job queue with strict time budgeting.
  */
@@ -50,15 +62,21 @@ export async function processJobQueueBatch(
   let timedOut = false;
 
   for (const job of jobs) {
-    // If elapsed time has exceeded budget - 3500ms, break early to cleanly complete and respond
-    if (Date.now() - startTime >= maxDurationMs - 3500) {
+    const elapsed = Date.now() - startTime;
+    const remainingBudget = maxDurationMs - elapsed;
+    if (remainingBudget <= 3500) {
       console.info(`[WorkerBatch] Time budget of ${maxDurationMs}ms reached. Halting batch early.`);
       timedOut = true;
       break;
     }
 
     try {
-      await processSingleJob(job, force);
+      const singleJobTimeout = Math.max(2000, Math.min(18000, remainingBudget - 2000));
+      await withTimeoutThrow(
+        processSingleJob(job, force),
+        singleJobTimeout,
+        `Job ${job.id} (${job.job_type}) exceeded execution time budget of ${singleJobTimeout}ms`
+      );
       await dbService.completeJob(job.id);
       processedJobIds.add(job.id);
       results.push({ jobId: job.id, type: job.job_type, status: 'completed' });
