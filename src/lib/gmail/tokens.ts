@@ -128,6 +128,15 @@ export async function executeWithGmailAuth<T>(
     return await apiCall(accessToken);
   } catch (sendErr: unknown) {
     const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+
+    // Permanent service/configuration error: Mail service not enabled in Google Workspace
+    if (errMsg.includes('Mail service not enabled') || errMsg.includes('FAILED_PRECONDITION')) {
+      await markAccountError(emailAccount.id);
+      throw new Error(
+        `Gmail service is not enabled for ${emailAccount.email_address} in Google Workspace ("Mail service not enabled"). Account marked as error. Please enable the Gmail service in Google Workspace Admin Console (admin.google.com) or reconnect in Settings -> Email Accounts.`
+      );
+    }
+
     const isAuthError =
       errMsg.includes('401') ||
       errMsg.includes('UNAUTHENTICATED') ||

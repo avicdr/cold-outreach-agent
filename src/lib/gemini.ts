@@ -381,7 +381,7 @@ export function naturalizeOutreachHook(rawHook?: string, companyName?: string): 
     return `I've been following what you and the team are building at ${company}, especially your engineering focus.`;
   }
 
-  let text = rawHook.trim().replace(/\.+$/, '');
+  const text = rawHook.trim().replace(/\.+$/, '');
 
   // Specific community and bespoke patterns
   if (/email.*directly mentioning hn/i.test(text) || /hacker news/i.test(text)) {

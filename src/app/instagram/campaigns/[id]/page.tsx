@@ -48,7 +48,7 @@ function InstagramCampaignDetailInner({ params }: { params: Promise<{ id: string
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [dispatching, setDispatching] = useState(false);
-  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,16 +199,39 @@ function InstagramCampaignDetailInner({ params }: { params: Promise<{ id: string
     setActionLoading(true);
     setNotice(null);
     try {
-      const res = await fetch(`/api/instagram/campaigns/${id}/generate`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Generation failed.');
+      let isDone = false;
+      let totalNewlyGenerated = 0;
+      let totalSkippedHandles = 0;
+      let loopCount = 0;
+      const MAX_LOOPS = 50;
+
+      while (!isDone && loopCount < MAX_LOOPS) {
+        loopCount++;
+        const res = await fetch(`/api/instagram/campaigns/${id}/generate?limit=12`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Generation failed.');
+
+        totalNewlyGenerated += (data.newly_generated || 0);
+        totalSkippedHandles = data.skipped_missing_handles || 0;
+        isDone = data.done !== false || !data.remaining_count;
+
+        if (!isDone) {
+          setNotice({
+            type: 'info',
+            text: `Writing personalized DMs with AI... (${data.remaining_count} remaining)`,
+          });
+          // Refresh background list progressively
+          loadCampaign();
+        }
+      }
+
       const skippedMsg =
-        data.skipped_missing_handles > 0
-          ? ` (${data.skipped_missing_handles} lead(s) skipped because they need an @handle first)`
+        totalSkippedHandles > 0
+          ? ` (${totalSkippedHandles} lead(s) skipped because they need an @handle first)`
           : '';
       setNotice({
         type: 'success',
-        text: `Generated ${data.newly_generated} new DM draft(s)${skippedMsg}.`,
+        text: `Generated ${totalNewlyGenerated} new DM draft(s)${skippedMsg}.`,
       });
       await loadCampaign();
     } catch (err: any) {
@@ -421,12 +444,16 @@ function InstagramCampaignDetailInner({ params }: { params: Promise<{ id: string
               className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
                 notice.type === 'success'
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                  : notice.type === 'info'
+                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                    : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
               }`}
             >
               <div className="flex items-center gap-2">
                 {notice.type === 'success' ? (
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : notice.type === 'info' ? (
+                  <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
                 ) : (
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                 )}

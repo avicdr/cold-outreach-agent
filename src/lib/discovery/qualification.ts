@@ -173,7 +173,7 @@ export async function qualifyBusinessWithGemini(
     return evaluateHeuristicQualification(business, config);
   }
 
-  const model = process.env.GEMINI_MODEL || env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const model = process.env.GEMINI_MODEL || env.GEMINI_MODEL || 'gemini-3.5-flash';
 
   const rubricPrompt = `
 You are an expert B2B sales qualification engine.
@@ -252,9 +252,9 @@ OUTPUT SCHEMA (Must be pure JSON without markdown code fences or backticks):
       const ai = new GoogleGenAI({ apiKey: geminiKey.trim() });
       const candidateModels = [
         model,
-        'gemini-2.5-flash',
-        'gemini-1.5-flash',
-        'gemini-2.0-flash',
+        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite',
       ];
       const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
 

@@ -181,7 +181,15 @@ export default function AccountsPage() {
   };
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    const init = async () => {
+      try {
+        await loadData();
+      } catch (e) {
+        if (active) console.error(e);
+      }
+    };
+    void init();
 
     // Check OAuth return params
     if (typeof window !== 'undefined') {
@@ -194,15 +202,24 @@ export default function AccountsPage() {
         }
         if (params.get('connected') === 'true') {
           const email = params.get('email');
-          showNotification(`Successfully connected Google inbox ${email || ''}! Account is ready for outreach & warmup.`);
           window.history.replaceState({}, '', '/accounts');
-          loadData();
+          setTimeout(() => {
+            showNotification(`Successfully connected Google inbox ${email || ''}! Account is ready for outreach & warmup.`);
+            void loadData();
+          }, 0);
         } else if (params.get('error')) {
-          showNotification(`OAuth authentication failed: ${params.get('error')}`, 'error');
+          const errParam = params.get('error');
           window.history.replaceState({}, '', '/accounts');
+          setTimeout(() => {
+            showNotification(`OAuth authentication failed: ${errParam}`, 'error');
+          }, 0);
         }
       }
     }
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleConnectGmailOAuth = async () => {
@@ -268,7 +285,7 @@ export default function AccountsPage() {
     setSubmitting(true);
     try {
       const isSmtp = connectionTab === 'titan' || connectionTab === 'smtp';
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         email_address: accountForm.email_address.trim(),
         sender_name: accountForm.sender_name.trim(),
         group_id: accountForm.group_id || null,
@@ -1370,10 +1387,10 @@ export default function AccountsPage() {
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
                   <span className="text-xs font-medium text-slate-300 flex items-center gap-1">
                     <Mail className="w-3.5 h-3.5 text-indigo-400" />
-                    Using Titan via Gmail "Send As"?
+                    Using Titan via Gmail &quot;Send As&quot;?
                   </span>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    If you added your Titan email under Gmail Settings → Accounts and Import → <em>"Send mail as"</em> with Titan SMTP (<code className="text-indigo-300">smtp.titan.email</code>), authorising that Gmail account will automatically send outreach using your Titan domain alias!
+                    If you added your Titan email under Gmail Settings → Accounts and Import → <em>&quot;Send mail as&quot;</em> with Titan SMTP (<code className="text-indigo-300">smtp.titan.email</code>), authorising that Gmail account will automatically send outreach using your Titan domain alias!
                   </p>
                 </div>
               </div>
@@ -1692,7 +1709,7 @@ export default function AccountsPage() {
                   <label className="text-xs font-medium text-slate-300">Sending Status</label>
                   <select
                     value={editingAccount.status}
-                    onChange={(e) => setEditingAccount({ ...editingAccount, status: e.target.value as any })}
+                    onChange={(e) => setEditingAccount({ ...editingAccount, status: e.target.value as 'active' | 'paused' })}
                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="active">Active (Sending Enabled)</option>

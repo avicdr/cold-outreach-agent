@@ -128,7 +128,7 @@ export default function LeadDiscoveryFeaturePage() {
                 Google Places &amp; OpenStreetMap Discovery
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Outreacher queries live directories using business niche keywords (e.g. "Dental Clinic", "Med Spa", "SaaS Startup") and target city/metro areas. If Google Places quotas are exceeded, the engine seamlessly falls back to OpenStreetMap Overpass without interrupting the job.
+                Outreacher queries live directories using business niche keywords (e.g. &quot;Dental Clinic&quot;, &quot;Med Spa&quot;, &quot;SaaS Startup&quot;) and target city/metro areas. If Google Places quotas are exceeded, the engine seamlessly falls back to OpenStreetMap Overpass without interrupting the job.
               </p>
               <ul className="space-y-2 text-xs text-text-muted pt-2">
                 <li className="flex items-start gap-2">
@@ -215,7 +215,7 @@ export default function LeadDiscoveryFeaturePage() {
                 Prioritize Prospects With Objective Friction Signals
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Do not waste email quota on low-intent or unreachable businesses. Outreacher's AI analyzes digital presence and scores each lead from 0 to 100 based on quantifiable friction criteria:
+                Do not waste email quota on low-intent or unreachable businesses. Outreacher&apos;s AI analyzes digital presence and scores each lead from 0 to 100 based on quantifiable friction criteria:
               </p>
               <div className="space-y-2 text-xs text-text-muted pt-2">
                 <div className="flex items-center gap-2">

@@ -227,6 +227,27 @@ export async function sendGmailMessage(
 
   if (!response.ok) {
     const errorBody = await response.text();
+
+    // If 404 NOT_FOUND on threadId (e.g. thread was deleted, purged, or from another inbox), retry as new thread
+    if (response.status === 404 && options.threadId) {
+      console.warn(`[Gmail] Thread ID ${options.threadId} not found (404). Falling back to sending as new thread.`);
+      const fallbackPayload = { raw };
+      const fallbackResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(fallbackPayload),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (fallbackResponse.ok) {
+        return fallbackResponse.json();
+      }
+      const fallbackError = await fallbackResponse.text();
+      throw new Error(`Gmail API send failed: ${fallbackResponse.status} ${fallbackError}`);
+    }
+
     throw new Error(`Gmail API send failed: ${response.status} ${errorBody}`);
   }
 

@@ -28,21 +28,6 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [theme, setThemeState] = useState<ThemeMode>('dark');
 
-  // Initialize theme from localStorage if available, defaulting to dark
-  useEffect(() => {
-    try {
-      const savedTheme = localStorage.getItem('arenova-theme') as ThemeMode | null;
-      if (savedTheme === 'light' || savedTheme === 'dark') {
-        setThemeState(savedTheme);
-        applyTheme(savedTheme);
-      } else {
-        applyTheme('dark');
-      }
-    } catch {
-      applyTheme('dark');
-    }
-  }, []);
-
   const applyTheme = (t: ThemeMode) => {
     if (typeof document !== 'undefined') {
       const root = document.documentElement;
@@ -66,6 +51,21 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       }
     }
   };
+
+  // Initialize theme from localStorage if available, defaulting to dark
+  useEffect(() => {
+    try {
+      const savedTheme = localStorage.getItem('arenova-theme') as ThemeMode | null;
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setThemeState(savedTheme);
+        applyTheme(savedTheme);
+      } else {
+        applyTheme('dark');
+      }
+    } catch {
+      applyTheme('dark');
+    }
+  }, []);
 
   const setTheme = (newTheme: ThemeMode) => {
     setThemeState(newTheme);

@@ -232,7 +232,7 @@ export default function EmailOutreachAutomationPage() {
                 Warm Inboxes Gradually to Keep Out of Spam
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Brand new inboxes that send cold email immediately get blacklisted by Microsoft Defender and Google Spam Filters. Outreacher's built-in warmup engine safely ramps sending volume with peer exchanges and simulated thread replies.
+                Brand new inboxes that send cold email immediately get blacklisted by Microsoft Defender and Google Spam Filters. Outreacher&apos;s built-in warmup engine safely ramps sending volume with peer exchanges and simulated thread replies.
               </p>
               <div className="space-y-2 text-xs text-text-muted pt-2">
                 <div className="flex items-center gap-2">

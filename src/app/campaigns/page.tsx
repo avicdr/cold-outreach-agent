@@ -28,22 +28,25 @@ export default function CampaignsPage() {
   const [pageSize, setPageSize] = useState(10);
 
   const fetchCampaigns = () => {
-    setLoading(true);
     fetch('/api/campaigns')
       .then((res) => res.json())
       .then((data) => {
         setCampaigns(Array.isArray(data) ? data : []);
-        setLoading(false);
       })
       .catch((err) => {
         console.error('Failed to load campaigns:', err);
         setCampaigns([]);
+      })
+      .finally(() => {
         setLoading(false);
       });
   };
 
   useEffect(() => {
-    fetchCampaigns();
+    const timer = setTimeout(() => {
+      fetchCampaigns();
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   const campaignList = Array.isArray(campaigns) ? campaigns : [];

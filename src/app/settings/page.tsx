@@ -197,7 +197,7 @@ export default function SettingsPage() {
                   <span>Google Cloud Console OAuth Testing Notice:</span>
                 </div>
                 <p className="text-slate-400 leading-relaxed">
-                  When creating your OAuth client in Google Cloud Console, ensure you add your sender email as a <strong>Test User</strong> under the OAuth consent screen if your app status is in "Testing".
+                  When creating your OAuth client in Google Cloud Console, ensure you add your sender email as a <strong>Test User</strong> under the OAuth consent screen if your app status is in &quot;Testing&quot;.
                 </p>
                 <div className="text-[11px] text-slate-500">
                   Required scopes: <code className="text-slate-400 font-mono">gmail.send</code>, <code className="text-slate-400 font-mono">gmail.readonly</code>, <code className="text-slate-400 font-mono">userinfo.email</code>.

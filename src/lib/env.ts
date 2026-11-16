@@ -11,7 +11,7 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(1).default('seekerop1@'),
   
   GEMINI_API_KEY: z.string().optional().default(''),
-  GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
+  GEMINI_MODEL: z.string().default('gemini-3.5-flash'),
 
   OPENAI_API_KEY: z.string().optional().default(''),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),

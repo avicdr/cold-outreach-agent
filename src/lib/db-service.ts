@@ -829,7 +829,7 @@ export const dbService = {
 
     if (!isLiveSupabase()) {
       // Find existing message for step
-      let existing = Array.from(mockDb.emailMessages.values()).find(
+      const existing = Array.from(mockDb.emailMessages.values()).find(
         (m) => m.campaign_lead_id === message.campaign_lead_id && m.step_number === message.step_number
       );
 
@@ -2813,7 +2813,7 @@ export const dbService = {
         await this.enqueueJob(
           'send_email',
           { emailMessageId: msg.id },
-          `reconcile_send_${msg.id}_${runAt.getTime()}`,
+          `reconcile_send_${msg.id}`,
           runAt
         );
         reconciledIds.push(msg.id);
@@ -2887,7 +2887,7 @@ export const dbService = {
         await this.enqueueJob(
           'send_email',
           { emailMessageId: msg.id },
-          `reconcile_send_${msg.id}_${runAt.getTime()}`,
+          `reconcile_send_${msg.id}`,
           runAt
         );
         reconciledIds.push(msg.id);

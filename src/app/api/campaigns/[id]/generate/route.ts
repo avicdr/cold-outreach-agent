@@ -35,14 +35,22 @@ export async function POST(
       (cl) => !existingDraftClIds.has(cl.id) && cl.lead?.verification_status !== 'invalid' && cl.lead?.status !== 'bounced'
     );
 
+    // Support chunked batching via ?limit= query parameter (default 12 leads per chunk to guarantee safe response under Cloudflare 100s timeout)
+    const url = new URL(request.url);
+    const limitParam = url.searchParams.get('limit');
+    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10), 1), 50) : 12;
+
+    const leadsThisChunk = leadsToProcess.slice(0, limit);
+    const remainingCount = Math.max(0, leadsToProcess.length - leadsThisChunk.length);
+
     let generatedCount = existingDraftClIds.size;
     let newlyGenerated = 0;
     const errors: string[] = [];
 
     // Process leads in small parallel batches of 3 to maximize throughput and respect rate limits
     const BATCH_SIZE = 3;
-    for (let i = 0; i < leadsToProcess.length; i += BATCH_SIZE) {
-      const batch = leadsToProcess.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < leadsThisChunk.length; i += BATCH_SIZE) {
+      const batch = leadsThisChunk.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (cl) => {
           await handleGenerateEmailJob({ campaignLeadId: cl.id, stepNumber: 0 });
@@ -70,6 +78,7 @@ export async function POST(
     await dbService.logActivity(user.id, 'campaign_drafts_generated', 'campaign', id, {
       totalGenerated: generatedCount,
       newlyGenerated,
+      remainingCount,
       errorsCount: errors.length,
     });
 
@@ -77,6 +86,8 @@ export async function POST(
       success: true,
       generated_count: generatedCount,
       newly_generated: newlyGenerated,
+      remaining_count: remainingCount,
+      done: remainingCount === 0,
       errors: errors.slice(0, 10),
     });
   } catch (err: unknown) {

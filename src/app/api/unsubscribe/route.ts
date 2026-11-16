@@ -1,16 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUnsubscribeToken } from '@/lib/unsubscribe-token';
 import { handleProcessUnsubscribeJob } from '@/lib/queue/worker';
-import { z } from 'zod';
 
-const unsubscribeSchema = z.object({
-  token: z.string().min(1, 'Token is required'),
-});
+export async function GET(request: NextRequest) {
+  const url = request.nextUrl ?? new URL(request.url);
+  const token = url.searchParams.get('token');
+  const redirectUrl = new URL('/unsubscribe', request.url);
+  if (token) {
+    redirectUrl.searchParams.set('token', token);
+  }
+  return NextResponse.redirect(redirectUrl);
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { token } = unsubscribeSchema.parse(body);
+    const url = request.nextUrl ?? new URL(request.url);
+    let token: string | null = url.searchParams.get('token');
+
+    if (!token) {
+      const contentType = request.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          const body = await request.json();
+          if (body && typeof body.token === 'string') {
+            token = body.token;
+          }
+        } catch {
+          // JSON parsing failed
+        }
+      } else if (
+        contentType.includes('application/x-www-form-urlencoded') ||
+        contentType.includes('multipart/form-data')
+      ) {
+        try {
+          const formData = await request.formData();
+          const formToken = formData.get('token');
+          if (typeof formToken === 'string') {
+            token = formToken;
+          }
+        } catch {
+          // Form parsing failed
+        }
+      }
+    }
+
+    if (!token) {
+      return NextResponse.json({ error: 'Token is required' }, { status: 400 });
+    }
 
     const payload = verifyUnsubscribeToken(token);
 
@@ -30,3 +66,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: errorMsg }, { status: 400 });
   }
 }
+

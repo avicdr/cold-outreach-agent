@@ -5,6 +5,7 @@ import { sendGmailMessage, pollGmailReplies } from '../gmail/client';
 import { sendSmtpEmail } from '../smtp/client';
 import { executeWithGmailAuth } from '../gmail/tokens';
 import { encryptToken, decryptToken } from '../crypto';
+import { generateUnsubscribeToken } from '../unsubscribe-token';
 import { env } from '../env';
 import { JobQueueItem, SendingConfig, Campaign, Lead, EmailAccount } from '@/types/database';
 import {
@@ -754,53 +755,99 @@ export async function handleSendEmailJob(payload: { emailMessageId: string }, fo
     console.warn('[Send] Attachment resolution skipped:', attErr);
   }
 
-  // Execute Send (via SMTP or Gmail OAuth)
+  // CAN-SPAM and RFC 8058 compliant unsubscribe headers
+  let unsubscribeUrl: string | undefined = undefined;
+  try {
+    const unsubscribeToken = generateUnsubscribeToken({
+      userId: campaign.user_id,
+      leadId: lead.id,
+      normalizedEmail: lead.normalized_email || lead.email.toLowerCase().trim(),
+      campaignId: campaign.id,
+    });
+    const appBaseUrl = (env.NEXT_PUBLIC_APP_URL || 'https://outreacher.arenova.in').replace(/\/$/, '');
+    unsubscribeUrl = `${appBaseUrl}/api/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`;
+  } catch (err) {
+    console.warn('[Send] Failed to generate unsubscribe token:', err);
+  }
+
+  // Execute Send (via SMTP or Gmail OAuth with automatic inbox failover)
   let sendResult: { id: string; threadId: string };
 
-  const senderDisplay = emailAccount.sender_name?.trim()
-    ? `"${emailAccount.sender_name.trim()}" <${emailAccount.email_address}>`
-    : emailAccount.email_address;
+  const executeSend = async (acc: EmailAccount) => {
+    const accDisplay = acc.sender_name?.trim()
+      ? `"${acc.sender_name.trim()}" <${acc.email_address}>`
+      : acc.email_address;
 
-  if (emailAccount.provider === 'smtp') {
-    let smtpPassword = '';
-    try {
-      smtpPassword = decryptToken(emailAccount.encrypted_smtp_password || emailAccount.encrypted_access_token);
-    } catch {
-      smtpPassword = emailAccount.encrypted_smtp_password || emailAccount.encrypted_access_token;
-    }
-
-    sendResult = await sendSmtpEmail(
-      {
-        host: emailAccount.smtp_host || 'smtp.titan.email',
-        port: emailAccount.smtp_port || 465,
-        secure: emailAccount.smtp_secure ?? (emailAccount.smtp_port === 465 || !emailAccount.smtp_port),
-        user: emailAccount.smtp_username || emailAccount.email_address,
-        pass: smtpPassword,
-      },
-      {
-        from: senderDisplay,
-        to: lead.email,
-        subject: message.subject,
-        bodyText: message.body_text,
-        threadId: targetThreadId,
-        inReplyToMessageId: formattedInReplyTo,
-        references: formattedInReplyTo,
-        attachments,
+    if (acc.provider === 'smtp') {
+      let smtpPassword = '';
+      try {
+        smtpPassword = decryptToken(acc.encrypted_smtp_password || acc.encrypted_access_token);
+      } catch {
+        smtpPassword = acc.encrypted_smtp_password || acc.encrypted_access_token;
       }
-    );
-  } else {
-    sendResult = await executeWithGmailAuth(emailAccount, (token) =>
-      sendGmailMessage(token, {
-        from: senderDisplay,
-        to: lead.email,
-        subject: message.subject,
-        bodyText: message.body_text,
-        threadId: targetThreadId,
-        inReplyToMessageId: formattedInReplyTo,
-        references: formattedInReplyTo,
-        attachments,
-      })
-    );
+
+      return await sendSmtpEmail(
+        {
+          host: acc.smtp_host || 'smtp.titan.email',
+          port: acc.smtp_port || 465,
+          secure: acc.smtp_secure ?? (acc.smtp_port === 465 || !acc.smtp_port),
+          user: acc.smtp_username || acc.email_address,
+          pass: smtpPassword,
+        },
+        {
+          from: accDisplay,
+          to: lead.email,
+          subject: message.subject,
+          bodyText: message.body_text,
+          threadId: targetThreadId,
+          inReplyToMessageId: formattedInReplyTo,
+          references: formattedInReplyTo,
+          attachments,
+          unsubscribeUrl,
+        }
+      );
+    } else {
+      return await executeWithGmailAuth(acc, (token) =>
+        sendGmailMessage(token, {
+          from: accDisplay,
+          to: lead.email,
+          subject: message.subject,
+          bodyText: message.body_text,
+          threadId: targetThreadId,
+          inReplyToMessageId: formattedInReplyTo,
+          references: formattedInReplyTo,
+          attachments,
+          unsubscribeUrl,
+        })
+      );
+    }
+  };
+
+  try {
+    sendResult = await executeSend(emailAccount);
+  } catch (sendErr: unknown) {
+    const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+    const isAccountFatal =
+      errMsg.includes('Mail service not enabled') ||
+      errMsg.includes('FAILED_PRECONDITION') ||
+      errMsg.includes('authentication failed') ||
+      errMsg.includes('session has expired') ||
+      errMsg.includes('revoked');
+
+    if (isAccountFatal) {
+      console.warn(`[SendFailover] Inbox ${emailAccount.email_address} encountered fatal account error: ${errMsg}. Attempting failover.`);
+      const failoverResult = await dbService.getAvailableEmailAccountForCampaign(campaign);
+      if (failoverResult.status === 'available' && failoverResult.account.id !== emailAccount.id) {
+        console.info(`[SendFailover] Successfully failed over to healthy inbox ${failoverResult.account.email_address}.`);
+        emailAccount = failoverResult.account;
+        message.email_account_id = emailAccount.id;
+        sendResult = await executeSend(emailAccount);
+      } else {
+        throw sendErr;
+      }
+    } else {
+      throw sendErr;
+    }
   }
 
   // 1. Immediately record account send so the cooldown timestamp and counter are secured
@@ -1053,6 +1100,42 @@ export async function handleProcessUnsubscribeJob(payload: { userId: string; nor
     if (msg.lead?.normalized_email === normalizedEmail) {
       msg.status = 'cancelled';
       await dbService.createOrUpdateMessage(msg);
+    }
+  }
+
+  // Live database synchronization: cascade to campaign_leads and job_queue
+  if (isLiveSupabase()) {
+    try {
+      const { createAdminClient } = await import('../supabase/admin');
+      const supabase = createAdminClient();
+
+      const { data: matchedLeads } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('normalized_email', normalizedEmail);
+
+      if (matchedLeads && matchedLeads.length > 0) {
+        const leadIds = matchedLeads.map((l) => l.id);
+
+        // Update campaign_leads status
+        await supabase
+          .from('campaign_leads')
+          .update({ status: 'unsubscribed', updated_at: new Date().toISOString() })
+          .in('lead_id', leadIds)
+          .neq('status', 'unsubscribed');
+
+        // Cancel pending queued jobs for these leads
+        for (const leadId of leadIds) {
+          await supabase
+            .from('job_queue')
+            .update({ status: 'completed', updated_at: new Date().toISOString() })
+            .filter('payload->>leadId', 'eq', leadId)
+            .in('status', ['queued', 'running']);
+        }
+      }
+    } catch (err) {
+      console.warn('[Unsubscribe] Failed to cascade campaign_leads/queue cancellation:', err);
     }
   }
 }

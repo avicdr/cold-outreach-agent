@@ -118,7 +118,7 @@ export function parseSessionInput(
       const eqIdx = trimmed.indexOf('=');
       if (eqIdx !== -1) {
         const key = trimmed.slice(0, eqIdx).trim().toLowerCase();
-        let val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+        const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
         if (key === 'sessionid') bundle.sessionid = val;
         else if (key === 'csrftoken') bundle.csrftoken = val;
         else if (key === 'ds_user_id') bundle.ds_user_id = val;
@@ -483,7 +483,7 @@ export async function verifyInstagramSession(
   // Ensure sessionid uses %3A formatting for colons (Instagram web standard)
   const formattedSession = cleanSession.replace(/:/g, '%3A');
 
-  let bundle: InstagramCookieBundle = {
+  const bundle: InstagramCookieBundle = {
     ...parsed,
     sessionid: formattedSession,
     ds_user_id: dsUserId || undefined,

@@ -5,7 +5,7 @@ import { instagramDb } from '@/lib/instagram/db';
 import { handleGenerateIgDmJob } from '@/lib/instagram/worker';
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const user = await getAuthenticatedUser();
@@ -35,13 +35,21 @@ export async function POST(
     );
     const missingHandleCount = campaignLeads.filter((cl) => !cl.lead?.normalized_handle).length;
 
+    // Bounded chunking via ?limit= query param (default 12 leads per call to guarantee safe completion under Cloudflare 100s proxy timeout)
+    const url = new URL(request.url);
+    const limitParam = url.searchParams.get('limit');
+    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10), 1), 50) : 12;
+
+    const leadsToProcess = leadsWithHandle.slice(0, limit);
+    const remainingCount = Math.max(0, leadsWithHandle.length - leadsToProcess.length);
+
     let generatedCount = existingStep0Ids.size;
     let newlyGenerated = 0;
     const errors: string[] = [];
 
     const BATCH_SIZE = 3;
-    for (let i = 0; i < leadsWithHandle.length; i += BATCH_SIZE) {
-      const batch = leadsWithHandle.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < leadsToProcess.length; i += BATCH_SIZE) {
+      const batch = leadsToProcess.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
         batch.map(async (cl) => {
           await handleGenerateIgDmJob({ campaignLeadId: cl.id, stepNumber: 0 });
@@ -69,12 +77,15 @@ export async function POST(
       generatedCount,
       newlyGenerated,
       missingHandleCount,
+      remainingCount,
     });
 
     return NextResponse.json({
       success: true,
       generated_count: generatedCount,
       newly_generated: newlyGenerated,
+      remaining_count: remainingCount,
+      done: remainingCount === 0,
       skipped_missing_handles: missingHandleCount,
       errors: errors.slice(0, 10),
     });

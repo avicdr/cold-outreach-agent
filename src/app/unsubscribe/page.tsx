@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle2, XCircle, Ban, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck } from 'lucide-react';
 
 export default function UnsubscribePage() {
   return (
@@ -16,15 +16,15 @@ function UnsubscribeInner() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(token));
   const [success, setSuccess] = useState(false);
   const [email, setEmail] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState(
+    token ? '' : 'Missing unsubscribe token. Please use the unsubscribe link provided in your email.'
+  );
 
   useEffect(() => {
     if (!token) {
-      setErrorMessage('Missing unsubscribe token. Please use the unsubscribe link provided in your email.');
-      setLoading(false);
       return;
     }
 
@@ -97,7 +97,7 @@ function UnsubscribeInner() {
             <p className="text-xs text-rose-300">{errorMessage}</p>
 
             <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-800">
-              If you continue to receive unwanted emails, reply directly with "Unsubscribe" and our agent will automatically suppress your address.
+              If you continue to receive unwanted emails, reply directly with &quot;Unsubscribe&quot; and our agent will automatically suppress your address.
             </div>
           </div>
         )}

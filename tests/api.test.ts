@@ -8,7 +8,7 @@ import { GET as repliesGet } from '@/app/api/replies/route';
 import { POST as campaignsPost, GET as campaignsGet } from '@/app/api/campaigns/route';
 import { POST as enrollPost } from '@/app/api/campaigns/[id]/enroll/route';
 import { POST as activatePost } from '@/app/api/campaigns/[id]/activate/route';
-import { POST as unsubscribePost } from '@/app/api/unsubscribe/route';
+import { POST as unsubscribePost, GET as unsubscribeGet } from '@/app/api/unsubscribe/route';
 import { POST as workerPost, GET as workerGet } from '@/app/api/jobs/process/route';
 import { DELETE as accountDelete } from '@/app/api/accounts/[id]/route';
 import { dbService } from '@/lib/db-service';
@@ -134,6 +134,37 @@ describe('API Routes Integration Tests', () => {
     const data = await res.json();
     expect(data.success).toBe(true);
     expect(data.email).toBe('optout.lead@prospect.com');
+  });
+
+  it('POST /api/unsubscribe handles RFC 8058 one-click form-encoded request with token in search query', async () => {
+    const token = generateUnsubscribeToken({
+      userId: '00000000-0000-0000-0000-000000000001',
+      leadId: 'lead-test-rfc8058',
+      normalizedEmail: 'rfc8058.lead@prospect.com',
+    });
+
+    const req = new Request(`http://localhost:3000/api/unsubscribe?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'List-Unsubscribe=One-Click',
+    });
+
+    const res = await unsubscribePost(req as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.email).toBe('rfc8058.lead@prospect.com');
+  });
+
+  it('GET /api/unsubscribe redirects browser requests to /unsubscribe with token', async () => {
+    const token = 'sample-unsubscribe-token';
+    const req = new Request(`http://localhost:3000/api/unsubscribe?token=${token}`, {
+      method: 'GET',
+    });
+
+    const res = await unsubscribeGet(req as any);
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('/unsubscribe?token=sample-unsubscribe-token');
   });
 
   it('POST /api/jobs/process requires CRON_SECRET or authorized session', async () => {

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Header } from '@/components/Header';
 import { Pagination } from '@/components/Pagination';
-import { Campaign, CampaignLead, EmailMessage, Lead, EmailAccount } from '@/types/database';
+import { Campaign, CampaignLead, EmailMessage, Lead, EmailAccount, LeadGroup } from '@/types/database';
 import {
   Sparkles,
   Send,
@@ -66,7 +66,7 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   const [modalPage, setModalPage] = useState(1);
   const [modalPageSize, setModalPageSize] = useState(10);
   const [modalSearch, setModalSearch] = useState('');
-  const [leadGroups, setLeadGroups] = useState<any[]>([]);
+  const [leadGroups, setLeadGroups] = useState<LeadGroup[]>([]);
   const [modalGroupFilter, setModalGroupFilter] = useState('');
   const [resumeUrlInput, setResumeUrlInput] = useState('');
   const [savingResumeUrl, setSavingResumeUrl] = useState(false);
@@ -120,7 +120,10 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
 
   // Reset pagination when search or filters change
   useEffect(() => {
-    setLeadsPage(1);
+    const timer = setTimeout(() => {
+      setLeadsPage(1);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [leadsSearchQuery, leadsStatusFilter, leadsInboxFilter]);
 
   useEffect(() => {
@@ -201,8 +204,18 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
   };
 
   useEffect(() => {
-    fetchCampaignData();
-    loadAvailableLeads();
+    let mounted = true;
+    const init = async () => {
+      try {
+        await Promise.all([fetchCampaignData(), loadAvailableLeads()]);
+      } catch (err) {
+        if (mounted) console.error(err);
+      }
+    };
+    void init();
+    return () => {
+      mounted = false;
+    };
   }, [id]);
 
   const handleVerifyCampaignProspects = async () => {
@@ -219,9 +232,10 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
       setMessageNotice(
         `Deliverability Checked: ${data.valid ?? 0} valid, ${data.invalid ?? 0} invalid (bounces prevented), ${data.risky ?? 0} risky.`
       );
-      fetchCampaignData();
-    } catch (err: any) {
-      setMessageNotice(`Verification failed: ${err.message}`);
+      void fetchCampaignData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMessageNotice(`Verification failed: ${msg}`);
     } finally {
       setVerifyingProspects(false);
     }
@@ -231,16 +245,35 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
     setActionLoading(true);
     setMessageNotice(null);
     try {
-      const res = await fetch(`/api/campaigns/${id}/generate`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setMessageNotice(`Generated ${data.generated_count} personalized email draft(s)!`);
-        fetchCampaignData();
-      } else {
-        setMessageNotice(`Error: ${data.error}`);
+      let isDone = false;
+      let totalNewlyGenerated = 0;
+      let lastGeneratedTotal = 0;
+      let loopCount = 0;
+      const MAX_LOOPS = 50;
+
+      while (!isDone && loopCount < MAX_LOOPS) {
+        loopCount++;
+        const res = await fetch(`/api/campaigns/${id}/generate?limit=12`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || 'Draft generation failed');
+        }
+
+        totalNewlyGenerated += (data.newly_generated || 0);
+        lastGeneratedTotal = data.generated_count || 0;
+        isDone = data.done !== false || !data.remaining_count;
+
+        if (!isDone) {
+          setMessageNotice(`Writing personalized drafts with AI... (${data.remaining_count} remaining)`);
+          fetchCampaignData();
+        }
       }
-    } catch {
-      setMessageNotice('Draft generation failed');
+
+      setMessageNotice(`Generated ${totalNewlyGenerated} new personalized email draft(s) (Total: ${lastGeneratedTotal})!`);
+      fetchCampaignData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Draft generation failed';
+      setMessageNotice(`Error: ${msg}`);
     } finally {
       setActionLoading(false);
     }
@@ -289,8 +322,8 @@ function CampaignDetailInner({ params }: { params: Promise<{ id: string }> }) {
       const res = await fetch(`/api/jobs/process${force ? '?force=true' : ''}`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        const completed = (data.results || []).filter((r: any) => r.status === 'completed').length;
-        const failed = (data.results || []).filter((r: any) => r.status === 'failed').length;
+        const completed = (data.results || []).filter((r: { status?: string }) => r.status === 'completed').length;
+        const failed = (data.results || []).filter((r: { status?: string }) => r.status === 'failed').length;
         if (data.processed > 0) {
           setMessageNotice(`Queue dispatch complete: ${data.processed} email(s) processed (${completed} sent, ${failed} failed).`);
         } else if (data.queue_status?.total_queued > 0) {
